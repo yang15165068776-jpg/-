@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../../utils/storage'
-import { generateAutonomySummary, extractCharacterFromText } from '../../utils/deepseek'
+import { generateAutonomySummary, extractCharacterFromText, extractStoryFromText } from '../../utils/deepseek'
 
 const emptyStage = () => ({ name: '', min: 0, max: 50, behavior: '' })
 const emptyRomanceChar = () => ({
@@ -66,6 +66,11 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     id: '',
     name: '',
     avatar: '',
+    // Protagonist
+    protagonistName: '',
+    protagonistGender: '',
+    protagonistBackground: '',
+    protagonistPersonality: '',
     // Block 1
     worldSetting: '',
     openingScenario: '',
@@ -98,6 +103,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           id: char.id,
           name: char.name || '',
           avatar: char.avatar || '',
+          protagonistName: char.protagonistName || '',
+          protagonistGender: char.protagonistGender || '',
+          protagonistBackground: char.protagonistBackground || '',
+          protagonistPersonality: char.protagonistPersonality || '',
           worldSetting: char.worldSetting || '',
           openingScenario: char.openingScenario || '',
           storyTone: char.storyTone || '甜虐',
@@ -234,6 +243,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       id: isEdit ? form.id : generateId(),
       name: form.name.trim(),
       avatar: form.avatar || '',
+      protagonistName: form.protagonistName.trim(),
+      protagonistGender: form.protagonistGender,
+      protagonistBackground: form.protagonistBackground.trim(),
+      protagonistPersonality: form.protagonistPersonality.trim(),
       worldSetting: form.worldSetting.trim(),
       openingScenario: form.openingScenario.trim(),
       storyTone: form.storyTone,
@@ -280,6 +293,73 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     onSave()
   }
 
+  const handleExtract = async () => {
+    const text = extractText.trim()
+    if (!text) return
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert('请先在设置页面填写 DeepSeek API Key')
+      return
+    }
+    setExtracting(true)
+    const { result, error } = await extractStoryFromText(text, apiKey)
+    setExtracting(false)
+    if (error || !result) {
+      alert('提取失败：' + (error?.message || '未知错误'))
+      return
+    }
+
+    // Apply extracted data to form
+    const rc = result['可攻略角色'] || []
+    const npcs = result['主要NPC'] || []
+
+    setForm(prev => ({
+      ...prev,
+      name: result['故事名称'] || prev.name,
+      worldSetting: result['世界观'] || prev.worldSetting,
+      openingScenario: result['开场剧情'] || prev.openingScenario,
+      storyTone: result['故事基调'] || prev.storyTone,
+      romanceCharacters: rc.length > 0
+        ? rc.map((r, i) => ({
+            ...emptyRomanceChar(),
+            name: r['角色名'] || '',
+            background: r['背景'] || '',
+            personality: r['性格'] || '',
+            styleRules: Array.isArray(r['文风规则']) ? r['文风规则'].join('\n') : (r['文风规则'] || ''),
+            forbiddenWords: Array.isArray(r['禁止行为']) ? r['禁止行为'].join('\n') : (r['禁止行为'] || ''),
+            speakingStyle: r['说话风格'] || '',
+            affectionEnabled: true,
+            affectionInitial: r['好感度初始'] ?? 50,
+            affectionStages: Array.isArray(r['好感度阶段']) && r['好感度阶段'].length > 0
+              ? r['好感度阶段'].map(s => ({
+                  name: s.label || s.name || '',
+                  min: s.min != null ? Number(s.min) : 0,
+                  max: s.max != null ? Number(s.max) : 50,
+                  behavior: s.rule || s.behavior || '',
+                }))
+              : [emptyStage()],
+            affectionUpRules: Array.isArray(r['好感度增加规则']) ? r['好感度增加规则'].join('\n') : (r['好感度增加规则'] || ''),
+            affectionDownRules: Array.isArray(r['好感度减少规则']) ? r['好感度减少规则'].join('\n') : (r['好感度减少规则'] || ''),
+            thinkingEnabled: false,
+            thinkingPrompt: '',
+          }))
+        : prev.romanceCharacters,
+      npcs: npcs.length > 0
+        ? npcs.map(n => ({
+            ...emptyNpc(),
+            name: n['NPC名'] || '',
+            relationship: n['关系'] || '',
+            personality: n['性格'] || '',
+            avatar: '',
+          }))
+        : prev.npcs,
+    }))
+
+    setShowExtractModal(false)
+    setExtractText('')
+    if (rc.length > 0) setExpandedRC(0)
+  }
+
   const inputClass = "w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
   const labelClass = "block text-sm font-medium text-gray-300 mb-1"
   const sectionClass = "bg-gray-800 rounded-xl p-4 border border-gray-700/50"
@@ -298,22 +378,82 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
         />
       </div>
 
-      {/* Avatar */}
-      <div>
-        <label className={labelClass}>故事封面（可选）</label>
-        <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
-        <div
-          onClick={() => avatarInputRef.current?.click()}
-          className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-500 hover:border-blue-400 flex items-center justify-center overflow-hidden cursor-pointer transition-colors bg-gray-800"
+      {/* Avatar + AI Extract */}
+      <div className="flex gap-3 items-end">
+        <div>
+          <label className={labelClass}>故事封面（可选）</label>
+          <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
+          <div
+            onClick={() => avatarInputRef.current?.click()}
+            className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-500 hover:border-blue-400 flex items-center justify-center overflow-hidden cursor-pointer transition-colors bg-gray-800"
+          >
+            {form.avatar ? (
+              <img src={form.avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="text-center text-gray-500">
+                <div className="text-2xl leading-none">+</div>
+                <div className="text-[10px]">封面</div>
+              </div>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowExtractModal(true)}
+          className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-medium transition-all active:scale-[0.98]"
         >
-          {form.avatar ? (
-            <img src={form.avatar} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="text-center text-gray-500">
-              <div className="text-2xl leading-none">+</div>
-              <div className="text-[10px]">封面</div>
+          🤖 AI 一键抓取
+        </button>
+      </div>
+
+      {/* ========== Protagonist ========== */}
+      <div className={sectionClass}>
+        <h3 className="text-sm font-medium text-gray-200 mb-3">👤 主角设定（你）</h3>
+        <p className="text-xs text-gray-500 mb-3">设定你在故事中扮演的角色，AI会根据这些信息来推进剧情。</p>
+        <div className="space-y-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className={labelClass}>主角名字</label>
+              <input
+                type="text"
+                className={inputClass}
+                value={form.protagonistName}
+                onChange={e => update('protagonistName', e.target.value)}
+                placeholder="你在故事中的角色名"
+              />
             </div>
-          )}
+            <div>
+              <label className={labelClass}>性别</label>
+              <select
+                className={inputClass}
+                value={form.protagonistGender}
+                onChange={e => update('protagonistGender', e.target.value)}
+              >
+                <option value="">未设定</option>
+                <option value="男">男</option>
+                <option value="女">女</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>主角背景简介</label>
+            <textarea
+              className={inputClass + " h-20 resize-none"}
+              value={form.protagonistBackground}
+              onChange={e => update('protagonistBackground', e.target.value)}
+              placeholder="介绍你的角色的身份、过往经历、在故事世界中的位置..."
+            />
+          </div>
+          <div>
+            <label className={labelClass}>主角性格特点</label>
+            <textarea
+              className={inputClass + " h-16 resize-none"}
+              value={form.protagonistPersonality}
+              onChange={e => update('protagonistPersonality', e.target.value)}
+              placeholder="你的角色有什么性格特征、行为习惯、价值观..."
+            />
+          </div>
         </div>
       </div>
 
@@ -745,6 +885,55 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           </div>
         )}
       </div>
+
+      {/* AI Extract modal */}
+      {showExtractModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/60 backdrop-blur-sm" onClick={() => { setShowExtractModal(false); setExtractText('') }}>
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-5 mx-4 w-full max-w-lg max-h-[75vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-medium text-gray-200 mb-1">AI 抓取角色设定</h3>
+            <p className="text-xs text-gray-500 mb-3">
+              粘贴包含世界观和角色设定的文本，AI 将自动提取并填充表单。支持小说简介、角色设定文档等格式。
+            </p>
+
+            <textarea
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-3 text-sm text-white placeholder-gray-500 focus:border-purple-500 focus:outline-none transition-colors flex-1 resize-none"
+              value={extractText}
+              onChange={e => setExtractText(e.target.value)}
+              placeholder="例如：&#10;这是一个发生在未来星际联邦背景下的故事。&#10;&#10;女主角林晚是联邦第一舰队指挥官，性格冷峻果断但内心柔软...&#10;&#10;男主角苏晨是星际科学院首席研究员..."
+              rows={12}
+            />
+
+            {extracting && (
+              <div className="flex items-center gap-2 py-2 text-sm text-purple-400">
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                AI正在分析文本，提取角色信息...
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={() => { setShowExtractModal(false); setExtractText('') }}
+                className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleExtract}
+                disabled={extracting || !extractText.trim()}
+                className="flex-[2] py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-medium transition-all disabled:opacity-50 active:scale-[0.98]"
+              >
+                {extracting ? '提取中...' : '🤖 开始提取'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Submit */}
       <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-700 p-4 max-w-lg mx-auto">

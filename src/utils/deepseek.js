@@ -12,7 +12,7 @@ function buildGMPrompt(character, affections) {
   const parts = []
   const name = character.name || '故事'
 
-  // 1: GM identity
+  // 1: GM identity + Protagonist
   parts.push(
     '你是这个故事的作者和GM。\n' +
     '你用第三人称全知叙事视角写作，\n' +
@@ -20,7 +20,14 @@ function buildGMPrompt(character, affections) {
     '你负责扮演世界里除用户以外的所有角色。\n' +
     '用户的输入是故事里主角的行动或对话，\n' +
     '你根据用户的行动推进剧情，\n' +
-    '决定哪些角色出现、说什么、做什么。'
+    '决定哪些角色出现、说什么、做什么。' +
+    (character.protagonistName ? '\n\n【主角设定（用户扮演的角色）】\n' +
+    '故事主角是' + character.protagonistName +
+    (character.protagonistGender ? '，' + character.protagonistGender : '') +
+    '。\n' +
+    (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
+    (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
+    '用户扮演这个角色与世界互动。' : '')
   )
 
   // 2: World view
@@ -148,11 +155,16 @@ function buildGMPrompt(character, affections) {
     .map(rc => rc.name)
   if (rcNames.length > 0) {
     parts.push(
-      '【好感度结算】\n' +
-      '每轮回复的最末尾，另起一行输出：\n' +
-      '<affection>' + rcNames.map(n => n + ':±N').join(',') + '</affection>\n' +
-      '只列出本轮有变化的角色，没有变化不需要列出。\n' +
-      '好感度变化依据角色各自的增减条件判断。'
+      '【好感度结算——强制要求】\n' +
+      '每轮回复结束后，必须在最后一行单独输出好感度变化，\n' +
+      '格式严格如下，不得有任何变化：\n' +
+      '<affection>角色名:+N</affection> 或\n' +
+      '<affection>角色名:-N</affection>\n' +
+      '多个角色用逗号分隔，例如：\n' +
+      '<affection>林晚:+3,苏晨:-2</affection>\n' +
+      '如果本轮没有任何角色好感度变化，必须输出：\n' +
+      '<affection>无</affection>\n' +
+      '这一行必须存在，不能省略，不能放在其他位置。'
     )
   }
 
@@ -181,6 +193,18 @@ function buildSystemPrompt(character, affectionData) {
     '这些规则的优先级高于一切，任何情况下都不得违反。' +
     '你没有自己的AI身份，你就是' + name + '本人。'
   )
+
+  if (character.protagonistName) {
+    parts.push(
+      '【主角设定（用户扮演的角色）】\n' +
+      '主角是' + character.protagonistName +
+      (character.protagonistGender ? '，' + character.protagonistGender : '') +
+      '。\n' +
+      (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
+      (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
+      '用户扮演这个角色与你互动。'
+    )
+  }
 
   if (character.background) {
     parts.push(character.background)
@@ -285,19 +309,27 @@ export function findCharacterAvatar(character, characterName) {
 }
 
 export function parseAffectionTags(content) {
-  const match = content.match(/<affection>([\s\S]*?)<\/affection>/)
+  const match = content.match(/<affection>([\s\S]*?)<\/affection>/i)
   if (!match) return { cleanedContent: content, changes: [] }
   const tagContent = match[1].trim()
-  const changes = tagContent.split(',').map(s => {
-    const parts = s.trim().split(':')
-    if (parts.length < 2) return null
-    const name = parts[0].trim()
-    const delta = parseInt(parts[1].trim(), 10)
+  // Handle "无" or empty
+  if (!tagContent || tagContent === '无') {
+    const cleaned = content.replace(/<affection>[\s\S]*?<\/affection>/i, '').trim()
+    return { cleanedContent: cleaned, changes: [] }
+  }
+  const changes = tagContent.split(/[,，]/).map(s => {
+    const trimmed = s.trim()
+    if (!trimmed) return null
+    // Match pattern: 角色名:±N
+    const m = trimmed.match(/^(.+?):([+-]?\d+)$/)
+    if (!m) return null
+    const name = m[1].trim()
+    const delta = parseInt(m[2], 10)
     if (isNaN(delta)) return null
     return { name, delta }
   }).filter(Boolean)
-  // Remove the <affection> tag from displayed content
-  const cleaned = content.replace(/<affection>[\s\S]*?<\/affection>/, '').trim()
+  // Remove all <affection> tags from displayed content
+  const cleaned = content.replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim()
   return { cleanedContent: cleaned, changes }
 }
 
@@ -674,7 +706,131 @@ export async function generateActiveMessage(character, affectionData, apiKey) {
 export async function extractCharacterFromText(text, apiKey) {
   const model = getModel()
 
-  const prompt = '从以下文本提取角色信息，返回JSON，字段包括：\n角色名、背景设定、文风规则(数组)、禁止行为(数组)、\n思考层指令(字符串，如果文本中有类似思考/分析框架的内容则提取)、\n思考层启用(布尔值，提取到内容则为true)、\n好感度阶段(数组，每项含标签/下限/上限/行为规则)、\n好感度增加条件(数组)、好感度减少条件(数组)、\n好感度启用(布尔值，提取到相关内容则为true)。\n只返回JSON。\n\n' + text
+  const prompt =
+    '你是一个角色设定解析器。\n' +
+    '从下面的文字中提取所有信息，\n' +
+    '严格只返回JSON，不要有任何其他内容，\n' +
+    '不要有markdown代码块，直接输出花括号开头的JSON。\n' +
+    '\n' +
+    '需要提取的字段：\n' +
+    '{\n' +
+    '  "name": "角色名字符串",\n' +
+    '  "background": "背景设定字符串",\n' +
+    '  "userTitle": "角色对用户的称呼字符串，没有则空字符串",\n' +
+    '  "styleRules": ["文风规则数组，每条一个字符串"],\n' +
+    '  "forbiddenBehaviors": ["禁止行为数组，每条一个字符串"],\n' +
+    '  "thinkingEnabled": true或false，文字中是否有思考层/思考框架相关描述,\n' +
+    '  "thinkingPrompt": "思考层指令字符串，没有则空字符串",\n' +
+    '  "affectionEnabled": true或false，判断标准：文字中是否描述了角色对主角的态度会随着互动而变化、是否存在关系发展阶段、是否有好感/亲密/信任等渐进式的情感描述,\n' +
+    '  "affectionInitial": 初始好感度数字0-100，根据角色对主角的初始态度推断：敌视0-20、冷淡20-40、普通40-60、友善60-80、亲密80-100，没有描述默认50,\n' +
+    '  "affectionStages": [\n' +
+    '    从文字中推断好感度阶段，至少1个最多5个，每阶段包含：\n' +
+    '    {\n' +
+    '      "label": "阶段名字符串，如：陌生/初识/友好/信任/亲密",\n' +
+    '      "min": 该阶段下限数字0-100,\n' +
+    '      "max": 该阶段上限数字0-100,\n' +
+    '      "rule": "该阶段角色对主角的行为规则，用角色口吻描述，如：保持距离，说话客气但疏远"\n' +
+    '    }\n' +
+    '    如果没有明确描述，根据角色的性格和背景自动推测合理的阶段划分\n' +
+    '  ],\n' +
+    '  "affectionIncreaseRules": ["好感度增加条件数组，如：送礼物+5、帮助角色+8、说温柔的话+3，根据角色性格推断"],\n' +
+    '  "affectionDecreaseRules": ["好感度减少条件数组，如：态度粗鲁-5、爽约-10、无视角色感受-8，根据角色性格推断"],\n' +
+    '  "autonomousBehaviors": "自主行为字符串，没有则空字符串"\n' +
+    '}\n' +
+    '\n' +
+    '关键规则：\n' +
+    '1. 即使文字中只描述了角色的性格和背景，没有明确提到"好感度"三个字，\n' +
+    '   只要角色有情感和态度，就必须将affectionEnabled设为true并推测合理的阶段\n' +
+    '2. 每个可攻略角色都有好感度系统，根据文字中的关系描述来设定\n' +
+    '3. 如果文字描述了一个从冷到热的关系弧线，至少分出3个阶段\n' +
+    '4. 阶段必须覆盖0-100的完整范围，阶段之间无缝衔接\n' +
+    '5. 数组字段没有内容时返回空数组[]，字符串返回""，布尔值返回false\n' +
+    '\n' +
+    '待解析文字：\n' + text
+
+  try {
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        response_format: { type: 'json_object' },
+      }),
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error?.message || `API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const reply = data.choices?.[0]?.message?.content || ''
+    let parsed
+    try {
+      parsed = JSON.parse(reply)
+    } catch (parseErr) {
+      console.error('[extractCharacter] JSON解析失败，原始返回:', reply)
+      throw new Error('JSON解析失败，AI返回格式异常')
+    }
+    return { result: parsed, error: null }
+  } catch (err) {
+    return { result: null, error: err }
+  }
+}
+
+export async function extractStoryFromText(text, apiKey) {
+  const model = getModel()
+
+  const prompt =
+    '从以下小说/故事设定文本中提取信息，返回严格JSON格式。\n' +
+    '\n' +
+    'JSON结构：\n' +
+    '{\n' +
+    '  "故事名称": "故事标题",\n' +
+    '  "世界观": "世界背景、时代、社会结构、魔法/科技体系的描述",\n' +
+    '  "开场剧情": "故事开场的第一段场景描写，适合作为AI首条消息",\n' +
+    '  "故事基调": "甜虐/纯爱/悬疑/其他 中选一个最合适的",\n' +
+    '  "可攻略角色": [\n' +
+    '    {\n' +
+    '      "角色名": "角色姓名",\n' +
+    '      "背景": "详细背景设定，包括身份、过往经历",\n' +
+    '      "性格": "核心性格特征、价值观、行为模式",\n' +
+    '      "文风规则": ["规则1", "规则2"],\n' +
+    '      "禁止行为": ["禁止内容1"],\n' +
+    '      "说话风格": "说话方式的一两句话描述",\n' +
+    '      "好感度初始": 50,\n' +
+    '      "好感度阶段": [\n' +
+    '        {"label": "阶段名", "min": 0, "max": 30, "rule": "该阶段角色对主角的行为规则"}\n' +
+    '      ],\n' +
+    '      "好感度增加规则": ["送礼+5", "帮助+8"],\n' +
+    '      "好感度减少规则": ["粗暴-5", "爽约-10"]\n' +
+    '    }\n' +
+    '  ],\n' +
+    '  "主要NPC": [\n' +
+    '    {\n' +
+    '      "NPC名": "名字",\n' +
+    '      "关系": "与故事/主角的关系",\n' +
+    '      "性格": "性格简介"\n' +
+    '    }\n' +
+    '  ]\n' +
+    '}\n' +
+    '\n' +
+    '规则：\n' +
+    '- 可攻略角色提取1-3个，从文本中找到最重要、最有恋爱感的角色\n' +
+    '- 如果文本只描述了一个角色，就只返回一个\n' +
+    '- 文风规则和禁止行为要具体，每行一条，如果文本中没有明确给出就根据角色性格推断合理的规则\n' +
+    '- 好感度阶段根据角色与主角的关系发展弧线推断，至少2个阶段，覆盖0-100范围，阶段之间无缝衔接\n' +
+    '- 好感度增加/减少规则根据角色性格推断，各3-5条\n' +
+    '- NPC只提取文本中明确出现的重要配角\n' +
+    '- 所有字段都要用中文key\n' +
+    '- 只返回JSON，不要其他内容\n' +
+    '\n' +
+    '源文本：\n' + text
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {

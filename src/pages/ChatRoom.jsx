@@ -82,6 +82,13 @@ function StoryReplyBlock({ msg, character, index, onRegenerate, showActions, onT
       {/* Think toggle */}
       {thinkContent && <ThinkToggle content={thinkContent} />}
 
+      {/* Opening scenario tag */}
+      {msg.isOpening && (
+        <div className="text-center mb-2">
+          <span className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full">开场剧情</span>
+        </div>
+      )}
+
       <div className="flex gap-3">
         <div className="flex-shrink-0 mt-0.5">
           <Avatar src={character.avatar} name={character.name} />
@@ -678,7 +685,20 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setArchiveName(archive.name)
     const char = getCharacter(archive.characterId, mode)
     setCharacter(char)
-    setMessages(archive.messages || [])
+    const msgs = archive.messages || []
+    // Inject opening scenario as first AI message on fresh chat
+    if (msgs.length === 0 && char?.openingScenario) {
+      const openingMsg = {
+        role: 'assistant',
+        content: char.openingScenario,
+        timestamp: Date.now(),
+        isOpening: true,
+      }
+      setMessages([openingMsg])
+      saveChatMessages(archiveId, [openingMsg], mode)
+    } else {
+      setMessages(msgs)
+    }
     setUserAvatarState(getUserAvatar())
 
     if (char?.chatStyle === 'story' && char?.romanceCharacters?.length > 0) {
@@ -1136,28 +1156,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {messages.length === 0 && !streamingText && (
-          <>
-            {character.openingScenario && (
-              <div className="animate-fade-in">
-                <div className="text-center mb-2">
-                  <span className="text-[10px] text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full">开场剧情</span>
-                </div>
-                <div className="bg-gray-800/80 border border-gray-700/50 rounded-xl px-4 py-3 text-sm text-gray-300 leading-relaxed whitespace-pre-wrap italic">
-                  {character.openingScenario}
-                </div>
-              </div>
+          <div className="text-center text-gray-600 mt-8">
+            <div className="text-4xl mb-3">💬</div>
+            <p className="text-sm">开始和{character.name}对话吧</p>
+            <p className="text-[10px] text-gray-700 mt-0.5">存档：{archiveName}</p>
+            {character.nickname && (
+              <p className="text-xs mt-1 text-gray-700">
+                角色会称呼你为「{character.nickname}」
+              </p>
             )}
-            <div className="text-center text-gray-600 mt-8">
-              <div className="text-4xl mb-3">💬</div>
-              <p className="text-sm">开始和{character.name}对话吧</p>
-              <p className="text-[10px] text-gray-700 mt-0.5">存档：{archiveName}</p>
-              {character.nickname && (
-                <p className="text-xs mt-1 text-gray-700">
-                  角色会称呼你为「{character.nickname}」
-                </p>
-              )}
-            </div>
-          </>
+          </div>
         )}
 
         {messages.map((msg, i) => {

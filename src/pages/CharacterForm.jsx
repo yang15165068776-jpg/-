@@ -48,6 +48,10 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
     id: '',
     name: '',
     avatar: '',
+    protagonistName: '',
+    protagonistGender: '',
+    protagonistBackground: '',
+    protagonistPersonality: '',
     background: '',
     nickname: '',
     styleRules: '',
@@ -82,6 +86,10 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
           id: char.id,
           name: char.name || '',
           avatar: char.avatar || '',
+          protagonistName: char.protagonistName || '',
+          protagonistGender: char.protagonistGender || '',
+          protagonistBackground: char.protagonistBackground || '',
+          protagonistPersonality: char.protagonistPersonality || '',
           background: char.background || '',
           nickname: char.nickname || '',
           styleRules: (char.styleRules || []).join('\n'),
@@ -206,50 +214,87 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       alert('提取失败：' + (error?.message || '解析错误，请检查文本内容'))
       return
     }
-    // Auto-fill form fields — support both Chinese and English keys
-    const r = result
-    const updates = {}
-    // Name
-    updates.name = r.角色名 || r.name || ''
-    // Background
-    updates.background = r.背景设定 || r.background || ''
-    // Style rules
-    const styleRules = r.文风规则 || r.styleRules
-    if (styleRules && Array.isArray(styleRules)) updates.styleRules = styleRules.join('\n')
-    // Forbidden words
-    const fw = r.禁止行为 || r.forbiddenWords
-    if (fw && Array.isArray(fw)) updates.forbiddenWords = fw.join('\n')
-    // Thinking
-    const thinkingEnabled = r.思考层启用 ?? r.thinkingEnabled
-    if (thinkingEnabled != null) updates.thinkingEnabled = thinkingEnabled
-    const thinkingPrompt = r.思考层指令 || r.thinkingPrompt
-    if (thinkingPrompt) updates.thinkingPrompt = thinkingPrompt
-    // Affection
-    const affEnabled = r.好感度启用 ?? r.affectionEnabled
-    if (affEnabled != null) updates.affectionEnabled = affEnabled
-    // Affection stages
-    const stages = r.好感度阶段 || r.affectionStages
-    if (stages && Array.isArray(stages) && stages.length > 0) {
-      updates.affectionEnabled = true
-      updates.affectionStages = stages.map(s => ({
-        name: s.标签 || s.name || s.label || '',
-        min: s.下限 ?? s.min ?? 0,
-        max: s.上限 ?? s.max ?? 50,
-        behavior: s.行为规则 || s.behavior || '',
-      }))
+
+    try {
+      const r = result
+      console.log('[handleExtract] AI返回数据:', JSON.stringify(r, null, 2))
+
+      // Basic fields
+      if (r.name) update('name', r.name)
+      if (r.background) update('background', r.background)
+      if (r.userTitle) update('nickname', r.userTitle)
+
+      // Style rules
+      if (Array.isArray(r.styleRules) && r.styleRules.length > 0) {
+        update('styleRules', r.styleRules.join('\n'))
+      }
+
+      // Forbidden behaviors
+      if (Array.isArray(r.forbiddenBehaviors) && r.forbiddenBehaviors.length > 0) {
+        update('forbiddenWords', r.forbiddenBehaviors.join('\n'))
+      }
+
+      // Thinking — accept any truthy value
+      if (r.thinkingEnabled || r.thinkingPrompt) {
+        update('thinkingEnabled', true)
+        if (r.thinkingPrompt) update('thinkingPrompt', r.thinkingPrompt)
+      }
+
+      // Affection — accept any truthy value, or if stages/rules exist
+      const hasAffection = r.affectionEnabled || r.affectionStages?.length > 0 || r.affectionIncreaseRules?.length > 0 || r.affectionDecreaseRules?.length > 0
+      if (hasAffection) {
+        update('affectionEnabled', true)
+        // Affection initial
+        const affInit = Number(r.affectionInitial)
+        if (!isNaN(affInit) && affInit >= 0 && affInit <= 100) {
+          update('affectionInitial', affInit)
+        }
+        // Affection stages
+        if (Array.isArray(r.affectionStages) && r.affectionStages.length > 0) {
+          const mappedStages = r.affectionStages.map(s => ({
+            name: s.label || s.name || '',
+            min: s.min != null ? Number(s.min) : 0,
+            max: s.max != null ? Number(s.max) : 50,
+            behavior: s.rule || s.behavior || '',
+          }))
+          console.log('[handleExtract] 填入好感度阶段:', JSON.stringify(mappedStages))
+          update('affectionStages', mappedStages)
+        } else {
+          console.log('[handleExtract] 好感度阶段为空或不是数组:', r.affectionStages)
+        }
+        // Affection increase rules
+        if (Array.isArray(r.affectionIncreaseRules) && r.affectionIncreaseRules.length > 0) {
+          console.log('[handleExtract] 填入好感度增加规则:', r.affectionIncreaseRules)
+          update('affectionUpRules', r.affectionIncreaseRules.join('\n'))
+        } else if (typeof r.affectionIncreaseRules === 'string' && r.affectionIncreaseRules.trim()) {
+          update('affectionUpRules', r.affectionIncreaseRules)
+        } else {
+          console.log('[handleExtract] 好感度增加规则为空或类型不匹配:', typeof r.affectionIncreaseRules, r.affectionIncreaseRules)
+        }
+        // Affection decrease rules
+        if (Array.isArray(r.affectionDecreaseRules) && r.affectionDecreaseRules.length > 0) {
+          console.log('[handleExtract] 填入好感度减少规则:', r.affectionDecreaseRules)
+          update('affectionDownRules', r.affectionDecreaseRules.join('\n'))
+        } else if (typeof r.affectionDecreaseRules === 'string' && r.affectionDecreaseRules.trim()) {
+          update('affectionDownRules', r.affectionDecreaseRules)
+        } else {
+          console.log('[handleExtract] 好感度减少规则为空或类型不匹配:', typeof r.affectionDecreaseRules, r.affectionDecreaseRules)
+        }
+      } else {
+        console.log('[handleExtract] hasAffection=false，跳过好感度填入。affectionEnabled:', r.affectionEnabled, 'stages:', r.affectionStages, 'incRules:', r.affectionIncreaseRules, 'decRules:', r.affectionDecreaseRules)
+      }
+
+      // Autonomous behaviors
+      if (r.autonomousBehaviors) {
+        update('autonomyBehavior', r.autonomousBehaviors)
+      }
+
+      setShowExtractModal(false)
+      setExtractText('')
+    } catch (err) {
+      alert('提取失败：' + err.message)
+      console.error('[handleExtract] 提取数据填入失败，原始返回:', JSON.stringify(result, null, 2))
     }
-    // Affection up/down rules (arrays → join with newlines)
-    const upRules = r.好感度增加条件 || r.affectionUpRules
-    if (upRules) {
-      updates.affectionUpRules = Array.isArray(upRules) ? upRules.join('\n') : upRules
-    }
-    const downRules = r.好感度减少条件 || r.affectionDownRules
-    if (downRules) {
-      updates.affectionDownRules = Array.isArray(downRules) ? downRules.join('\n') : downRules
-    }
-    setForm(prev => ({ ...prev, ...updates }))
-    setShowExtractModal(false)
-    setExtractText('')
   }
 
   const handleSubmit = (e) => {
@@ -263,6 +308,10 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       id: isEdit ? form.id : generateId(),
       name: form.name.trim(),
       avatar: form.avatar || '',
+      protagonistName: form.protagonistName.trim(),
+      protagonistGender: form.protagonistGender,
+      protagonistBackground: form.protagonistBackground.trim(),
+      protagonistPersonality: form.protagonistPersonality.trim(),
       background: form.background.trim(),
       nickname: form.nickname.trim(),
       styleRules: parseLines(form.styleRules),
@@ -297,6 +346,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
   const inputClass = "w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
   const labelClass = "block text-sm font-medium text-gray-300 mb-1"
+  const sectionClass = "bg-gray-800 rounded-xl p-4 border border-gray-700/50"
 
   return (
     <form onSubmit={handleSubmit} className="p-4 pb-24 space-y-4">
@@ -385,6 +435,57 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
             移除头像
           </button>
         )}
+      </div>
+
+      {/* Protagonist settings */}
+      <div className={sectionClass}>
+        <h3 className="text-sm font-medium text-gray-200 mb-3">👤 主角设定（你）</h3>
+        <p className="text-xs text-gray-500 mb-3">设定你自己的角色，AI会根据这些信息与你互动。</p>
+        <div className="space-y-3">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className={labelClass}>主角名字</label>
+              <input
+                type="text"
+                className={inputClass}
+                value={form.protagonistName}
+                onChange={e => update('protagonistName', e.target.value)}
+                placeholder="你的角色名"
+              />
+            </div>
+            <div>
+              <label className={labelClass}>性别</label>
+              <select
+                className={inputClass}
+                value={form.protagonistGender}
+                onChange={e => update('protagonistGender', e.target.value)}
+              >
+                <option value="">未设定</option>
+                <option value="男">男</option>
+                <option value="女">女</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={labelClass}>主角背景简介</label>
+            <textarea
+              className={inputClass + " h-20 resize-none"}
+              value={form.protagonistBackground}
+              onChange={e => update('protagonistBackground', e.target.value)}
+              placeholder="你的角色的身份、经历..."
+            />
+          </div>
+          <div>
+            <label className={labelClass}>主角性格特点</label>
+            <textarea
+              className={inputClass + " h-16 resize-none"}
+              value={form.protagonistPersonality}
+              onChange={e => update('protagonistPersonality', e.target.value)}
+              placeholder="你的角色有什么性格特征..."
+            />
+          </div>
+        </div>
       </div>
 
       <div>
