@@ -86,6 +86,14 @@ export default function Settings({ onBack }) {
       const data = await res.json()
       const list = (data.data || []).map(m => m.id).sort()
       setModelList(list)
+      // Preserve saved model: don't reset to first list item
+      const saved = getModel()
+      if (list.includes(saved)) {
+        setModel(saved)
+      } else if (list.length > 0) {
+        setModel(list[0])
+        saveModel(list[0])
+      }
       if (list.length === 0) {
         setModelError('未获取到可用模型')
       }

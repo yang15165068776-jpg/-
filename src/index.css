@@ -31,3 +31,16 @@ body {
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
 }
+
+/* Dice roll animation */
+@keyframes diceRoll {
+  0% { transform: rotate(0deg) scale(1); }
+  20% { transform: rotate(72deg) scale(1.3); }
+  40% { transform: rotate(144deg) scale(0.9); }
+  60% { transform: rotate(216deg) scale(1.2); }
+  80% { transform: rotate(288deg) scale(0.9); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+.animate-dice-roll {
+  animation: diceRoll 0.8s ease-in-out;
+}

@@ -2,20 +2,19 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   getCharacters,
   deleteCharacter,
-  getChatMessages,
-  clearChatHistory,
+  getArchives,
 } from '../utils/storage'
 
-export default function CharacterList({ onCreate, onEdit, onChat }) {
+export default function CharacterList({ mode, onCreate, onEdit, onArchives }) {
   const [characters, setCharacters] = useState([])
   const [deleteConfirm, setDeleteConfirm] = useState(null)
 
   useEffect(() => {
-    setCharacters(getCharacters())
+    setCharacters(getCharacters(mode))
   }, [])
 
   const refresh = useCallback(() => {
-    setCharacters(getCharacters())
+    setCharacters(getCharacters(mode))
   }, [])
 
   // Re-fetch when coming back from other pages
@@ -35,17 +34,29 @@ export default function CharacterList({ onCreate, onEdit, onChat }) {
   }, [refresh])
 
   const handleDelete = (id, name) => {
-    deleteCharacter(id)
-    clearChatHistory(id)
+    deleteCharacter(id, mode)
     setDeleteConfirm(null)
     refresh()
   }
 
   const getPreview = (character) => {
-    const messages = getChatMessages(character.id)
-    if (messages.length === 0) return '暂无对话记录'
-    const last = messages[messages.length - 1]
-    return (last.role === 'assistant' ? last.content : messages[messages.length - 2]?.content || '暂无对话记录').slice(0, 60) + '...'
+    const archives = getArchives(character.id, mode)
+    if (archives.length === 0) return '暂无对话记录'
+    let lastMsg = null
+    let latestTime = 0
+    for (const a of archives) {
+      const msgs = a.messages
+      if (msgs.length > 0) {
+        const candidate = msgs[msgs.length - 1]
+        if (a.createdAt > latestTime) {
+          latestTime = a.createdAt
+          lastMsg = candidate
+        }
+      }
+    }
+    if (!lastMsg) return '暂无对话记录'
+    const text = lastMsg.role === 'assistant' ? lastMsg.content : '...'
+    return text.slice(0, 60) + (text.length > 60 ? '...' : '')
   }
 
   return (
@@ -68,7 +79,8 @@ export default function CharacterList({ onCreate, onEdit, onChat }) {
       ) : (
         <div className="grid gap-3">
           {characters.map(char => {
-            const msgCount = getChatMessages(char.id).length
+            const archives = getArchives(char.id)
+            const msgCount = archives.reduce((sum, a) => sum + (a.messages?.length || 0), 0)
             return (
               <div
                 key={char.id}
@@ -113,7 +125,7 @@ export default function CharacterList({ onCreate, onEdit, onChat }) {
                 {/* Actions */}
                 <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => onChat(char.id)}
+                    onClick={() => onArchives(char.id)}
                     className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors active:scale-[0.98]"
                   >
                     对话

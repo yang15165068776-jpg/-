@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../utils/storage'
-import { generateAutonomySummary } from '../utils/deepseek'
+import { generateAutonomySummary, extractCharacterFromText } from '../utils/deepseek'
 
 const emptyStage = () => ({ name: '', min: 0, max: 50, behavior: '' })
+const emptySubCharacter = () => ({ name: '', personality: '', avatar: '', relationship: '', speakingStyle: '' })
 
 function parseLines(text) {
   return text.split('\n').map(s => s.trim()).filter(Boolean)
@@ -35,10 +36,13 @@ function imageToBase64(file) {
   })
 }
 
-export default function CharacterForm({ characterId, onSave, onCancel }) {
+export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
   const isEdit = !!characterId
   const avatarInputRef = useRef(null)
   const [generatingAutonomy, setGeneratingAutonomy] = useState(false)
+  const [showExtractModal, setShowExtractModal] = useState(false)
+  const [extractText, setExtractText] = useState('')
+  const [extracting, setExtracting] = useState(false)
 
   const [form, setForm] = useState({
     id: '',
@@ -51,18 +55,28 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
     affectionEnabled: false,
     affectionInitial: 50,
     affectionStages: [emptyStage()],
+    affectionUpRules: '',
+    affectionDownRules: '',
     thinkingEnabled: false,
     thinkingPrompt: '',
     activeMessageEnabled: false,
-    activeInterval: 10,
-    activeCondition: '',
     activePrompt: '',
     autonomyBehavior: '',
+    openingScenario: '',
+    chatStyle: mode === 'daily' ? 'casual' : 'story',
+    contextWindow: 40,
+    showTimestamp: false,
+    autoMessageEnabled: false,
+    autoMessagePrompt: '',
+    temperature: 0.9,
+    topP: 0.95,
+    characters: mode === 'story' ? [] : undefined,
+    showAdvanced: false,
   })
 
   useEffect(() => {
     if (characterId) {
-      const char = getCharacter(characterId)
+      const char = getCharacter(characterId, mode)
       if (char) {
         setForm({
           id: char.id,
@@ -77,13 +91,24 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
           affectionStages: char.affectionStages?.length > 0
             ? char.affectionStages.map(s => ({ ...emptyStage(), ...s }))
             : [emptyStage()],
+          affectionUpRules: char.affectionUpRules || '',
+          affectionDownRules: char.affectionDownRules || '',
           thinkingEnabled: char.thinkingEnabled || false,
           thinkingPrompt: char.thinkingPrompt || '',
           activeMessageEnabled: char.activeMessageEnabled || false,
-          activeInterval: char.activeInterval ?? 10,
-          activeCondition: char.activeCondition || '',
           activePrompt: char.activePrompt || '',
           autonomyBehavior: char.autonomyBehavior || '',
+          openingScenario: char.openingScenario || '',
+          chatStyle: char.chatStyle || (mode === 'daily' ? 'casual' : 'story'),
+          contextWindow: char.contextWindow || 40,
+          showTimestamp: char.showTimestamp || false,
+          autoMessageEnabled: char.autoMessageEnabled || false,
+          autoMessagePrompt: char.autoMessagePrompt || '',
+          temperature: char.temperature ?? 0.9,
+          topP: char.topP ?? 0.95,
+          characters: char.characters?.length > 0
+            ? char.characters.map(c => ({ ...emptySubCharacter(), ...c }))
+            : (mode === 'story' ? [] : undefined),
         })
       }
     }
@@ -116,6 +141,29 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
     }))
   }
 
+  const updateSubChar = (index, field, value) => {
+    const chars = [...(form.characters || [])]
+    chars[index] = { ...chars[index], [field]: value }
+    setForm(prev => ({ ...prev, characters: chars }))
+  }
+
+  const addSubChar = () => {
+    setForm(prev => ({ ...prev, characters: [...(prev.characters || []), emptySubCharacter()] }))
+  }
+
+  const removeSubChar = (index) => {
+    setForm(prev => ({
+      ...prev,
+      characters: prev.characters.filter((_, i) => i !== index),
+    }))
+  }
+
+  const handleSubCharAvatar = async (index, file) => {
+    if (!file) return
+    const base64 = await imageToBase64(file)
+    updateSubChar(index, 'avatar', base64)
+  }
+
   const handleGenerateAutonomy = async () => {
     const apiKey = getApiKey()
     if (!apiKey) {
@@ -141,6 +189,69 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
     update('autonomyBehavior', reply)
   }
 
+  const handleExtract = async () => {
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert('请先在设置页面填写 DeepSeek API Key')
+      return
+    }
+    if (!extractText.trim()) {
+      alert('请先粘贴人设文本')
+      return
+    }
+    setExtracting(true)
+    const { result, error } = await extractCharacterFromText(extractText, apiKey)
+    setExtracting(false)
+    if (error || !result) {
+      alert('提取失败：' + (error?.message || '解析错误，请检查文本内容'))
+      return
+    }
+    // Auto-fill form fields — support both Chinese and English keys
+    const r = result
+    const updates = {}
+    // Name
+    updates.name = r.角色名 || r.name || ''
+    // Background
+    updates.background = r.背景设定 || r.background || ''
+    // Style rules
+    const styleRules = r.文风规则 || r.styleRules
+    if (styleRules && Array.isArray(styleRules)) updates.styleRules = styleRules.join('\n')
+    // Forbidden words
+    const fw = r.禁止行为 || r.forbiddenWords
+    if (fw && Array.isArray(fw)) updates.forbiddenWords = fw.join('\n')
+    // Thinking
+    const thinkingEnabled = r.思考层启用 ?? r.thinkingEnabled
+    if (thinkingEnabled != null) updates.thinkingEnabled = thinkingEnabled
+    const thinkingPrompt = r.思考层指令 || r.thinkingPrompt
+    if (thinkingPrompt) updates.thinkingPrompt = thinkingPrompt
+    // Affection
+    const affEnabled = r.好感度启用 ?? r.affectionEnabled
+    if (affEnabled != null) updates.affectionEnabled = affEnabled
+    // Affection stages
+    const stages = r.好感度阶段 || r.affectionStages
+    if (stages && Array.isArray(stages) && stages.length > 0) {
+      updates.affectionEnabled = true
+      updates.affectionStages = stages.map(s => ({
+        name: s.标签 || s.name || s.label || '',
+        min: s.下限 ?? s.min ?? 0,
+        max: s.上限 ?? s.max ?? 50,
+        behavior: s.行为规则 || s.behavior || '',
+      }))
+    }
+    // Affection up/down rules (arrays → join with newlines)
+    const upRules = r.好感度增加条件 || r.affectionUpRules
+    if (upRules) {
+      updates.affectionUpRules = Array.isArray(upRules) ? upRules.join('\n') : upRules
+    }
+    const downRules = r.好感度减少条件 || r.affectionDownRules
+    if (downRules) {
+      updates.affectionDownRules = Array.isArray(downRules) ? downRules.join('\n') : downRules
+    }
+    setForm(prev => ({ ...prev, ...updates }))
+    setShowExtractModal(false)
+    setExtractText('')
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!form.name.trim()) {
@@ -161,17 +272,26 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
       affectionStages: form.affectionEnabled
         ? form.affectionStages.filter(s => s.name.trim())
         : [],
+      affectionUpRules: form.affectionEnabled ? form.affectionUpRules.trim() : '',
+      affectionDownRules: form.affectionEnabled ? form.affectionDownRules.trim() : '',
       thinkingEnabled: form.thinkingEnabled,
       thinkingPrompt: form.thinkingEnabled ? form.thinkingPrompt.trim() : '',
       activeMessageEnabled: form.activeMessageEnabled,
-      activeInterval: form.activeMessageEnabled ? (form.activeInterval || 10) : 10,
-      activeCondition: form.activeMessageEnabled ? form.activeCondition.trim() : '',
       activePrompt: form.activeMessageEnabled ? form.activePrompt.trim() : '',
       autonomyBehavior: form.autonomyBehavior.trim(),
+      openingScenario: form.openingScenario.trim(),
+      chatStyle: form.chatStyle || (mode === 'daily' ? 'casual' : 'story'),
+      contextWindow: form.contextWindow || 40,
+      showTimestamp: form.showTimestamp || false,
+      autoMessageEnabled: form.autoMessageEnabled || false,
+      autoMessagePrompt: form.autoMessageEnabled ? form.autoMessagePrompt.trim() : '',
+      temperature: form.temperature ?? 0.9,
+      topP: form.topP ?? 0.95,
+      characters: form.characters ? form.characters.filter(c => c.name.trim()) : undefined,
       updatedAt: Date.now(),
     }
 
-    saveCharacter(character)
+    saveCharacter(character, mode)
     onSave()
   }
 
@@ -180,6 +300,47 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
 
   return (
     <form onSubmit={handleSubmit} className="p-4 pb-24 space-y-4">
+      {/* Extract modal */}
+      {showExtractModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowExtractModal(false)}>
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-5 mx-4 w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-medium text-gray-200 mb-3">粘贴人设文本自动填写</h3>
+            <textarea
+              className={inputClass + " h-48 resize-none mb-3"}
+              value={extractText}
+              onChange={e => setExtractText(e.target.value)}
+              placeholder="粘贴任意格式的角色人设文本，AI将自动提取各项信息..."
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => { setShowExtractModal(false); setExtractText('') }}
+                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleExtract}
+                disabled={extracting}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-medium transition-all disabled:opacity-50"
+              >
+                {extracting ? '提取中...' : '开始提取'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Extract button */}
+      <button
+        type="button"
+        onClick={() => setShowExtractModal(true)}
+        className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 hover:border-purple-500/50 text-purple-300 hover:text-purple-200 text-sm font-medium transition-all"
+      >
+        ✨ 粘贴人设文本自动填写
+      </button>
+
       {/* Basic info */}
       <div>
         <label className={labelClass}>角色名 *</label>
@@ -247,13 +408,122 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
         />
       </div>
 
+      {/* Multi-character (story mode only) */}
+      {mode === 'story' && (
+        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-medium text-gray-200">出场角色列表</h3>
+              <p className="text-xs text-gray-500 mt-0.5">添加剧情中可能出现的其他角色，AI会在对话中扮演他们</p>
+            </div>
+            <button
+              type="button"
+              onClick={addSubChar}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+            >
+              + 添加角色
+            </button>
+          </div>
+
+          {(form.characters || []).length === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-4 border border-dashed border-gray-600 rounded-lg">
+              暂未添加其他角色，对话中只有{form.name || '主角色'}一人出场
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {(form.characters || []).map((char, i) => (
+                <div key={i} className="bg-gray-700/50 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">角色 {i + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeSubChar(i)}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      删除
+                    </button>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <input
+                      ref={el => { if (el) el._subCharIdx = i }}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handleSubCharAvatar(i, f) }}
+                      id={`subchar-avatar-${i}`}
+                    />
+                    <label
+                      htmlFor={`subchar-avatar-${i}`}
+                      className="w-12 h-12 rounded-full border-2 border-dashed border-gray-500 hover:border-blue-400 flex items-center justify-center overflow-hidden cursor-pointer transition-colors bg-gray-600 flex-shrink-0"
+                    >
+                      {char.avatar ? (
+                        <img src={char.avatar} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-gray-400 text-lg">+</span>
+                      )}
+                    </label>
+                    <div className="flex-1 space-y-2">
+                      <input
+                        type="text"
+                        className={inputClass}
+                        value={char.name}
+                        onChange={e => updateSubChar(i, 'name', e.target.value)}
+                        placeholder="角色名称"
+                      />
+                      <input
+                        type="text"
+                        className={inputClass}
+                        value={char.personality}
+                        onChange={e => updateSubChar(i, 'personality', e.target.value)}
+                        placeholder="性格简介"
+                      />
+                    </div>
+                  </div>
+
+                  <input
+                    type="text"
+                    className={inputClass}
+                    value={char.relationship}
+                    onChange={e => updateSubChar(i, 'relationship', e.target.value)}
+                    placeholder="与主角的关系，如：主角的挚友、宿敌、导师"
+                  />
+
+                  <input
+                    type="text"
+                    className={inputClass}
+                    value={char.speakingStyle}
+                    onChange={e => updateSubChar(i, 'speakingStyle', e.target.value)}
+                    placeholder="该角色的说话风格，如：温柔体贴、爱用古诗词、说话带刺"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Opening scenario */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <div>
+          <h3 className="text-sm font-medium text-gray-200">开场剧情</h3>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">对话首次打开时展示的初始场景描述，不计入对话历史</p>
+        </div>
+        <textarea
+          className={inputClass + " h-24 resize-none"}
+          value={form.openingScenario}
+          onChange={e => update('openingScenario', e.target.value)}
+          placeholder="例如：深夜的咖啡馆里，窗外飘着细雨。你推开门，看到一个熟悉的身影坐在角落..."
+        />
+      </div>
+
       <div>
         <label className={labelClass}>文风规则（每行一条）</label>
         <textarea
           className={inputClass + " h-24 resize-none"}
           value={form.styleRules}
           onChange={e => update('styleRules', e.target.value)}
-          placeholder="用简短的第一人称回答&#10;多用语气词和动作描写&#10;每句话不超过30字"
+          placeholder="用简洁的语气回答&#10;多用语气词和动作描写&#10;每句话不超过30字"
         />
       </div>
 
@@ -265,6 +535,46 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
           onChange={e => update('forbiddenWords', e.target.value)}
           placeholder="作为AI语言模型&#10;我不能&#10;无法继续"
         />
+      </div>
+
+      {/* Context window */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <div>
+          <h3 className="text-sm font-medium text-gray-200">上下文窗口</h3>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">每次 API 请求携带的最近消息轮次。越大上下文越丰富但 Token 消耗越高</p>
+          <select
+            className={inputClass + " w-full"}
+            value={form.contextWindow}
+            onChange={e => update('contextWindow', parseInt(e.target.value))}
+          >
+            <option value={20}>20 条消息</option>
+            <option value={40}>40 条消息（默认）</option>
+            <option value={60}>60 条消息</option>
+            <option value={80}>80 条消息</option>
+            <option value={100}>100 条消息</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Timestamp toggle */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-gray-200">消息时间戳</h3>
+            <p className="text-xs text-gray-500 mt-0.5">在每条消息旁显示设备当前系统时间</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => update('showTimestamp', !form.showTimestamp)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${
+              form.showTimestamp ? 'bg-green-500' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+              form.showTimestamp ? 'left-[22px]' : 'left-[2px]'
+            }`} />
+          </button>
+        </div>
       </div>
 
       {/* Affection toggle */}
@@ -305,7 +615,7 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
               <label className={labelClass}>好感度阶段</label>
               <div className="space-y-3">
                 {form.affectionStages.map((stage, i) => (
-                  <div key={i} className="bg-gray-750 bg-gray-700/50 rounded-lg p-3 space-y-2">
+                  <div key={i} className="bg-gray-700/50 rounded-lg p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-400">阶段 {i + 1}</span>
                       {form.affectionStages.length > 1 && (
@@ -366,6 +676,26 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
                 </button>
               </div>
             </div>
+
+            <div>
+              <label className={labelClass}>好感度增加条件（每行一条）</label>
+              <textarea
+                className={inputClass + " h-20 resize-none"}
+                value={form.affectionUpRules}
+                onChange={e => update('affectionUpRules', e.target.value)}
+                placeholder="表现出友好和善意：+3&#10;送礼物或表达关心：+5&#10;帮助角色解决问题：+7"
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>好感度减少条件（每行一条）</label>
+              <textarea
+                className={inputClass + " h-20 resize-none"}
+                value={form.affectionDownRules}
+                onChange={e => update('affectionDownRules', e.target.value)}
+                placeholder="态度粗鲁或不尊重：-5&#10;无视角色的感受：-3&#10;欺骗或背叛行为：-10"
+              />
+            </div>
           </div>
         )}
       </div>
@@ -424,39 +754,107 @@ export default function CharacterForm({ characterId, onSave, onCancel }) {
         </div>
 
         {form.activeMessageEnabled && (
-          <div className="mt-4 space-y-3">
+          <div className="mt-4">
+            <label className={labelClass}>主动消息指令</label>
+            <p className="text-[10px] text-gray-500 mt-0.5 mb-2">
+              AI会根据系统时间、对话间隔和角色设定，自主判断是否主动发消息给用户
+            </p>
+            <textarea
+              className={inputClass + " h-24 resize-none"}
+              value={form.activePrompt}
+              onChange={e => update('activePrompt', e.target.value)}
+              placeholder={'告诉AI在什么情境下主动发消息、发什么类型的内容：\n例如：早上8-10点主动问早安；\n超过1小时没对话可以问问在忙什么；\n看到有趣的东西会主动分享'}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Auto message (autonomous after reply) */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-gray-200">角色自主消息</h3>
+            <p className="text-xs text-gray-500 mt-0.5">收到回复后，AI判断角色是否还有话要说，自动追加一条消息</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => update('autoMessageEnabled', !form.autoMessageEnabled)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${
+              form.autoMessageEnabled ? 'bg-green-500' : 'bg-gray-600'
+            }`}
+          >
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+              form.autoMessageEnabled ? 'left-[22px]' : 'left-[2px]'
+            }`} />
+          </button>
+        </div>
+
+        {form.autoMessageEnabled && (
+          <div className="mt-4">
+            <label className={labelClass}>自主消息指令</label>
+            <textarea
+              className={inputClass + " h-24 resize-none"}
+              value={form.autoMessagePrompt}
+              onChange={e => update('autoMessagePrompt', e.target.value)}
+              placeholder={'例如：当角色情绪激动、想引起注意或刚想到重要事情时，会再主动发一条消息。\n描述角色在什么情境下会主动追加消息，以及消息的类型和风格。'}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Advanced parameters */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <button
+          type="button"
+          onClick={() => update('showAdvanced', !form.showAdvanced)}
+          className="w-full flex items-center justify-between text-sm font-medium text-gray-200"
+        >
+          <span>高级参数</span>
+          <span className="text-gray-400 text-xs">{form.showAdvanced ? '收起 ▲' : '展开 ▼'}</span>
+        </button>
+
+        {form.showAdvanced && (
+          <div className="mt-4 space-y-4">
+            {/* Temperature */}
             <div>
-              <label className={labelClass}>触发间隔（分钟）</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-400">温度 (Temperature)</label>
+                <span className="text-xs text-blue-400 font-mono">{form.temperature ?? 0.9}</span>
+              </div>
               <input
-                type="number"
-                min="1"
-                max="1440"
-                className={inputClass}
-                value={form.activeInterval}
-                onChange={e => update('activeInterval', Math.max(1, parseInt(e.target.value) || 10))}
+                type="range"
+                min="0"
+                max="2"
+                step="0.1"
+                value={form.temperature ?? 0.9}
+                onChange={e => update('temperature', parseFloat(e.target.value))}
+                className="w-full h-1.5 rounded-full appearance-none bg-gray-600 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500"
               />
-              <p className="text-[10px] text-gray-500 mt-0.5">每隔此分钟数检查一次是否需要触发主动消息</p>
+              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                <span>0 精确</span>
+                <span>2 创意</span>
+              </div>
             </div>
 
+            {/* TopP */}
             <div>
-              <label className={labelClass}>触发条件描述</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-gray-400">TopP</label>
+                <span className="text-xs text-blue-400 font-mono">{form.topP ?? 0.95}</span>
+              </div>
               <input
-                type="text"
-                className={inputClass}
-                value={form.activeCondition}
-                onChange={e => update('activeCondition', e.target.value)}
-                placeholder="例如：超过30分钟没有对话时"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={form.topP ?? 0.95}
+                onChange={e => update('topP', parseFloat(e.target.value))}
+                className="w-full h-1.5 rounded-full appearance-none bg-gray-600 cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500"
               />
-            </div>
-
-            <div>
-              <label className={labelClass}>主动消息指令</label>
-              <textarea
-                className={inputClass + " h-24 resize-none"}
-                value={form.activePrompt}
-                onChange={e => update('activePrompt', e.target.value)}
-                placeholder="告诉AI如何生成主动消息：&#10;根据当前时间和场景自然地发起话题&#10;可以关心对方、分享心情、提出问题等&#10;保持角色风格和性格一致"
-              />
+              <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                <span>0 集中</span>
+                <span>1 多样</span>
+              </div>
             </div>
           </div>
         )}
