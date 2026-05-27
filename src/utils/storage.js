@@ -14,6 +14,48 @@ function getKeys(mode) {
   }
 }
 
+function cleanOldMessages() {
+  // Find all chat archive keys across all modes
+  const archiveKeys = ['story_chat_archives', 'daily_chat_archives', 'rp_chat_archives']
+  for (const key of archiveKeys) {
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) continue
+      const all = JSON.parse(raw)
+      let modified = false
+      for (const archiveId of Object.keys(all)) {
+        const archive = all[archiveId]
+        if (archive.messages && archive.messages.length > 20) {
+          archive.messages = archive.messages.slice(-20)
+          modified = true
+        }
+      }
+      if (modified) {
+        localStorage.setItem(key, JSON.stringify(all))
+      }
+    } catch {}
+  }
+}
+
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value)
+    return true
+  } catch (e) {
+    if (e.name === 'QuotaExceededError') {
+      cleanOldMessages()
+      try {
+        localStorage.setItem(key, value)
+        return true
+      } catch {
+        alert('存储空间不足，请导出并清理部分对话记录')
+        return false
+      }
+    }
+    return false
+  }
+}
+
 function migrateChatArchives(mode) {
   const keys = getKeys(mode)
   if (localStorage.getItem(keys.MIGRATION)) return
@@ -56,7 +98,7 @@ export function getCharacters(mode) {
 }
 
 export function saveCharacters(characters, mode) {
-  localStorage.setItem(getKeys(mode).CHARACTERS, JSON.stringify(characters))
+  safeSetItem(getKeys(mode).CHARACTERS, JSON.stringify(characters))
 }
 
 export function getCharacter(id, mode) {
@@ -85,7 +127,7 @@ export function deleteCharacter(id, mode) {
       delete all[archiveId]
     }
   }
-  localStorage.setItem(keys.CHAT_ARCHIVES, JSON.stringify(all))
+  safeSetItem(keys.CHAT_ARCHIVES, JSON.stringify(all))
 }
 
 export function generateId() {
@@ -102,7 +144,7 @@ function readArchives(mode) {
 }
 
 function writeArchives(data, mode) {
-  localStorage.setItem(getKeys(mode).CHAT_ARCHIVES, JSON.stringify(data))
+  safeSetItem(getKeys(mode).CHAT_ARCHIVES, JSON.stringify(data))
 }
 
 export function getArchives(characterId, mode) {
@@ -219,7 +261,7 @@ export function getSettings() {
 }
 
 export function saveSettings(settings) {
-  localStorage.setItem('rp_settings', JSON.stringify(settings))
+  safeSetItem('rp_settings', JSON.stringify(settings))
 }
 
 export function getApiKey() {

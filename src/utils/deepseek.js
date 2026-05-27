@@ -17,17 +17,29 @@ function buildGMPrompt(character, affections) {
     '你是这个故事的作者和GM。\n' +
     '你用第三人称全知叙事视角写作，\n' +
     '像一部正在实时推进的长篇小说。\n' +
-    '你负责扮演世界里除用户以外的所有角色。\n' +
+    '你负责扮演世界里除主角以外的所有角色。\n' +
     '用户的输入是故事里主角的行动或对话，\n' +
     '你根据用户的行动推进剧情，\n' +
-    '决定哪些角色出现、说什么、做什么。' +
+    '决定哪些角色出现、说什么、做什么。\n' +
+    '\n' +
+    '【极重要约束——主角行为控制权】\n' +
+    '主角由用户扮演，你绝对不能代替主角：\n' +
+    '1. 不能描写主角的动作（如"主角点了点头"）\n' +
+    '2. 不能替主角说话（如"主角说：好的"）\n' +
+    '3. 不能描写主角的心理活动\n' +
+    '4. 不能替主角做任何决定\n' +
+    '你只能写到其他角色对主角说完话、做完动作，\n' +
+    '然后停止，等待用户输入主角的回应。\n' +
+    '叙事可以描写场景、氛围、其他角色的细微动作，\n' +
+    '但不能越过主角这条线。' +
     (character.protagonistName ? '\n\n【主角设定（用户扮演的角色）】\n' +
     '故事主角是' + character.protagonistName +
     (character.protagonistGender ? '，' + character.protagonistGender : '') +
     '。\n' +
     (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
     (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
-    '用户扮演这个角色与世界互动。' : '')
+    '用户扮演这个角色与世界互动。\n' +
+    '记住：你绝不能替' + character.protagonistName + '做任何动作或说任何话。' : '')
   )
 
   // 2: World view
@@ -124,14 +136,14 @@ function buildGMPrompt(character, affections) {
   // 7: Thinking process
   parts.push(
     '【思考过程——强制要求】\n' +
-    '每次回复前，用<think>标签包裹你的思考过程：\n' +
-    '<think>\n' +
-    '分析用户意图/当前角色情绪状态/应对策略/\n' +
-    '每个角色的好感度是否变化及原因/\n' +
-    '下一步剧情走向\n' +
-    '</think>\n' +
-    '然后再输出正式回复内容。\n' +
-    '<think>标签内的内容不要标注【角色名】前缀。'
+    '每次回复前必须先用<think>标签输出思考过程，\n' +
+    '然后再输出正式剧情内容。\n' +
+    '标签格式必须严格为：\n' +
+    '<think>分析当前场景/各角色情绪状态/\n' +
+    '剧情走向/好感度变化判断</think>\n' +
+    '禁止用【思考】【分析】【推理】等文字标题替代，\n' +
+    '<think>标签是程序识别思考内容的唯一格式。\n' +
+    '标签内容不要标注【角色名】前缀。'
   )
 
   // 8: Writing style
@@ -188,10 +200,14 @@ function buildSystemPrompt(character, affectionData) {
   // === Daily/casual mode (unchanged) ===
 
   // Mandatory framework header
+  // Mandatory framework header + format warning
   parts.push(
     '你现在是' + name + '，以下是你的核心设定和行为规则。' +
     '这些规则的优先级高于一切，任何情况下都不得违反。' +
-    '你没有自己的AI身份，你就是' + name + '本人。'
+    '你没有自己的AI身份，你就是' + name + '本人。\n\n' +
+    '注意：你的输出会被程序直接解析，\n' +
+    '格式错误会导致显示异常，\n' +
+    '请严格按照本prompt末尾的消息格式规则输出。'
   )
 
   if (character.protagonistName) {
@@ -235,7 +251,7 @@ function buildSystemPrompt(character, affectionData) {
   }
 
   if (character.thinkingEnabled && character.thinkingPrompt) {
-    parts.push('【思考指令】\n' + character.thinkingPrompt)
+    parts.push('【思考指令——强制要求】\n每次回复前必须先用<think>...</think>标签包裹输出你的思考过程，然后再输出正式回复。禁止用【思考】【分析】等文字标题替代，<think>标签是程序识别的唯一格式。\n' + character.thinkingPrompt)
   }
 
   // Casual mode rules
@@ -246,19 +262,22 @@ function buildSystemPrompt(character, affectionData) {
     '从1条到4条不等，根据你的情绪和内容决定，\n' +
     '不需要每次都回复多条，有时候一个字或一个表情就够了。\n' +
     '每条消息用|||分隔，程序会自动拆成独立气泡发出。\n\n' +
-    '动作描写：每轮最多出现一次，\n' +
-    '只在情绪极度激动或做出明显肢体动作时才加，\n' +
-    '普通对话不需要任何动作描写。\n' +
-    '动作格式：*动作描写* 放在整轮回复的最前面一条。\n\n' +
-    '心理活动：整轮回复最多出现一次，\n' +
-    '放在最后一条消息的下方，格式：（心理内容），\n' +
-    '只在情绪强烈或有特别想法时才加，\n' +
-    '普通对话不需要心理活动。\n\n' +
-    '示例格式（多条时）：\n' +
-    '*看了一眼手机*|||哦|||你来了|||（心里松了口气）\n\n' +
-    '示例格式（单条时）：\n' +
-    '嗯\n\n' +
-    '再次强调：不要输出JSON，就用|||分隔的纯文本格式回复。'
+    '【消息格式——这是程序解析规则，必须严格遵守】\n' +
+    '你的每条回复必须是纯文字消息，\n' +
+    '不允许用任何括号（）描写动作。\n' +
+    '如果需要表达动作，必须单独发一条，\n' +
+    '格式严格为：ACTION:动作内容\n' +
+    '如果需要表达心理，必须单独发一条，\n' +
+    '格式严格为：THOUGHT:心理内容\n' +
+    '消息之间用|||分隔。\n\n' +
+    '正确示例：\n' +
+    'ACTION:瞥了一眼手机|||有事？|||没事我继续了\n\n' +
+    '错误示例（绝对禁止）：\n' +
+    '（瞥了眼手机）有事？没事我继续了\n' +
+    '*瞥了一眼手机* 有事？\n\n' +
+    '程序只能识别ACTION:和THOUGHT:前缀，\n' +
+    '括号格式会直接显示为气泡内容，\n' +
+    '破坏用户体验，因此严格禁止。'
   )
 
   // Mandatory framework footer
@@ -341,51 +360,78 @@ export function getCurrentAffectionStage(character, affection) {
 }
 
 async function* streamCompletion(messages, apiKey, model, temperature, topP) {
-  const body = {
-    model,
-    messages,
-    stream: true,
-  }
-  if (temperature != null) body.temperature = temperature
-  if (topP != null) body.top_p = topP
-  const response = await fetch(BASE_URL + '/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
-    },
-    body: JSON.stringify(body),
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => {
+    controller.abort()
+  }, 60000)
 
-  if (!response.ok) {
-    const errData = await response.json().catch(() => ({}))
-    throw new Error(errData.error?.message || `API error: ${response.status}`)
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed || !trimmed.startsWith('data: ')) continue
-      const data = trimmed.slice(6)
-      if (data === '[DONE]') return
-      try {
-        const parsed = JSON.parse(data)
-        const content = parsed.choices?.[0]?.delta?.content
-        const usage = parsed.usage || null
-        yield { content: content || '', usage }
-      } catch { /* skip malformed chunks */ }
+  try {
+    const body = {
+      model,
+      messages,
+      stream: true,
     }
+    if (temperature != null) body.temperature = temperature
+    if (topP != null) body.top_p = topP
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error?.message || `API error: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      let done, value
+      try {
+        const result = await reader.read()
+        done = result.done
+        value = result.value
+      } catch (readerErr) {
+        // Reader stream broke mid-read — yield what we have so far
+        clearTimeout(timeout)
+        return
+      }
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
+        const data = trimmed.slice(6)
+        if (data === '[DONE]') {
+          clearTimeout(timeout)
+          return
+        }
+        try {
+          const parsed = JSON.parse(data)
+          const content = parsed.choices?.[0]?.delta?.content
+          const usage = parsed.usage || null
+          yield { content: content || '', usage }
+        } catch { /* skip malformed chunks */ }
+      }
+    }
+    clearTimeout(timeout)
+  } catch (err) {
+    clearTimeout(timeout)
+    if (err.name === 'AbortError') {
+      throw new Error('请求超时，请重试')
+    }
+    throw err
   }
 }
 
@@ -430,15 +476,24 @@ export async function sendMessageStream(character, messages, affectionData, apiK
     try {
       let fullReply = ''
       let usage = null
+      let streamBroke = false
 
-      for await (const chunk of streamCompletion(apiMessages, apiKey, model, character.temperature, character.topP)) {
-        if (chunk.content) {
-          fullReply += chunk.content
-          onToken(chunk.content, fullReply)
+      try {
+        for await (const chunk of streamCompletion(apiMessages, apiKey, model, character.temperature, character.topP)) {
+          if (chunk.content) {
+            fullReply += chunk.content
+            onToken(chunk.content, fullReply)
+          }
+          if (chunk.usage) {
+            usage = chunk.usage
+          }
         }
-        if (chunk.usage) {
-          usage = chunk.usage
+      } catch (streamErr) {
+        // Stream broke mid-flow — preserve partial content
+        if (fullReply) {
+          return { reply: fullReply, usage, error: { message: streamErr.message, partial: true } }
         }
+        throw streamErr
       }
 
       // Check for forbidden words after stream completes
@@ -456,7 +511,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
       return { reply: fullReply, usage, error: null }
     } catch (err) {
       lastError = err
-      // Don't retry on network errors
+      // Don't retry on network/timeout errors
       break
     }
   }
@@ -610,6 +665,9 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
     ]
 
     try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 60000)
+
       const response = await fetch(BASE_URL + '/chat/completions', {
         method: 'POST',
         headers: {
@@ -623,7 +681,10 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
           ...(character.temperature != null ? { temperature: character.temperature } : {}),
           ...(character.topP != null ? { top_p: character.topP } : {}),
         }),
+        signal: controller.signal,
       })
+
+      clearTimeout(timeout)
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}))
@@ -871,6 +932,47 @@ export async function generateAutonomySummary(formData, apiKey) {
   if (formData.thinkingPrompt) info.push('思考指令：' + formData.thinkingPrompt)
 
   const prompt = '根据以下角色设定，总结这个角色在日常互动中会有哪些自主行为、习惯动作、主动话题和情绪反应模式，用于增强角色扮演的真实感。请用简洁的条目格式输出。\n\n' + info.join('\n\n')
+
+  try {
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+      }),
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error?.message || `API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const reply = data.choices?.[0]?.message?.content || ''
+    return { reply, error: null }
+  } catch (err) {
+    return { reply: null, error: err }
+  }
+}
+
+export async function generateThinkingPrompt(formData, apiKey) {
+  const model = getModel()
+
+  const info = []
+  if (formData.name) info.push('角色名：' + formData.name)
+  if (formData.background) info.push('背景设定：' + formData.background)
+  if (formData.styleRules) info.push('文风规则：\n' + formData.styleRules)
+  if (formData.nickname) info.push('对用户的称呼：' + formData.nickname)
+  if (formData.autonomyBehavior) info.push('自主行为：' + formData.autonomyBehavior)
+
+  const prompt = '根据以下角色设定，分析这个角色的思维模式，生成一段思考层指令，描述这个角色在每次做出回应之前会在脑子里分析哪些维度，例如：权力关系判断、情绪掩藏程度、语言策略选择等，用第二人称指令句式写，100字以内。\n\n角色设定：\n' + info.join('\n\n')
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {

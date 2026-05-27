@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../../utils/storage'
-import { generateAutonomySummary, extractCharacterFromText, extractStoryFromText } from '../../utils/deepseek'
+import { generateAutonomySummary, generateThinkingPrompt, extractCharacterFromText, extractStoryFromText } from '../../utils/deepseek'
 
 const emptyStage = () => ({ name: '', min: 0, max: 50, behavior: '' })
 const emptyRomanceChar = () => ({
@@ -56,6 +56,7 @@ function imageToBase64(file) {
 export default function StoryCharacterForm({ mode, characterId, onSave, onCancel }) {
   const isEdit = !!characterId
   const [generatingAutonomy, setGeneratingAutonomy] = useState(false)
+  const [generatingThinkingIdx, setGeneratingThinkingIdx] = useState(-1)
   const [showExtractModal, setShowExtractModal] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
@@ -225,6 +226,33 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     if (!file) return
     const base64 = await imageToBase64(file)
     update('avatar', base64)
+  }
+
+  const handleGenerateThinking = async (rcIdx) => {
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert('请先在设置页面填写 DeepSeek API Key')
+      return
+    }
+    const rc = form.romanceCharacters[rcIdx]
+    if (!rc.name.trim() && !rc.background.trim()) {
+      alert('请先填写角色名或背景设定')
+      return
+    }
+    setGeneratingThinkingIdx(rcIdx)
+    const { reply, error } = await generateThinkingPrompt({
+      name: rc.name,
+      background: rc.background + (rc.personality ? '\n性格：' + rc.personality : ''),
+      styleRules: rc.styleRules,
+      nickname: '',
+      autonomyBehavior: '',
+    }, apiKey)
+    setGeneratingThinkingIdx(-1)
+    if (error || !reply) {
+      alert('生成失败：' + (error?.message || '未知错误'))
+      return
+    }
+    updateRC(rcIdx, 'thinkingPrompt', reply)
   }
 
   const handleSubmit = (e) => {
@@ -734,12 +762,22 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                       </button>
                     </div>
                     {rc.thinkingEnabled && (
-                      <textarea
-                        className={inputClass + " h-20 resize-none mt-2"}
-                        value={rc.thinkingPrompt}
-                        onChange={e => updateRC(i, 'thinkingPrompt', e.target.value)}
-                        placeholder="该角色在说话前的思考框架..."
-                      />
+                      <div className="mt-2 space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateThinking(i)}
+                          disabled={generatingThinkingIdx === i}
+                          className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+                        >
+                          {generatingThinkingIdx === i ? '生成中...' : 'AI生成思考层'}
+                        </button>
+                        <textarea
+                          className={inputClass + " h-20 resize-none"}
+                          value={rc.thinkingPrompt}
+                          onChange={e => updateRC(i, 'thinkingPrompt', e.target.value)}
+                          placeholder="该角色在说话前的思考框架..."
+                        />
+                      </div>
                     )}
                   </div>
                 </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../utils/storage'
-import { generateAutonomySummary, extractCharacterFromText } from '../utils/deepseek'
+import { generateAutonomySummary, generateThinkingPrompt, extractCharacterFromText } from '../utils/deepseek'
 
 const emptyStage = () => ({ name: '', min: 0, max: 50, behavior: '' })
 const emptySubCharacter = () => ({ name: '', personality: '', avatar: '', relationship: '', speakingStyle: '' })
@@ -40,6 +40,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
   const isEdit = !!characterId
   const avatarInputRef = useRef(null)
   const [generatingAutonomy, setGeneratingAutonomy] = useState(false)
+  const [generatingThinking, setGeneratingThinking] = useState(false)
   const [showExtractModal, setShowExtractModal] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
@@ -195,6 +196,32 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       return
     }
     update('autonomyBehavior', reply)
+  }
+
+  const handleGenerateThinking = async () => {
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert('请先在设置页面填写 DeepSeek API Key')
+      return
+    }
+    if (!form.background.trim() && !form.name.trim()) {
+      alert('请先填写角色名或背景设定')
+      return
+    }
+    setGeneratingThinking(true)
+    const { reply, error } = await generateThinkingPrompt({
+      name: form.name,
+      background: form.background,
+      styleRules: form.styleRules,
+      nickname: form.nickname,
+      autonomyBehavior: form.autonomyBehavior,
+    }, apiKey)
+    setGeneratingThinking(false)
+    if (error || !reply) {
+      alert('生成失败：' + (error?.message || '未知错误'))
+      return
+    }
+    update('thinkingPrompt', reply)
   }
 
   const handleExtract = async () => {
@@ -823,7 +850,17 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
         {form.thinkingEnabled && (
           <div className="mt-4">
-            <label className={labelClass}>思考指令</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className={labelClass}>思考指令</label>
+              <button
+                type="button"
+                onClick={handleGenerateThinking}
+                disabled={generatingThinking}
+                className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
+              >
+                {generatingThinking ? '生成中...' : 'AI生成思考层'}
+              </button>
+            </div>
             <textarea
               className={inputClass + " h-28 resize-none"}
               value={form.thinkingPrompt}

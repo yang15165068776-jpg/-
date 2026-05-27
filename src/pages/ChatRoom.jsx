@@ -32,26 +32,43 @@ function Avatar({ src, name, className }) {
 }
 
 function parseThinkBlock(content) {
-  const match = content.match(/<think>([\s\S]*?)<\/think>/)
-  if (!match) return { thinkContent: null, mainContent: content }
-  const thinkContent = match[1].trim()
-  const mainContent = content.replace(/<think>[\s\S]*?<\/think>/, '').trim()
-  return { thinkContent, mainContent }
+  // Format 1: <think>...</think> (primary format)
+  let match = content.match(/<think>([\s\S]*?)<\/think>/i)
+  if (match) {
+    const thinkContent = match[1].trim()
+    const mainContent = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
+    return { thinkContent, mainContent }
+  }
+
+  // Format 2: 【思考】...【/思考】 (fallback closed format)
+  match = content.match(/【思考】([\s\S]*?)【\/思考】/)
+  if (match) {
+    const thinkContent = match[1].trim()
+    const mainContent = content.replace(/【思考】[\s\S]*?【\/思考】/, '').trim()
+    return { thinkContent, mainContent }
+  }
+
+  // Format 3: bare 【思考】 header, content until next section or end
+  match = content.match(/【思考】([\s\S]*?)(?=\n[^\s]|$)/)
+  if (match) {
+    const thinkContent = match[1].trim()
+    const mainContent = content.replace(/【思考】[\s\S]*?(?=\n[^\s]|$)/, '').trim()
+    return { thinkContent, mainContent }
+  }
+
+  return { thinkContent: null, mainContent: content }
 }
 
 function ThinkToggle({ content }) {
-  const [expanded, setExpanded] = useState(false)
   return (
-    <div className="mb-1 cursor-pointer select-none" onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}>
-      <span className="text-[12px] text-gray-500 hover:text-gray-300 inline-block">
-        {expanded ? '▼' : '▶'} 思考过程
-      </span>
-      {expanded && (
-        <div className="mt-1 p-2 rounded-lg bg-gray-800/90 text-[12px] text-gray-400 leading-relaxed whitespace-pre-wrap" style={{ background: 'rgba(30,30,35,0.95)' }}>
-          {content}
-        </div>
-      )}
-    </div>
+    <details className="mb-1 cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
+      <summary className="text-[12px] text-gray-500 hover:text-gray-300 inline-block marker:text-gray-600">
+        思考过程
+      </summary>
+      <div className="mt-1 p-2 rounded-lg text-[12px] text-gray-400 leading-relaxed whitespace-pre-wrap" style={{ background: 'rgba(30,30,35,0.95)' }}>
+        {content}
+      </div>
+    </details>
   )
 }
 
@@ -113,6 +130,9 @@ function StoryReplyBlock({ msg, character, index, onRegenerate, showActions, onT
 
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[9px] text-purple-500/60 select-none">已读</span>
+            {msg.isPartial && (
+              <span className="text-[10px] text-red-400 select-none">（回复可能不完整）</span>
+            )}
             {msg.usage && (
               <span className="text-[10px] text-gray-600 select-none">
                 [本轮消耗 - 输入: {msg.usage.prompt_tokens ?? '?'} | 输出: {msg.usage.completion_tokens ?? '?'} | 总计: {(msg.usage.prompt_tokens ?? 0) + (msg.usage.completion_tokens ?? 0)}]
@@ -187,8 +207,10 @@ function copyToClipboard(text, onDone) {
 function cleanAndSplitResponse(rawText) {
   let text = rawText
 
-  // 1. Remove <think> blocks
+  // 1. Remove think blocks (all three formats)
   text = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  text = text.replace(/【思考】[\s\S]*?【\/思考】/gi, '')
+  text = text.replace(/【思考】[\s\S]*?(?=\n[^\s]|$)/gi, '')
 
   // 2. Remove all parenthetical content — handle nesting (both () and （）)
   let prev = ''
@@ -250,7 +272,7 @@ function cleanAndSplitResponse(rawText) {
 
   // Fallback: if cleaning removed everything, keep the raw text stripped of brackets
   if (cleaned.length === 0) {
-    const fallback = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/[()（）]/g, '').trim()
+    const fallback = rawText.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/【思考】[\s\S]*?【\/思考】/gi, '').replace(/【思考】[\s\S]*?(?=\n[^\s]|$)/gi, '').replace(/[()（）]/g, '').trim()
     if (fallback) return [fallback]
   }
 
@@ -273,34 +295,35 @@ function parseStructuredContent(msg) {
 }
 
 function parseCasualReply(rawText) {
-  const segments = rawText.split('|||')
+  const rawSegments = rawText.split('|||')
     .map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
     .filter(s => s.length > 0)
 
-  if (segments.length === 0) return [{ text: rawText.trim() || rawText, action: null, psychology: null }]
+  if (rawSegments.length === 0) return [{ text: rawText.trim() || rawText, action: null, thought: null }]
 
-  return segments.map((seg, i, arr) => {
-    const isFirst = i === 0
-    const isLast = i === arr.length - 1
+  let groupAction = null
+  let groupThought = null
+  const textSegments = []
 
-    const actionMatch = isFirst ? seg.match(/^\*([^*]+)\*\s*/) : null
-    const psychMatch = isLast ? seg.match(/（([^）]+)）\s*$/) : null
-
-    let text = seg
-    let action = null
-    let psychology = null
-
-    if (actionMatch) {
-      action = actionMatch[1].trim()
-      text = text.replace(/^\*[^*]+\*\s*/, '')
+  for (const seg of rawSegments) {
+    if (seg.startsWith('ACTION:')) {
+      groupAction = seg.slice(7).trim()
+    } else if (seg.startsWith('THOUGHT:')) {
+      groupThought = seg.slice(8).trim()
+    } else {
+      textSegments.push(seg.trim())
     }
-    if (psychMatch) {
-      psychology = psychMatch[1].trim()
-      text = text.replace(/（[^）]+）\s*$/, '')
-    }
+  }
 
-    return { text: text.trim(), action, psychology }
-  }).filter(seg => seg.text || seg.action || seg.psychology)
+  if (textSegments.length === 0) {
+    return [{ text: '', action: groupAction, thought: groupThought }]
+  }
+
+  return textSegments.map((text, i) => ({
+    text,
+    action: i === 0 ? groupAction : null,
+    thought: i === textSegments.length - 1 ? groupThought : null,
+  }))
 }
 
 function StoryBubble({ msg, index, character, userAvatar, onRegenerate, showActions, onToggleActions, showTimestamp, revealCount }) {
@@ -355,9 +378,9 @@ function StoryBubble({ msg, index, character, userAvatar, onRegenerate, showActi
         {/* New casual format: segments array */}
         {hasSegments && revealed ? (
           <>
-            {/* Action text — rendered once above all bubbles, no bubble background */}
+            {/* Action text — rendered once above all bubbles, gray small text */}
             {revealed[0]?.action && (
-              <div className="text-[12px] leading-relaxed whitespace-pre-wrap italic mb-1" style={{ color: '#888' }}>
+              <div className="text-[11px] leading-relaxed whitespace-pre-wrap mb-1" style={{ color: '#999' }}>
                 {revealed[0].action}
               </div>
             )}
@@ -370,12 +393,12 @@ function StoryBubble({ msg, index, character, userAvatar, onRegenerate, showActi
                 )}
               </div>
             ))}
-            {/* Psychology — rendered below all bubbles */}
+            {/* Thought — rendered below last bubble, gray italic */}
             {(() => {
               const lastSeg = revealed[revealed.length - 1]
-              return lastSeg?.psychology ? (
-                <div className="text-[12px] leading-relaxed whitespace-pre-wrap italic mt-1" style={{ color: '#888' }}>
-                  （{lastSeg.psychology}）
+              return lastSeg?.thought ? (
+                <div className="text-[11px] leading-relaxed whitespace-pre-wrap italic mt-1" style={{ color: '#888' }}>
+                  {lastSeg.thought}
                 </div>
               ) : null
             })()}
@@ -420,6 +443,10 @@ function StoryBubble({ msg, index, character, userAvatar, onRegenerate, showActi
           </span>
         )}
 
+        {msg.isPartial && (
+          <span className="text-[10px] text-red-400 px-1 select-none">（回复可能不完整）</span>
+        )}
+
         <span className="text-[9px] text-purple-500/60 px-1 select-none">已读</span>
 
         {msg.usage && (
@@ -444,7 +471,6 @@ function FormattedText({ content }) {
 }
 
 function CasualReplyGroup({ msg, character, userAvatar, onRegenerate, index, showActions, onToggleActions }) {
-  const [thinkExpanded, setThinkExpanded] = useState(false)
   const [copied, setCopied] = useState(false)
   const { thinkContent, mainContent } = parseThinkBlock(msg.content)
   const bubbles = cleanAndSplitResponse(mainContent)
@@ -481,14 +507,14 @@ function CasualReplyGroup({ msg, character, userAvatar, onRegenerate, index, sho
         )}
 
         {thinkContent && (
-          <div className="cursor-pointer select-none" onClick={(e) => { e.stopPropagation(); setThinkExpanded(!thinkExpanded) }}>
-            <span className="text-[10px] text-gray-500 hover:text-gray-300">{thinkExpanded ? '▼' : '▶'} 查看思考过程</span>
-            {thinkExpanded && (
-              <div className="mt-1 px-2.5 py-2 rounded-lg bg-gray-800/70 border border-gray-700/50 text-[11px] text-gray-400 leading-relaxed whitespace-pre-wrap">
-                {thinkContent}
-              </div>
-            )}
-          </div>
+          <details className="cursor-pointer select-none" onClick={(e) => e.stopPropagation()}>
+            <summary className="text-[10px] text-gray-500 hover:text-gray-300 marker:text-gray-600">
+              查看思考过程
+            </summary>
+            <div className="mt-1 px-2.5 py-2 rounded-lg bg-gray-800/70 border border-gray-700/50 text-[11px] text-gray-400 leading-relaxed whitespace-pre-wrap">
+              {thinkContent}
+            </div>
+          </details>
         )}
 
         {bubbles.map((bubbleText, bi) => (
@@ -755,7 +781,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setRevealingState(null)
 
     // Add a new assistant message with segments (simple text segments)
-    const segments = messages.map(m => ({ text: m, action: null, psychology: null }))
+    const segments = messages.map(m => ({ text: m, action: null, thought: null }))
     setMessages(prev => {
       const updated = [...prev, { role: 'assistant', content: messages.join('|||'), segments, timestamp: Date.now(), isAutonomous: true }]
       saveChatMessages(archiveId, updated, mode)
@@ -829,16 +855,39 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
   }, [])
 
+  const clampAffection = useCallback((value, charOrRc) => {
+    const stages = charOrRc?.affectionStages
+    if (stages && stages.length > 0) {
+      const mins = stages.map(s => s.min != null ? Number(s.min) : 0)
+      const maxs = stages.map(s => s.max != null ? Number(s.max) : 100)
+      const min = Math.min(...mins)
+      const max = Math.max(...maxs)
+      return Math.min(max, Math.max(min, value))
+    }
+    return Math.min(100, Math.max(-100, value))
+  }, [])
+
+  const getAffectionRange = useCallback((charOrRc) => {
+    const stages = charOrRc?.affectionStages
+    if (stages && stages.length > 0) {
+      const mins = stages.map(s => s.min != null ? Number(s.min) : 0)
+      const maxs = stages.map(s => s.max != null ? Number(s.max) : 100)
+      return { min: Math.min(...mins), max: Math.max(...maxs) }
+    }
+    return { min: 0, max: 100 }
+  }, [])
+
   const adjustAffection = useCallback((delta, charName) => {
     if (character?.chatStyle === 'story' && charName) {
+      const rc = character.romanceCharacters?.find(c => c.name === charName)
       setAffections(prev => ({
         ...prev,
-        [charName]: Math.min(100, Math.max(0, (prev?.[charName] ?? 50) + delta))
+        [charName]: clampAffection((prev?.[charName] ?? rc?.affectionInitial ?? 50) + delta, rc)
       }))
     } else {
-      setAffection(prev => Math.min(100, Math.max(0, prev + delta)))
+      setAffection(prev => clampAffection(prev + delta, character))
     }
-  }, [character?.chatStyle])
+  }, [character, clampAffection])
 
   const handleToggleActions = useCallback((idx, isHoverEnter) => {
     clearTimeout(menuTimerRef.current)
@@ -890,7 +939,13 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       setStreamingText('')
 
       if (apiError || !reply) {
-        setError(apiError?.message || '请求失败')
+        const retryMsg = {
+          role: 'system',
+          content: 'RETRY:' + (apiError?.message || '请求失败'),
+          timestamp: Date.now(),
+          isRetry: true,
+        }
+        setMessages([...newMessages, retryMsg])
         return false
       }
 
@@ -945,8 +1000,29 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setLoading(false)
     setStreamingText('')
 
+    // Handle stream error with partial content
+    if (apiError && apiError.partial && reply) {
+      const partialMsg = {
+        role: 'assistant',
+        content: reply,
+        usage,
+        timestamp: Date.now(),
+        isPartial: true,
+      }
+      setMessages([...newMessages, partialMsg])
+      setError('（回复可能不完整）')
+      return false
+    }
+
+    // Handle complete failure
     if (apiError || !reply) {
-      setError(apiError?.message || '请求失败')
+      const retryMsg = {
+        role: 'system',
+        content: 'RETRY:' + (apiError?.message || '请求失败'),
+        timestamp: Date.now(),
+        isRetry: true,
+      }
+      setMessages([...newMessages, retryMsg])
       return false
     }
 
@@ -959,7 +1035,9 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         setAffections(prev => {
           const updated = { ...prev }
           changes.forEach(({ name, delta }) => {
-            updated[name] = Math.min(100, Math.max(0, (updated[name] || 50) + delta))
+            const rc = character.romanceCharacters?.find(c => c.name === name)
+            const newVal = (updated[name] || (rc?.affectionInitial ?? 50)) + delta
+            updated[name] = clampAffection(newVal, rc)
           })
           return updated
         })
@@ -1062,6 +1140,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               const rcStage = rc.affectionEnabled
                 ? getCurrentAffectionStage({ affectionEnabled: true, affectionStages: rc.affectionStages }, value)
                 : null
+              const rcRange = getAffectionRange(rc)
+              const rcPct = rcRange.max !== rcRange.min
+                ? Math.min(100, Math.max(0, ((value - rcRange.min) / (rcRange.max - rcRange.min)) * 100))
+                : 50
               return (
                 <div key={rc.name} className="flex items-center gap-2 flex-shrink-0 group">
                   {rc.avatar ? (
@@ -1083,7 +1165,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                       <div className="h-1 w-16 bg-gray-700 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-gradient-to-r from-pink-500 to-rose-400 rounded-full transition-all duration-500"
-                          style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+                          style={{ width: `${rcPct}%` }}
                         />
                       </div>
                       <button
@@ -1110,13 +1192,18 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       )}
 
       {/* Affection bar - daily mode: single character */}
-      {character.chatStyle !== 'story' && character.affectionEnabled && stage && (
+      {character.chatStyle !== 'story' && character.affectionEnabled && stage && (() => {
+        const affRange = getAffectionRange(character)
+        const affPct = affRange.max !== affRange.min
+          ? Math.min(100, Math.max(0, ((affection - affRange.min) / (affRange.max - affRange.min)) * 100))
+          : 50
+        return (
         <div className="px-4 py-2 bg-gray-800/50 border-b border-gray-700/50">
           <div className="flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
               <span className="text-pink-400">♥</span>
               <span className="text-gray-300">{stage.name}</span>
-              <span className="text-gray-500">{affection}/100</span>
+              <span className="text-gray-500">{affection}/{affRange.max}</span>
             </div>
             <div className="flex gap-1">
               <button
@@ -1138,11 +1225,12 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
           <div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-pink-500 to-rose-400 rounded-full transition-all duration-500"
-              style={{ width: `${affection}%` }}
+              style={{ width: `${affPct}%` }}
             />
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Active message indicator */}
       {character.activeMessageEnabled && (
@@ -1170,6 +1258,20 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
 
         {messages.map((msg, i) => {
           if (msg.role === 'system') {
+            if (msg.isRetry) {
+              const errMsg = msg.content.replace(/^RETRY:/, '')
+              return (
+                <div key={i} className="flex justify-center my-2 animate-fade-in">
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2 max-w-[85%] cursor-pointer hover:bg-red-500/20 transition-colors"
+                    onClick={() => handleRegenerateMessage(i)}
+                  >
+                    <div className="text-[10px] mb-1 text-red-400">发送失败</div>
+                    <div className="text-xs text-red-300 leading-relaxed">{errMsg}</div>
+                    <div className="text-[11px] text-red-400 mt-1 underline">点击重试</div>
+                  </div>
+                </div>
+              )
+            }
             const isDice = msg.content.startsWith('随机事件触发')
             const isMemory = msg.content.startsWith('【历史剧情摘要】')
             return (
