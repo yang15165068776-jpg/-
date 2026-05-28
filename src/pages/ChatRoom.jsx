@@ -9,6 +9,7 @@ import {
   getAffections,
   saveAffections,
   clearChatHistory,
+  saveCharacter,
 } from '../utils/storage'
 import { sendMessageStream, sendCasualReply, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, parseAffectionTags } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
@@ -74,7 +75,9 @@ function ThinkToggle({ content }) {
 
 function StoryReplyBlock({ msg, character, index, onRegenerate, showActions, onToggleActions, userAvatar }) {
   const [copied, setCopied] = useState(false)
-  const { thinkContent, mainContent } = parseThinkBlock(msg.content)
+  const nativeThinking = msg.reasoningContent || null
+  const { thinkContent: parsedThink, mainContent } = parseThinkBlock(msg.content)
+  const thinkContent = nativeThinking || parsedThink
 
   const handleCopy = (e) => {
     e.stopPropagation()
@@ -472,7 +475,9 @@ function FormattedText({ content }) {
 
 function CasualReplyGroup({ msg, character, userAvatar, onRegenerate, index, showActions, onToggleActions }) {
   const [copied, setCopied] = useState(false)
-  const { thinkContent, mainContent } = parseThinkBlock(msg.content)
+  const nativeThinking = msg.reasoningContent || null
+  const { thinkContent: parsedThink, mainContent } = parseThinkBlock(msg.content)
+  const thinkContent = nativeThinking || parsedThink
   const bubbles = cleanAndSplitResponse(mainContent)
 
   const handleCopy = (e) => {
@@ -542,7 +547,9 @@ function MessageBubble({ msg, index, isUser, character, userAvatar, onEdit, onRe
 
   const { thinkContent, mainContent } = isUser
     ? { thinkContent: null, mainContent: msg.content }
-    : parseThinkBlock(msg.content)
+    : (msg.reasoningContent
+        ? { thinkContent: msg.reasoningContent, mainContent: msg.content }
+        : parseThinkBlock(msg.content))
 
   const handleCopy = (e) => {
     e.stopPropagation()
@@ -695,6 +702,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [showDice, setShowDice] = useState(false)
   const [diceRolling, setDiceRolling] = useState(false)
   const [diceResult, setDiceResult] = useState(null)
+  const [affectionFlash, setAffectionFlash] = useState(null) // { name?: string, delta: number } | null
+  const [affectionNoChange, setAffectionNoChange] = useState(false)
   const revealTimerRef = useRef(null)
   const activeCheckTimerRef = useRef(null)
   const activeDisplayRef = useRef(null)
@@ -704,6 +713,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const activeTimerRef = useRef(null)
   const lastActivityRef = useRef(Date.now())
   const menuTimerRef = useRef(null)
+  const roundsSinceLastAffectionRef = useRef({}) // { [charName]: count } — rounds since last non-zero affection change
 
   useEffect(() => {
     const archive = getArchive(archiveId, mode)
@@ -912,6 +922,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setError('')
     setRetrying(false)
     setActiveMenuIdx(null)
+    setAffectionNoChange(false)
     lastActivityRef.current = Date.now()
 
     // Clear any pending autonomous message
@@ -928,7 +939,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setLoading(true)
 
     if (character.chatStyle === 'casual') {
-      const { reply, usage, error: apiError } = await sendCasualReply(
+      const { reply, reasoningContent, usage, error: apiError } = await sendCasualReply(
         character,
         newMessages,
         affection,
@@ -950,7 +961,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       }
 
       const segments = parseCasualReply(reply)
-      const assistantMsg = { role: 'assistant', content: reply, segments, usage, timestamp: Date.now() }
+      const assistantMsg = { role: 'assistant', content: reply, segments, reasoningContent, usage, timestamp: Date.now() }
       const finalMessages = [...newMessages, assistantMsg]
       const msgIndex = finalMessages.length - 1
       setMessages(finalMessages)
@@ -958,6 +969,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       if (character.affectionEnabled) {
         const delta = Math.floor(Math.random() * 5) + 1
         adjustAffection(delta)
+        setAffectionFlash({ '': delta })
+        setTimeout(() => setAffectionFlash(null), 1500)
+      } else {
+        setAffectionNoChange(true)
       }
 
       // Sequential reveal: show segments one by one with delays
@@ -979,13 +994,24 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       return true
     }
 
+    // Increment rounds since last affection change for all tracked characters
+    if (character.chatStyle === 'story' && character.romanceCharacters) {
+      const roundsRef = roundsSinceLastAffectionRef.current
+      character.romanceCharacters.forEach(rc => {
+        if (rc.affectionEnabled) {
+          roundsRef[rc.name] = (roundsRef[rc.name] || 0) + 1
+        }
+      })
+    }
+
     // Story mode: streaming with affections object
     const affectionData = character.chatStyle === 'story' ? affections : affection
-    const { reply, usage, error: apiError } = await sendMessageStream(
+    const { reply, reasoningContent, usage, error: apiError } = await sendMessageStream(
       character,
       newMessages,
       affectionData,
       apiKey,
+      roundsSinceLastAffectionRef.current,
       (token, fullText, reset) => {
         if (reset) {
           setStreamingText('')
@@ -1005,6 +1031,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       const partialMsg = {
         role: 'assistant',
         content: reply,
+        reasoningContent,
         usage,
         timestamp: Date.now(),
         isPartial: true,
@@ -1031,25 +1058,39 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     if (character.chatStyle === 'story') {
       const { cleanedContent, changes } = parseAffectionTags(reply)
       finalReply = cleanedContent || reply
-      if (changes.length > 0) {
+      // Filter out zero-delta changes (confirmed-no-change) for flash display
+      const meaningfulChanges = changes.filter(c => c.delta !== 0)
+      if (meaningfulChanges.length > 0) {
+        const flashMap = {}
         setAffections(prev => {
           const updated = { ...prev }
-          changes.forEach(({ name, delta }) => {
+          meaningfulChanges.forEach(({ name, delta }) => {
             const rc = character.romanceCharacters?.find(c => c.name === name)
             const newVal = (updated[name] || (rc?.affectionInitial ?? 50)) + delta
             updated[name] = clampAffection(newVal, rc)
+            flashMap[name] = delta
           })
           return updated
         })
+        // Reset rounds counter for characters that got a non-zero change
+        meaningfulChanges.forEach(({ name }) => {
+          roundsSinceLastAffectionRef.current[name] = 0
+        })
+        setAffectionFlash(flashMap)
+        setTimeout(() => setAffectionFlash(null), 1500)
+      } else {
+        setAffectionNoChange(true)
       }
     }
 
-    const assistantMsg = { role: 'assistant', content: finalReply, usage, timestamp: Date.now() }
+    const assistantMsg = { role: 'assistant', content: finalReply, reasoningContent, usage, timestamp: Date.now() }
     setMessages([...newMessages, assistantMsg])
 
     if (character.affectionEnabled && character.chatStyle !== 'story') {
       const delta = Math.floor(Math.random() * 5) + 1
       adjustAffection(delta)
+      setAffectionFlash({ '': delta })
+      setTimeout(() => setAffectionFlash(null), 1500)
     }
     triggerActiveCheck()
     return true
@@ -1102,6 +1143,12 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     if (window.confirm('确定要清除所有对话记录吗？')) {
       clearChatHistory(archiveId, mode)
       setMessages([])
+      // Clear compressed memory from character
+      const char = getCharacter(character.id, mode)
+      if (char && char.compressedMemory) {
+        delete char.compressedMemory
+        saveCharacter(char, mode)
+      }
       if (character?.chatStyle === 'story' && character?.romanceCharacters) {
         const initial = {}
         character.romanceCharacters.forEach(rc => {
@@ -1144,8 +1191,12 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               const rcPct = rcRange.max !== rcRange.min
                 ? Math.min(100, Math.max(0, ((value - rcRange.min) / (rcRange.max - rcRange.min)) * 100))
                 : 50
+              const rcFlash = affectionFlash?.[rc.name]
+              const flashClass = rcFlash != null
+                ? (rcFlash > 0 ? 'affection-flash-green' : 'affection-flash-red')
+                : ''
               return (
-                <div key={rc.name} className="flex items-center gap-2 flex-shrink-0 group">
+                <div key={rc.name} className="flex items-center gap-2 flex-shrink-0 group relative">
                   {rc.avatar ? (
                     <img src={rc.avatar} alt="" className="w-7 h-7 rounded-full object-cover border border-gray-600" />
                   ) : (
@@ -1160,9 +1211,14 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                       {rcStage && (
                         <span className="text-[10px] text-gray-500">{rcStage.name}</span>
                       )}
+                      {rcFlash != null && (
+                        <span className={`text-[10px] font-bold ${rcFlash > 0 ? 'text-green-400' : 'text-red-400'} affection-float-up`}>
+                          {rcFlash > 0 ? '+' : ''}{rcFlash}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-0.5 mt-0.5">
-                      <div className="h-1 w-16 bg-gray-700 rounded-full overflow-hidden">
+                      <div className={`h-1 w-16 bg-gray-700 rounded-full overflow-hidden ${flashClass}`}>
                         <div
                           className="h-full bg-gradient-to-r from-pink-500 to-rose-400 rounded-full transition-all duration-500"
                           style={{ width: `${rcPct}%` }}
@@ -1188,6 +1244,11 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               )
             })}
           </div>
+          {affectionNoChange && (
+            <div className="text-center mt-1">
+              <span className="text-[10px] text-gray-600">本轮好感度无变化</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -1197,6 +1258,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         const affPct = affRange.max !== affRange.min
           ? Math.min(100, Math.max(0, ((affection - affRange.min) / (affRange.max - affRange.min)) * 100))
           : 50
+        const singleFlash = affectionFlash?.['']
+        const flashClass = singleFlash != null
+          ? (singleFlash > 0 ? 'affection-flash-green' : 'affection-flash-red')
+          : ''
         return (
         <div className="px-4 py-2 bg-gray-800/50 border-b border-gray-700/50">
           <div className="flex items-center justify-between text-xs">
@@ -1204,6 +1269,11 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               <span className="text-pink-400">♥</span>
               <span className="text-gray-300">{stage.name}</span>
               <span className="text-gray-500">{affection}/{affRange.max}</span>
+              {singleFlash != null && (
+                <span className={`text-[11px] font-bold ${singleFlash > 0 ? 'text-green-400' : 'text-red-400'} affection-float-up`}>
+                  {singleFlash > 0 ? '+' : ''}{singleFlash}
+                </span>
+              )}
             </div>
             <div className="flex gap-1">
               <button
@@ -1222,12 +1292,17 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               </button>
             </div>
           </div>
-          <div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+          <div className={`mt-1 h-1 bg-gray-700 rounded-full overflow-hidden ${flashClass}`}>
             <div
               className="h-full bg-gradient-to-r from-pink-500 to-rose-400 rounded-full transition-all duration-500"
               style={{ width: `${affPct}%` }}
             />
           </div>
+          {affectionNoChange && (
+            <div className="text-center mt-1">
+              <span className="text-[10px] text-gray-600">本轮好感度无变化</span>
+            </div>
+          )}
         </div>
         )
       })()}
@@ -1273,7 +1348,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               )
             }
             const isDice = msg.content.startsWith('随机事件触发')
-            const isMemory = msg.content.startsWith('【历史剧情摘要】')
+            const isMemory = msg.isMemory || msg.content.startsWith('【历史剧情摘要】')
             return (
               <div key={i} className="flex justify-center my-2 animate-fade-in">
                 <div className={(isDice ? 'bg-orange-500/10 border-orange-500/20' : 'bg-amber-500/10 border-amber-500/20') + ' border rounded-lg px-4 py-2 max-w-[85%]'}>
@@ -1564,8 +1639,31 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                     setError('请填写摘要内容或使用AI自动压缩')
                     return
                   }
-                  const memoryMsg = { role: 'system', content: '【历史剧情摘要】\n' + summary }
-                  setMessages([memoryMsg])
+                  const cleanSummary = summary
+                    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+                    .replace(/【思考】[\s\S]*?【\/思考】/g, '')
+                    .replace(/【思考】[\s\S]*?(?=\n[^\s]|$)/g, '')
+                    .trim()
+                  // Preserve the last complete turn (last user msg + last assistant msg)
+                  const nonSystem = messages.filter(m => m.role !== 'system')
+                  let lastUserIdx = -1
+                  for (let i = nonSystem.length - 1; i >= 0; i--) {
+                    if (nonSystem[i].role === 'user') { lastUserIdx = i; break }
+                  }
+                  const lastTurn = lastUserIdx >= 0
+                    ? nonSystem.slice(lastUserIdx, lastUserIdx + 2).filter(m => m.role === 'user' || m.role === 'assistant')
+                    : []
+                  const memoryMsg = { role: 'system', content: '【历史剧情摘要】\n' + cleanSummary, isMemory: true }
+                  const newMessages = lastTurn.length > 0
+                    ? [memoryMsg, ...lastTurn]
+                    : [memoryMsg]
+                  setMessages(newMessages)
+                  // Save compressed memory to character JSON
+                  const char = getCharacter(character.id, mode)
+                  if (char) {
+                    char.compressedMemory = cleanSummary
+                    saveCharacter(char, mode)
+                  }
                   setShowCompress(false)
                   setCompressSummary('')
                   setError('')

@@ -1,6 +1,40 @@
 import { getModel } from './storage'
 
 const BASE_URL = 'https://api.deepseek.com'
+const USER_WRAPPER = `
+---
+【好感度结算——最高优先级】
+本轮结束必须在回复最后一行输出:
+<affection>角色名:+N或-N或0</affection>
+N范围1-5，0=无变化。必须输出此标签。
+
+---
+【回复前执行以下七步，只输出最终回复，不输出分析过程】
+
+1.解析用户输入：表面vs深层意图、情绪状态、对角色意味着什么（威胁/试探/示好/刺激？）
+
+2.锁定角色状态：当前好感度阶段、身体状态（紧绷/松弛/警觉）、情绪内核（恐惧/渴望/愤怒/耻辱）、想说的话和实际说出口的距离
+
+3.检索阶段边界：当前阶段允许/禁止什么、是否接近临界点需埋线索
+
+4.确定情绪张力：核心矛盾（想要X但不能/不敢承认）、外在vs内心的撕裂点、可引爆的情绪节点。反常识检验：最显而易见的反应考虑放弃，沉默/克制/不相关的事可能更震撼
+
+5.生成三个候选方向：
+A-直接反应（张力/10，撕裂来源：__）
+B-反向/克制（张力/10，撕裂来源：__）
+C-极端/黑暗面（张力/10，撕裂来源：__）
+
+6.选最优方向：情绪张力最足、读完被攥住、内外撕裂感最强、让用户猜不到下一步。排除平稳过渡/圆满收场/滑向温柔无害
+
+7.润色输出：动作或环境切入开头，每个情绪转折配感官细节，对话≤1/3其余用身体和环境承载，内心独白仅情绪极度压抑时出现且碎片化
+
+完成后只输出最终回复正文。`
+
+export function wrapUserMessage(content) {
+  if (!content || typeof content !== "string") return content
+  return content + USER_WRAPPER
+}
+
 
 function findForbiddenWord(text, words) {
   if (!words || words.length === 0) return null
@@ -8,7 +42,7 @@ function findForbiddenWord(text, words) {
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
 }
 
-function buildGMPrompt(character, affections) {
+function buildGMPrompt(character, affections, roundsSinceLastChange) {
   const parts = []
   const name = character.name || '故事'
 
@@ -69,6 +103,15 @@ function buildGMPrompt(character, affections) {
         const stage = getCurrentAffectionStage(rc, affValue)
         lines.push('当前好感度：' + affValue + '/100' +
           (stage ? '，当前阶段：' + stage.name + '，行为规则：' + stage.behavior : ''))
+        if (rc.cooldownRounds != null) {
+          const elapsed = (roundsSinceLastChange && roundsSinceLastChange[rc.name]) || 0
+          const remaining = rc.cooldownRounds - elapsed
+          if (remaining <= 0) {
+            lines.push('冷却已结束（已过' + elapsed + '轮），本轮可正常上涨')
+          } else {
+            lines.push('冷却锁：还需' + remaining + '轮才能再次上涨（已过' + elapsed + '轮）')
+          }
+        }
         if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
           lines.push('好感度增加条件：\n' + rc.affectionUpRules.trim().split('\n').filter(Boolean).map(r => '- ' + r.trim()).join('\n'))
         }
@@ -102,38 +145,18 @@ function buildGMPrompt(character, affections) {
     parts.push(npcRules)
   }
 
-  // 6: GM character scheduling rules
+    // 6: GM character scheduling rules
   parts.push(
     '【GM角色调度规则】\n' +
-    '你作为GM需要主动安排角色出场，\n' +
-    '不要等用户点名某个角色才让他出现。\n' +
-    '\n' +
-    '调度依据：\n' +
-    '1. 参考每个角色的自主行为设定，\n' +
-    '如果某角色的自主行为里写了\n' +
-    '"会在特定场合主动出现"，\n' +
-    '当场合符合时你必须安排他出场\n' +
-    '2. 参考角色当前好感度阶段的行为规则，\n' +
-    '阶段不同的角色对同一场景反应不同\n' +
-    '3. 多个角色同场时，\n' +
-    '性格强势的角色会主动主导对话，\n' +
-    '性格内敛的角色可能只是旁观或插一句话，\n' +
-    '按各自人设自然表现，不要平均分配台词\n' +
-    '\n' +
-    '出场节奏：\n' +
-    '- 不需要每轮都让所有角色同时出现\n' +
-    '- 有时候只有一个角色在场更有张力\n' +
-    '- 角色的缺席本身也可以是叙事\n' +
-    '（如：某角色明显回避了这个场合）\n' +
-    '- 重要情节节点才安排多角色汇聚\n' +
-    '\n' +
-    '对话标注格式：\n' +
-    '每段对话前标注【角色名】，\n' +
-    '纯叙事段落不需要标注，直接写，\n' +
-    '保持小说文体的流畅性。'
+    '主动安排角色出场，不等用户点名。\n' +
+    '按角色设定和好感度阶段决定出场，\n' +
+    '强势主导，内敛旁观，不平均台词。\n' +
+    '不需每轮全员出场，重要节点才多角色汇聚。\n' +
+    '对话前标注【角色名】，纯叙事不标注。'
   )
 
   // 7: Thinking process
+// 7: Thinking process
   parts.push(
     '【思考过程——强制要求】\n' +
     '每次回复前必须先用<think>标签输出思考过程，\n' +
@@ -183,17 +206,13 @@ function buildGMPrompt(character, affections) {
   return parts.join('\n\n')
 }
 
-function buildSystemPrompt(character, affectionData) {
+export function buildSystemPrompt(character, affectionData, roundsSinceLastChange) {
   const name = character.name || '角色'
   const parts = []
 
   if (character.chatStyle === 'story') {
     // GM story mode
-    parts.push(buildGMPrompt(character, affectionData))
-    parts.push(
-      '再次强调：以上所有规则必须在每一条回复中严格遵守。' +
-      '如果你不确定某个行为是否符合规则，选择更符合角色设定的那个。'
-    )
+    parts.push(buildGMPrompt(character, affectionData, roundsSinceLastChange))
     return parts.join('\n\n')
   }
 
@@ -280,12 +299,6 @@ function buildSystemPrompt(character, affectionData) {
     '破坏用户体验，因此严格禁止。'
   )
 
-  // Mandatory framework footer
-  parts.push(
-    '再次强调：以上所有规则必须在每一条回复中严格遵守。' +
-    '如果你不确定某个行为是否符合规则，选择更符合角色设定的那个。'
-  )
-
   return parts.join('\n\n')
 }
 
@@ -340,7 +353,7 @@ export function parseAffectionTags(content) {
     const trimmed = s.trim()
     if (!trimmed) return null
     // Match pattern: 角色名:±N
-    const m = trimmed.match(/^(.+?):([+-]?\d+)$/)
+    const m = trimmed.match(/^(.+?)\s*:\s*([+-]?\d+)$/)
     if (!m) return null
     const name = m[1].trim()
     const delta = parseInt(m[2], 10)
@@ -359,7 +372,7 @@ export function getCurrentAffectionStage(character, affection) {
   ) || null
 }
 
-async function* streamCompletion(messages, apiKey, model, temperature, topP) {
+async function* streamCompletion(messages, apiKey, model, temperature, topP, thinkingEnabled) {
   const controller = new AbortController()
   const timeout = setTimeout(() => {
     controller.abort()
@@ -373,6 +386,7 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP) {
     }
     if (temperature != null) body.temperature = temperature
     if (topP != null) body.top_p = topP
+    if (thinkingEnabled) body.thinking = { type: 'enabled' }
     const response = await fetch(BASE_URL + '/chat/completions', {
       method: 'POST',
       headers: {
@@ -419,9 +433,11 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP) {
         }
         try {
           const parsed = JSON.parse(data)
-          const content = parsed.choices?.[0]?.delta?.content
+          const delta = parsed.choices?.[0]?.delta
+          const content = delta?.content || ''
+          const reasoningContent = delta?.reasoning_content || ''
           const usage = parsed.usage || null
-          yield { content: content || '', usage }
+          yield { content, reasoningContent, usage }
         } catch { /* skip malformed chunks */ }
       }
     }
@@ -435,27 +451,27 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP) {
   }
 }
 
-export async function sendMessageStream(character, messages, affectionData, apiKey, onToken) {
+export async function sendMessageStream(character, messages, affectionData, apiKey, roundsSinceLastChange, onToken) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
   const memoryMessages = messages.filter(m => m.role === 'system')
   const userAssistantMessages = messages.filter(m => m.role !== 'system')
 
-  const conversationMessages = userAssistantMessages.map(m => ({
-    role: m.role,
-    content: m.content,
-  }))
-
-  // Truncate to context window (only user/assistant messages)
+  // Truncate first, then wrap (avoid wrapping discarded messages)
   const contextWindow = character.contextWindow || 40
-  const truncated = conversationMessages.slice(-contextWindow)
+  const truncated = userAssistantMessages.slice(-contextWindow)
+
+  const conversationMessages = truncated.map(m => ({
+    role: m.role,
+    content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
+  }))
 
   let lastError = null
   let lastViolation = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
-    let systemPrompt = buildSystemPrompt(character, affectionData)
+    let systemPrompt = buildSystemPrompt(character, affectionData, roundsSinceLastChange)
 
     // Inject memory content into system prompt
     if (memoryMessages.length > 0) {
@@ -470,19 +486,22 @@ export async function sendMessageStream(character, messages, affectionData, apiK
 
     const apiMessages = [
       { role: 'system', content: systemPrompt },
-      ...truncated,
+      ...conversationMessages,
     ]
 
     try {
       let fullReply = ''
+      let reasoningContent = ''
       let usage = null
-      let streamBroke = false
 
       try {
-        for await (const chunk of streamCompletion(apiMessages, apiKey, model, character.temperature, character.topP)) {
+        for await (const chunk of streamCompletion(apiMessages, apiKey, model, character.temperature, character.topP, character.thinkingEnabled)) {
           if (chunk.content) {
             fullReply += chunk.content
             onToken(chunk.content, fullReply)
+          }
+          if (chunk.reasoningContent) {
+            reasoningContent += chunk.reasoningContent
           }
           if (chunk.usage) {
             usage = chunk.usage
@@ -491,7 +510,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
       } catch (streamErr) {
         // Stream broke mid-flow — preserve partial content
         if (fullReply) {
-          return { reply: fullReply, usage, error: { message: streamErr.message, partial: true } }
+          return { reply: fullReply, reasoningContent, usage, error: { message: streamErr.message, partial: true } }
         }
         throw streamErr
       }
@@ -508,7 +527,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
         }
       }
 
-      return { reply: fullReply, usage, error: null }
+      return { reply: fullReply, reasoningContent, usage, error: null }
     } catch (err) {
       lastError = err
       // Don't retry on network/timeout errors
@@ -516,7 +535,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
     }
   }
 
-  return { reply: null, error: lastError || new Error('请求失败，已达最大重试次数') }
+  return { reply: null, reasoningContent: null, error: lastError || new Error('请求失败，已达最大重试次数') }
 }
 
 export async function sendMessageStructured(character, messages, affectionData, apiKey) {
@@ -633,13 +652,14 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
   const memoryMessages = messages.filter(m => m.role === 'system')
   const userAssistantMessages = messages.filter(m => m.role !== 'system')
 
-  const conversationMessages = userAssistantMessages.map(m => ({
-    role: m.role,
-    content: m.content,
-  }))
-
+  // Truncate first, then wrap (avoid wrapping discarded messages)
   const contextWindow = character.contextWindow || 40
-  const truncated = conversationMessages.slice(-contextWindow)
+  const truncated = userAssistantMessages.slice(-contextWindow)
+
+  const conversationMessages = truncated.map(m => ({
+    role: m.role,
+    content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
+  }))
 
   let systemPrompt = buildSystemPrompt(character, affectionData)
 
@@ -680,6 +700,7 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
           stream: false,
           ...(character.temperature != null ? { temperature: character.temperature } : {}),
           ...(character.topP != null ? { top_p: character.topP } : {}),
+          ...(character.thinkingEnabled ? { thinking: { type: 'enabled' } } : {}),
         }),
         signal: controller.signal,
       })
@@ -692,7 +713,9 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
       }
 
       const data = await response.json()
-      const reply = data.choices?.[0]?.message?.content || ''
+      const message = data.choices?.[0]?.message
+      const reply = message?.content || ''
+      const reasoningContent = message?.reasoning_content || ''
       const usage = data.usage || null
 
       // Check forbidden words
@@ -706,14 +729,14 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
         }
       }
 
-      return { reply: reply.trim(), usage, error: null }
+      return { reply: reply.trim(), reasoningContent, usage, error: null }
     } catch (err) {
       lastError = err
       break
     }
   }
 
-  return { reply: null, usage: null, error: lastError || new Error('请求失败') }
+  return { reply: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
 export async function generateActiveMessage(character, affectionData, apiKey) {

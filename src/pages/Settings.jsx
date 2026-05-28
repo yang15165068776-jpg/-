@@ -3,7 +3,9 @@ import {
   getApiKey, saveApiKey,
   getModel, saveModel,
   getUserAvatar, saveUserAvatar,
+  getCharacters,
 } from '../utils/storage'
+import { buildSystemPrompt } from '../utils/deepseek'
 
 function imageToBase64(file) {
   return new Promise((resolve) => {
@@ -235,6 +237,51 @@ export default function Settings({ onBack }) {
           <li>· 对话内容会发送至 DeepSeek 服务器以生成回复</li>
           <li>· 请勿在对话中分享敏感个人信息</li>
         </ul>
+      </div>
+
+      {/* System Prompt Preview */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <h3 className="text-sm font-medium text-gray-200 mb-3">System Prompt 预览</h3>
+        <button
+          onClick={() => {
+            const chars = [...getCharacters('story'), ...getCharacters('daily')]
+            if (chars.length === 0) {
+              alert('暂无角色数据')
+              return
+            }
+            const lines = []
+            lines.push('=== System Prompt 字符数统计 ===\n')
+            let grandTotal = 0
+            const modes = [
+              { label: '剧情模式', mode: 'story' },
+              { label: '日常模式', mode: 'daily' },
+            ]
+            for (const { label, mode } of modes) {
+              const modeChars = getCharacters(mode)
+              if (modeChars.length === 0) continue
+              lines.push('【' + label + '】')
+              for (const char of modeChars) {
+                const affData = char.chatStyle === 'story' && char.romanceCharacters
+                  ? Object.fromEntries(char.romanceCharacters.filter(rc => rc.affectionEnabled).map(rc => [rc.name, rc.affectionInitial ?? 50]))
+                  : char.affectionInitial ?? 50
+                const prompt = buildSystemPrompt(char, affData)
+                const len = prompt.length
+                const estTokens = Math.round(len / 2.5)
+                lines.push('  ' + char.name + ': ' + len.toLocaleString() + ' 字符 ≈ ' + estTokens.toLocaleString() + ' tokens')
+                grandTotal += len
+              }
+            }
+            lines.push('\n总计（所有角色prompt字符和）: ' + grandTotal.toLocaleString() + ' 字符')
+            lines.push('注：实际发送时只包含当前角色')
+            alert(lines.join('\n'))
+          }}
+          className="w-full py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
+        >
+          计算 System Prompt 大小
+        </button>
+        <p className="text-xs text-gray-500 mt-2">
+          点击查看每个角色的 system prompt 字符数及估算 token 消耗（1 token ≈ 2.5 中文字符）
+        </p>
       </div>
 
       {/* Save button */}

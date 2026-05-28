@@ -1,8 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../../utils/storage'
-import { generateAutonomySummary, generateThinkingPrompt, extractCharacterFromText, extractStoryFromText } from '../../utils/deepseek'
+import { generateAutonomySummary, extractCharacterFromText, extractStoryFromText } from '../../utils/deepseek'
 
-const emptyStage = () => ({ name: '', min: 0, max: 50, behavior: '' })
+const emptyStage = () => ({
+  name: '',
+  min: 0,
+  max: 50,
+  coreState: '',
+  playerStrategy: '',
+  riseCondition: '',
+  languageSamples: '',
+  forbiddenBehaviors: '',
+  selfDriveBehaviors: [],
+})
 const emptyRomanceChar = () => ({
   id: '',
   name: '',
@@ -15,9 +25,12 @@ const emptyRomanceChar = () => ({
   affectionEnabled: true,
   affectionInitial: 50,
   affectionStages: [emptyStage()],
-  affectionUpRules: '',
-  affectionDownRules: '',
-  thinkingEnabled: false,
+  transitionTriggers: '',
+  irreversibleMoment: '',
+  cooldownRounds: 1,
+  erosionCondition: '',
+  anchorSuppression: '',
+  thinkingEnabled: true,
   thinkingPrompt: '',
 })
 const emptyNpc = () => ({ id: '', name: '', relationship: '', personality: '', avatar: '' })
@@ -56,7 +69,6 @@ function imageToBase64(file) {
 export default function StoryCharacterForm({ mode, characterId, onSave, onCancel }) {
   const isEdit = !!characterId
   const [generatingAutonomy, setGeneratingAutonomy] = useState(false)
-  const [generatingThinkingIdx, setGeneratingThinkingIdx] = useState(-1)
   const [showExtractModal, setShowExtractModal] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
@@ -117,8 +129,14 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                 ...rc,
                 styleRules: Array.isArray(rc.styleRules) ? rc.styleRules.join('\n') : (rc.styleRules || ''),
                 forbiddenWords: Array.isArray(rc.forbiddenWords) ? rc.forbiddenWords.join('\n') : (rc.forbiddenWords || ''),
+                transitionTriggers: Array.isArray(rc.transitionTriggers) ? rc.transitionTriggers.join('\n') : (rc.transitionTriggers || ''),
                 affectionStages: rc.affectionStages?.length > 0
-                  ? rc.affectionStages.map(s => ({ ...emptyStage(), ...s }))
+                  ? rc.affectionStages.map(s => ({
+                      ...emptyStage(),
+                      ...s,
+                      languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
+                      forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
+                    }))
                   : [emptyStage()],
               }))
             : [emptyRomanceChar()],
@@ -175,6 +193,38 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     setForm(prev => ({ ...prev, romanceCharacters: chars }))
   }
 
+  const addRCStageBehavior = (rcIdx, stageIdx) => {
+    const chars = [...form.romanceCharacters]
+    const stages = [...chars[rcIdx].affectionStages]
+    stages[stageIdx] = {
+      ...stages[stageIdx],
+      selfDriveBehaviors: [...(stages[stageIdx].selfDriveBehaviors || []), { description: '', trigger: 'overNrounds' }],
+    }
+    chars[rcIdx] = { ...chars[rcIdx], affectionStages: stages }
+    setForm(prev => ({ ...prev, romanceCharacters: chars }))
+  }
+
+  const removeRCStageBehavior = (rcIdx, stageIdx, behIdx) => {
+    const chars = [...form.romanceCharacters]
+    const stages = [...chars[rcIdx].affectionStages]
+    stages[stageIdx] = {
+      ...stages[stageIdx],
+      selfDriveBehaviors: (stages[stageIdx].selfDriveBehaviors || []).filter((_, i) => i !== behIdx),
+    }
+    chars[rcIdx] = { ...chars[rcIdx], affectionStages: stages }
+    setForm(prev => ({ ...prev, romanceCharacters: chars }))
+  }
+
+  const updateRCStageBehavior = (rcIdx, stageIdx, behIdx, field, value) => {
+    const chars = [...form.romanceCharacters]
+    const stages = [...chars[rcIdx].affectionStages]
+    const behaviors = [...(stages[stageIdx].selfDriveBehaviors || [])]
+    behaviors[behIdx] = { ...behaviors[behIdx], [field]: value }
+    stages[stageIdx] = { ...stages[stageIdx], selfDriveBehaviors: behaviors }
+    chars[rcIdx] = { ...chars[rcIdx], affectionStages: stages }
+    setForm(prev => ({ ...prev, romanceCharacters: chars }))
+  }
+
   const addRomanceChar = () => {
     if (form.romanceCharacters.length >= 3) return
     setForm(prev => ({ ...prev, romanceCharacters: [...prev.romanceCharacters, emptyRomanceChar()] }))
@@ -228,33 +278,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     update('avatar', base64)
   }
 
-  const handleGenerateThinking = async (rcIdx) => {
-    const apiKey = getApiKey()
-    if (!apiKey) {
-      alert('请先在设置页面填写 DeepSeek API Key')
-      return
-    }
-    const rc = form.romanceCharacters[rcIdx]
-    if (!rc.name.trim() && !rc.background.trim()) {
-      alert('请先填写角色名或背景设定')
-      return
-    }
-    setGeneratingThinkingIdx(rcIdx)
-    const { reply, error } = await generateThinkingPrompt({
-      name: rc.name,
-      background: rc.background + (rc.personality ? '\n性格：' + rc.personality : ''),
-      styleRules: rc.styleRules,
-      nickname: '',
-      autonomyBehavior: '',
-    }, apiKey)
-    setGeneratingThinkingIdx(-1)
-    if (error || !reply) {
-      alert('生成失败：' + (error?.message || '未知错误'))
-      return
-    }
-    updateRC(rcIdx, 'thinkingPrompt', reply)
-  }
-
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!form.name.trim()) {
@@ -289,11 +312,26 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
         speakingStyle: rc.speakingStyle.trim(),
         affectionEnabled: rc.affectionEnabled,
         affectionInitial: rc.affectionEnabled ? rc.affectionInitial : 50,
-        affectionStages: rc.affectionEnabled ? rc.affectionStages.filter(s => s.name.trim()) : [],
-        affectionUpRules: rc.affectionEnabled ? rc.affectionUpRules.trim() : '',
-        affectionDownRules: rc.affectionEnabled ? rc.affectionDownRules.trim() : '',
-        thinkingEnabled: rc.thinkingEnabled,
-        thinkingPrompt: rc.thinkingEnabled ? rc.thinkingPrompt.trim() : '',
+        affectionStages: rc.affectionEnabled
+          ? rc.affectionStages.filter(s => s.name.trim()).map(s => ({
+              name: s.name.trim(),
+              min: s.min != null ? Number(s.min) : 0,
+              max: s.max != null ? Number(s.max) : 50,
+              coreState: s.coreState.trim(),
+              playerStrategy: s.playerStrategy.trim(),
+              riseCondition: s.riseCondition.trim(),
+              languageSamples: parseLines(s.languageSamples),
+              forbiddenBehaviors: parseLines(s.forbiddenBehaviors),
+              selfDriveBehaviors: (s.selfDriveBehaviors || []).filter(b => b.description.trim()),
+            }))
+          : [],
+        transitionTriggers: rc.affectionEnabled ? parseLines(rc.transitionTriggers) : [],
+        irreversibleMoment: rc.affectionEnabled ? rc.irreversibleMoment.trim() : '',
+        cooldownRounds: rc.affectionEnabled ? (parseInt(rc.cooldownRounds) || 1) : 1,
+        erosionCondition: rc.affectionEnabled ? rc.erosionCondition.trim() : '',
+        anchorSuppression: rc.affectionEnabled ? rc.anchorSuppression.trim() : '',
+        thinkingEnabled: true,
+        thinkingPrompt: '',
       })),
       npcs: form.npcs.filter(n => n.name.trim()).map(n => ({
         id: n.id || generateId(),
@@ -363,12 +401,20 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   name: s.label || s.name || '',
                   min: s.min != null ? Number(s.min) : 0,
                   max: s.max != null ? Number(s.max) : 50,
-                  behavior: s.rule || s.behavior || '',
+                  coreState: s.coreState || '',
+                  playerStrategy: s.playerStrategy || '',
+                  riseCondition: s.riseCondition || '',
+                  languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
+                  forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
+                  selfDriveBehaviors: Array.isArray(s.selfDriveBehaviors) ? s.selfDriveBehaviors : [],
                 }))
               : [emptyStage()],
-            affectionUpRules: Array.isArray(r['好感度增加规则']) ? r['好感度增加规则'].join('\n') : (r['好感度增加规则'] || ''),
-            affectionDownRules: Array.isArray(r['好感度减少规则']) ? r['好感度减少规则'].join('\n') : (r['好感度减少规则'] || ''),
-            thinkingEnabled: false,
+            transitionTriggers: Array.isArray(r['transitionTriggers']) ? r['transitionTriggers'].join('\n') : (r['transitionTriggers'] || ''),
+            irreversibleMoment: r['irreversibleMoment'] || '',
+            cooldownRounds: r['cooldownRounds'] ?? 1,
+            erosionCondition: r['erosionCondition'] || '',
+            anchorSuppression: r['anchorSuppression'] || '',
+            thinkingEnabled: true,
             thinkingPrompt: '',
           }))
         : prev.romanceCharacters,
@@ -701,7 +747,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                       </button>
                     </div>
                     {rc.affectionEnabled && (
-                      <div className="mt-3 space-y-2">
+                      <div className="mt-3 space-y-3">
                         <div>
                           <label className="text-[11px] text-gray-500">初始好感度</label>
                           <input
@@ -711,75 +757,119 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                             onChange={e => updateRC(i, 'affectionInitial', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
                           />
                         </div>
+
+                        {/* Affection Stages */}
                         <div>
                           <label className="text-[11px] text-gray-500">好感度阶段</label>
                           <div className="space-y-2 mt-1">
                             {rc.affectionStages.map((stage, si) => (
-                              <div key={si} className="bg-gray-700/50 rounded p-2 space-y-1">
-                                <div className="flex justify-between">
-                                  <span className="text-[10px] text-gray-500">阶段 {si + 1}</span>
+                              <div key={si} className="bg-gray-700/50 rounded p-2 space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-gray-500 font-medium">阶段 {si + 1}</span>
                                   {rc.affectionStages.length > 1 && (
-                                    <button type="button" onClick={() => removeRCStage(i, si)} className="text-[10px] text-red-400">删除</button>
+                                    <button type="button" onClick={() => removeRCStage(i, si)} className="text-[10px] text-red-400 hover:text-red-300">删除</button>
                                   )}
                                 </div>
-                                <input type="text" className={inputClass} value={stage.name} onChange={e => updateRCStage(i, si, 'name', e.target.value)} placeholder="阶段名" />
+                                <input type="text" className={inputClass} value={stage.name} onChange={e => updateRCStage(i, si, 'name', e.target.value)} placeholder="阶段标题（如：冷漠期）" />
                                 <div className="flex gap-2">
                                   <input type="number" min="0" max="100" className={inputClass} value={stage.min} onChange={e => updateRCStage(i, si, 'min', parseInt(e.target.value) || 0)} placeholder="下限" />
                                   <input type="number" min="0" max="100" className={inputClass} value={stage.max} onChange={e => updateRCStage(i, si, 'max', parseInt(e.target.value) || 0)} placeholder="上限" />
                                 </div>
-                                <textarea className={inputClass + " h-12 resize-none"} value={stage.behavior} onChange={e => updateRCStage(i, si, 'behavior', e.target.value)} placeholder="行为规则" />
+                                <textarea className={inputClass + " h-12 resize-none"} value={stage.coreState} onChange={e => updateRCStage(i, si, 'coreState', e.target.value)} placeholder="角色状态描述" />
+                                <textarea className={inputClass + " h-12 resize-none"} value={stage.playerStrategy} onChange={e => updateRCStage(i, si, 'playerStrategy', e.target.value)} placeholder="对玩家的核心策略" />
+                                <textarea className={inputClass + " h-12 resize-none"} value={stage.riseCondition} onChange={e => updateRCStage(i, si, 'riseCondition', e.target.value)} placeholder="上涨触发条件（预期被打破，不是被善待）" />
+                                <textarea className={inputClass + " h-12 resize-none"} value={stage.languageSamples} onChange={e => updateRCStage(i, si, 'languageSamples', e.target.value)} placeholder="本阶段语言样本（每行一句，2-3句）" />
+                                <textarea className={inputClass + " h-12 resize-none"} value={stage.forbiddenBehaviors} onChange={e => updateRCStage(i, si, 'forbiddenBehaviors', e.target.value)} placeholder="本阶段禁止行为（每行一条）" />
+
+                                {/* Self-drive behaviors */}
+                                <div className="border-t border-gray-600/50 pt-1.5 mt-1.5">
+                                  <label className="text-[10px] text-amber-400 font-medium">该阶段自驱行为（3-5条）</label>
+                                  {(stage.selfDriveBehaviors || []).map((beh, bi) => (
+                                    <div key={bi} className="flex gap-1.5 mt-1 items-start">
+                                      <div className="flex-1 space-y-1">
+                                        <input
+                                          type="text"
+                                          className={inputClass}
+                                          value={beh.description}
+                                          onChange={e => updateRCStageBehavior(i, si, bi, 'description', e.target.value)}
+                                          placeholder="行为描述（角色会做什么）"
+                                        />
+                                        <select
+                                          className={inputClass + " text-[11px]"}
+                                          value={beh.trigger}
+                                          onChange={e => updateRCStageBehavior(i, si, bi, 'trigger', e.target.value)}
+                                        >
+                                          <option value="overNrounds">超过N轮用户没主动互动</option>
+                                          <option value="sceneElement">场景出现特定元素</option>
+                                          <option value="stageEnter">好感度刚进入本阶段</option>
+                                          <option value="selfDisadvantage">AI判断局面对自己不利</option>
+                                        </select>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeRCStageBehavior(i, si, bi)}
+                                        className="text-[10px] text-red-400 hover:text-red-300 mt-1 flex-shrink-0"
+                                      >
+                                        删除
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    onClick={() => addRCStageBehavior(i, si)}
+                                    className="w-full py-1 mt-1.5 rounded border border-dashed border-gray-600 text-gray-400 text-[10px] hover:border-gray-500"
+                                  >
+                                    + 添加自驱行为
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
                           <button type="button" onClick={() => addRCStage(i)} className="w-full py-1.5 mt-1 rounded border border-dashed border-gray-600 text-gray-400 text-xs hover:border-gray-500">+ 添加阶段</button>
                         </div>
-                        <div>
-                          <label className="text-[11px] text-gray-500">好感度增加条件（每行一条）</label>
-                          <textarea className={inputClass + " h-16 resize-none"} value={rc.affectionUpRules} onChange={e => updateRC(i, 'affectionUpRules', e.target.value)} placeholder="表现友善：+3" />
+
+                        {/* Transition Anchors */}
+                        <div className="bg-gray-700/50 rounded p-2 space-y-2">
+                          <label className="text-[11px] text-gray-400 font-medium">阶段转折锚点</label>
+                          <textarea className={inputClass + " h-16 resize-none"} value={rc.transitionTriggers} onChange={e => updateRC(i, 'transitionTriggers', e.target.value)} placeholder="各阶段转折的触发事件类型（每行一个）" />
+                          <div>
+                            <label className="text-[10px] text-gray-500">不可逆转折描述</label>
+                            <textarea className={inputClass + " h-12 resize-none mt-0.5"} value={rc.irreversibleMoment} onChange={e => updateRC(i, 'irreversibleMoment', e.target.value)} placeholder="不可逆转折的详细描述" />
+                          </div>
                         </div>
-                        <div>
-                          <label className="text-[11px] text-gray-500">好感度减少条件（每行一条）</label>
-                          <textarea className={inputClass + " h-16 resize-none"} value={rc.affectionDownRules} onChange={e => updateRC(i, 'affectionDownRules', e.target.value)} placeholder="态度粗鲁：-5" />
+
+                        {/* Iron Law */}
+                        <div className="bg-gray-700/50 rounded p-2 space-y-2">
+                          <label className="text-[11px] text-gray-400 font-medium">数值增长铁律</label>
+                          <div>
+                            <label className="text-[10px] text-gray-500">冷却锁（涨完需几轮才能再涨）</label>
+                            <input type="number" min="1" max="20" className={inputClass + " mt-0.5"} value={rc.cooldownRounds} onChange={e => updateRC(i, 'cooldownRounds', parseInt(e.target.value) || 1)} />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500">反向侵蚀条件（什么情况下反而-值）</label>
+                            <textarea className={inputClass + " h-12 resize-none mt-0.5"} value={rc.erosionCondition} onChange={e => updateRC(i, 'erosionCondition', e.target.value)} placeholder="例如：连续3轮没有任何情绪波动" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500">现实锚点压制（哪类场景本轮禁止上涨）</label>
+                            <textarea className={inputClass + " h-12 resize-none mt-0.5"} value={rc.anchorSuppression} onChange={e => updateRC(i, 'anchorSuppression', e.target.value)} placeholder="例如：公共场所、战斗场景、重大危机" />
+                          </div>
+                          <div className="space-y-1 pt-1 border-t border-gray-600/50">
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                              <span className="text-[10px] text-green-400">身体先于数值原则</span>
+                              <span className="text-[10px] text-gray-500">— 好感度变化必须先体现在生理反应上</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                              <span className="text-[10px] text-green-400">虚假上涨机制</span>
+                              <span className="text-[10px] text-gray-500">— 数值涨时外在表现可能更恶劣</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Thinking toggle */}
-                  <div className="bg-gray-800/50 rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-medium text-gray-300">思考层指令</h4>
-                      <button
-                        type="button"
-                        onClick={() => updateRC(i, 'thinkingEnabled', !rc.thinkingEnabled)}
-                        className={`w-10 h-5 rounded-full transition-colors relative ${
-                          rc.thinkingEnabled ? 'bg-amber-500' : 'bg-gray-600'
-                        }`}
-                      >
-                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                          rc.thinkingEnabled ? 'left-[20px]' : 'left-[2px]'
-                        }`} />
-                      </button>
-                    </div>
-                    {rc.thinkingEnabled && (
-                      <div className="mt-2 space-y-1">
-                        <button
-                          type="button"
-                          onClick={() => handleGenerateThinking(i)}
-                          disabled={generatingThinkingIdx === i}
-                          className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-medium transition-colors"
-                        >
-                          {generatingThinkingIdx === i ? '生成中...' : 'AI生成思考层'}
-                        </button>
-                        <textarea
-                          className={inputClass + " h-20 resize-none"}
-                          value={rc.thinkingPrompt}
-                          onChange={e => updateRC(i, 'thinkingPrompt', e.target.value)}
-                          placeholder="该角色在说话前的思考框架..."
-                        />
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
             </div>

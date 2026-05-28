@@ -44,3 +44,28 @@ body {
 .animate-dice-roll {
   animation: diceRoll 0.8s ease-in-out;
 }
+
+/* Affection flash animations */
+@keyframes affectionFlashGreen {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(2.5) drop-shadow(0 0 6px #22c55e); }
+}
+@keyframes affectionFlashRed {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(2.5) drop-shadow(0 0 6px #ef4444); }
+}
+.affection-flash-green {
+  animation: affectionFlashGreen 0.5s ease-in-out 2;
+}
+.affection-flash-red {
+  animation: affectionFlashRed 0.5s ease-in-out 2;
+}
+
+/* Affection delta float-up */
+@keyframes floatUpFade {
+  0% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+.affection-float-up {
+  animation: floatUpFade 1s ease-out forwards;
+}

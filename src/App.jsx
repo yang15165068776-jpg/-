@@ -8,6 +8,7 @@ import DailyCharacterList from './pages/daily/CharacterList'
 import DailyCharacterForm from './pages/daily/CharacterForm'
 import DailyChat from './pages/daily/DailyChat'
 import DailyArchiveList from './pages/daily/ArchiveList'
+import DirectChat from './pages/DirectChat'
 import Settings from './pages/Settings'
 import { getCharacter, getArchive } from './utils/storage'
 
@@ -34,6 +35,13 @@ export default function App() {
   const navigateToDailyList = useCallback(() => {
     setMode('daily')
     setPage('list')
+    setCharacterId(null)
+    setArchiveId(null)
+  }, [])
+
+  const navigateToDirect = useCallback(() => {
+    setPage('direct')
+    setMode(null)
     setCharacterId(null)
     setArchiveId(null)
   }, [])
@@ -78,6 +86,7 @@ export default function App() {
   let title = ''
   if (isModeSelect) title = '角色扮演对话'
   else if (isSettings) title = '设置'
+  else if (page === 'direct') title = '直接对话'
   else if (isList) title = (mode === 'daily' ? '日常' : '剧情') + '角色库'
   else if (page === 'form') title = (characterId ? '编辑' : '新建') + (mode === 'daily' ? '日常' : '剧情') + '角色'
   else if (page === 'archives') title = (character?.name || '') + ' 的对话存档'
@@ -86,6 +95,7 @@ export default function App() {
   const showBack = !isModeSelect
   const handleBack = () => {
     if (isSettings) navigateToModeSelect()
+    else if (page === 'direct') navigateToModeSelect()
     else if (isList) navigateToModeSelect()
     else navigateToModeList()
   }
@@ -121,6 +131,7 @@ export default function App() {
           <ModeSelect
             onSelectStory={navigateToStoryList}
             onSelectDaily={navigateToDailyList}
+            onSelectDirect={navigateToDirect}
             onSettings={navigateToSettings}
           />
         )}
@@ -191,6 +202,10 @@ export default function App() {
               else navigateToModeList()
             }}
           />
+        )}
+
+        {page === 'direct' && (
+          <DirectChat onBack={navigateToModeSelect} />
         )}
 
         {isSettings && (
