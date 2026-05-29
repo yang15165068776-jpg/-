@@ -48,15 +48,17 @@ src/
 ## System Prompt 组装
 
 ### 剧情模式（buildGMPrompt）
-1. GM 身份 + 主角设定（强调禁止控制主角）
-2. 世界观
-3. 可攻略角色（含好感度阶段/行为规则/增减规则）
-4. NPC 设定
-5. 角色调度规则
-6. 对话标注格式（【角色名】前缀）
-7. 思考指令（强制 `<think>...</think>`）
-8. 写作风格（300-500字，小说文体）
-9. 好感度结算（`<affection>` 标签）
+1. GM 身份声明
+2. **玩家角色铁律**（最高优先级，紧随 GM 声明之后）
+3. 主角设定（如有 protagonistName）
+4. 世界观
+5. 可攻略角色（含好感度阶段/核心状态/玩家策略/上涨条件/语言样本/阶段禁止行为/自驱行为/动态冷却状态）
+6. NPC 设定
+7. 次要 NPC 规则
+8. GM 角色调度规则
+9. 思考指令（强制 `<think>...</think>`）
+10. 写作风格（300-500字，小说文体）
+11. 好感度结算（`<affection>` 标签）
 
 ### 日常模式（buildSystemPrompt）
 1. 强制性框架 + 格式警告
@@ -77,10 +79,29 @@ src/
 - **渲染**: `ThinkToggle` 组件用原生 HTML `<details>`/`<summary>` 元素（不用 React state + CSS transition），移动端折叠可靠
 - **清洗**: `cleanAndSplitResponse` 和 fallback 都支持三种格式的移除
 
-## GM 主角约束
-- `buildGMPrompt` 开头有 `【极重要约束——主角行为控制权】` 段落
-- 禁止 AI 描写主角动作、替主角说话、描写主角心理、替主角做决定
-- 只能写到其他角色说完话/做完动作，然后停止等待用户输入
+## 玩家角色铁律（buildGMPrompt）
+- 放在 GM 身份声明之后，优先级仅次于最高指令
+- **可控范围**: NPC、可攻略角色、环境和场景
+- **不可控范围**: 玩家台词、动作、心理/情绪、表情/身体反应
+- **具体禁止**: 替玩家说话、描写玩家动作、用"你感到""你心想""你不禁"等描写内心、用"你下意识地""你忍不住"等替玩家反应、在玩家无输入时推进玩家行为
+- **允许写法**: NPC/攻略角色视角观察和解读玩家（可错误解读）、环境对玩家的客观影响、以"等待你的回应"结尾
+- 违反=任务失败，必须重写回复
+
+## 好感度结算解析
+- `<affection>` 标签格式: `<affection>角色名:+N</affection>` / `<affection>角色名:-N</affection>` / `<affection>角色名:0</affection>` / `<affection>无</affection>`
+- 多个角色用逗号分隔: `<affection>林晚:+3,苏晨:-2</affection>`
+- **`parseAffectionTags` 正则**: 同时匹配半角 `:` 和全角 `：` 冒号（`/^(.+?)\s*[:：]\s*([+-]?\d+)$/`），delta 为 0 时视为确认无变化
+- **状态更新**: 解析后通过 `setAffections` 更新 state → 触发 progress bar 重渲染，同时写入 archive localStorage
+- **进度条**: 实时读取 `affections?.[rc.name]` state，百分比基于阶段 min/max 实际范围计算，`clampAffection` 越界保护
+
+## 轮次与冷却系统
+- **轮次定义**: 一轮 = 用户发一条消息 + AI 返回完整回复
+- **roundCount**: 存入 archive localStorage，每次完整回复后 +1
+- **lastRiseRound**: `{ [角色名]: 上涨时的 roundCount }`，好感度发生非零变化时记录，存入 archive
+- **冷却检查**: `roundCount - lastRiseRound[角色名] >= cooldownRounds` → 解锁上涨
+- **动态注入**: `buildGMPrompt` 根据当前 roundCount/lastRiseRound/cooldownRounds 动态输出冷却状态（已解锁 ✓ / 锁定中 ✗）
+- **数据流**: ChatRoom.doSend → sendMessageStream → buildSystemPrompt → buildGMPrompt，全链路透传 roundCount + lastRiseRound
+- `USER_WRAPPER` 七步框架第一步末尾追加"只分析用户已输入内容，不推断替代用户未说出的反应"
 
 ## 关键设计决策
 - API 调用用 fetch，不用任何第三方库
@@ -93,3 +114,17 @@ src/
 - **流式错误处理**: 中途断开保留部分内容（`isPartial: true`），完全失败显示红色重试气泡（`isRetry: true`）
 - **好感度越界保护**: `clampAffection` 基于阶段 min/max 限制，进度条百分比用实际范围计算
 - **localStorage 保护**: `safeSetItem` 捕获 QuotaExceededError → `cleanOldMessages` 截断旧消息（保留最近20条）→ 重试一次 → alert 提示
+
+## AI 一键提取（extractCharacterFromText / extractStoryFromText）
+- 两个提取函数分别服务日常模式和剧情模式，prompt 覆盖所有新增字段
+- **日常模式 prompt**: 返回 name/background/userTitle/styleRules/forbiddenBehaviors/thinking/affection（含阶段 coreState/playerStrategy/riseCondition/languageSamples/forbiddenBehaviors/autonomousBehaviors）+ transitionTriggers/irreversibleMoment/cooldownRounds/erosionCondition/anchorSuppression/autonomyBehavior/openingScene
+- **剧情模式 prompt**: 返回故事名称/世界观/开场剧情/故事基调/可攻略角色（含完整好感度阶段+自驱行为+转折锚点+铁律字段）/主要NPC
+- `handleExtract` 数据映射: AI 返回的 `behavior` → 表单的 `description`（自驱行为），`openingScene` → `openingScenario`，阶段丰富字段合并到日常模式简化结构
+- 找不到的字段: 数组→[]，字符串→""，数字→0，布尔值→false
+
+## AI 生成自驱行为（generateStageBehaviors）
+- StoryCharacterForm 底部按钮，读取当前已填写的角色设定
+- 为每个好感度阶段生成 3-5 条自驱行为（behavior + trigger）
+- trigger 四选一: 超过N轮用户没主动互动 / 场景出现特定元素 / 好感度刚进入本阶段 / AI判断局面对自己不利
+- 返回 `{stages: [{label, behaviors: [{behavior, trigger}]}]}` → 自动填入对应阶段的 selfDriveBehaviors 列表
+- 遍历所有 romanceCharacters，逐个调用 API 填充
