@@ -717,6 +717,9 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const roundsSinceLastAffectionRef = useRef({}) // { [charName]: count } — rounds since last non-zero affection change
   const [roundCount, setRoundCount] = useState(0)
   const [lastRiseRound, setLastRiseRound] = useState({}) // { [charName]: roundCount when last rise happened }
+  const [storyTime, setStoryTime] = useState({ year: 1, month: 1, day: 1 })
+  const [showTimeEditor, setShowTimeEditor] = useState(false)
+  const [editTime, setEditTime] = useState({ year: 1, month: 1, day: 1 })
 
   useEffect(() => {
     const archive = getArchive(archiveId, mode)
@@ -760,6 +763,14 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     // Initialize round tracking from archive
     setRoundCount(archive.roundCount || 0)
     setLastRiseRound(archive.lastRiseRound || {})
+    // Initialize story time from archive or character
+    if (archive.storyTime) {
+      setStoryTime(archive.storyTime)
+    } else if (char?.storyStartTime) {
+      setStoryTime(char.storyStartTime)
+    } else {
+      setStoryTime({ year: 1, month: 1, day: 1 })
+    }
   }, [archiveId])
 
   useEffect(() => {
@@ -783,6 +794,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       saveAffections(archiveId, affections, mode)
     }
   }, [affections, archiveId, character, mode])
+
+  useEffect(() => {
+    if (character?.chatStyle === 'story' && storyTime) {
+      const archive = getArchive(archiveId, mode)
+      if (archive) {
+        archive.storyTime = storyTime
+        saveArchive(archive, mode)
+      }
+    }
+  }, [storyTime, archiveId, character, mode])
 
   // Shared function to display active messages sequentially
   const displayActiveMessages = useCallback((messages, archiveId) => {
@@ -950,6 +971,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         newMessages,
         affection,
         apiKey,
+        storyTime,
       )
 
       setLoading(false)
@@ -1020,6 +1042,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       roundsSinceLastAffectionRef.current,
       roundCount,
       lastRiseRound,
+      storyTime,
       (token, fullText, reset) => {
         if (reset) {
           setStreamingText('')
@@ -1127,7 +1150,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
     triggerActiveCheck()
     return true
-  }, [character, affection, affections, adjustAffection, triggerActiveCheck])
+  }, [character, affection, affections, adjustAffection, triggerActiveCheck, roundCount, lastRiseRound, storyTime])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
@@ -1276,6 +1299,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                 </div>
               )
             })}
+          </div>
+          {/* Story time */}
+          <div className="mt-1.5 pt-1.5 border-t border-gray-700/30 flex items-center gap-2">
+            <button
+              onClick={() => { setEditTime({ ...storyTime }); setShowTimeEditor(true) }}
+              className="text-[10px] text-gray-500 hover:text-amber-400 transition-colors cursor-pointer"
+              title="点击编辑故事时间"
+            >
+              📅 第{storyTime.year}年{storyTime.month}月{storyTime.day}日
+            </button>
           </div>
           {affectionNoChange && (
             <div className="text-center mt-1">
@@ -1642,7 +1675,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   return
                 }
                 setCompressing(true)
-                const { summary, error: compressError } = await compressChatHistory(messages, apiKey)
+                const { summary, error: compressError } = await compressChatHistory(messages, apiKey, storyTime)
                 setCompressing(false)
                 if (compressError || !summary) {
                   setError('压缩失败: ' + (compressError?.message || '未知错误'))
@@ -1686,7 +1719,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   const lastTurn = lastUserIdx >= 0
                     ? nonSystem.slice(lastUserIdx, lastUserIdx + 2).filter(m => m.role === 'user' || m.role === 'assistant')
                     : []
-                  const memoryMsg = { role: 'system', content: '【历史剧情摘要】\n' + cleanSummary, isMemory: true }
+                  const memoryMsg = { role: 'system', content: cleanSummary, isMemory: true }
                   const newMessages = lastTurn.length > 0
                     ? [memoryMsg, ...lastTurn]
                     : [memoryMsg]
@@ -1778,6 +1811,64 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   掷骰子
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Time editor modal */}
+      {showTimeEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowTimeEditor(false)}>
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-5 mx-4 w-full max-w-xs" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-medium text-gray-200 mb-3 text-center">📅 编辑故事时间</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-500 block mb-1">年</label>
+                <input
+                  type="number"
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none text-center"
+                  value={editTime.year}
+                  onChange={e => setEditTime(prev => ({ ...prev, year: parseInt(e.target.value) || 1 }))}
+                  min={1}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-500 block mb-1">月</label>
+                <input
+                  type="number"
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none text-center"
+                  value={editTime.month}
+                  onChange={e => setEditTime(prev => ({ ...prev, month: Math.min(12, Math.max(1, parseInt(e.target.value) || 1)) }))}
+                  min={1} max={12}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-500 block mb-1">日</label>
+                <input
+                  type="number"
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none text-center"
+                  value={editTime.day}
+                  onChange={e => setEditTime(prev => ({ ...prev, day: Math.min(31, Math.max(1, parseInt(e.target.value) || 1)) }))}
+                  min={1} max={31}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowTimeEditor(false)}
+                className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setStoryTime({ ...editTime })
+                  setShowTimeEditor(false)
+                }}
+                className="flex-[2] py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-sm font-medium transition-all active:scale-[0.98]"
+              >
+                确认
+              </button>
             </div>
           </div>
         </div>

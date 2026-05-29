@@ -107,6 +107,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     autonomyBehavior: '',
     temperature: 0.9,
     topP: 0.95,
+    storyStartTime: { year: 1, month: 1, day: 1 },
   })
 
   useEffect(() => {
@@ -156,6 +157,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           autonomyBehavior: char.autonomyBehavior || '',
           temperature: char.temperature ?? 0.9,
           topP: char.topP ?? 0.95,
+          storyStartTime: char.storyStartTime || { year: 1, month: 1, day: 1 },
         })
       }
     }
@@ -302,6 +304,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       worldSetting: form.worldSetting.trim(),
       openingScenario: form.openingScenario.trim(),
       storyTone: form.storyTone,
+      storyStartTime: form.storyStartTime || { year: 1, month: 1, day: 1 },
       romanceCharacters: validRC.map(rc => ({
         id: rc.id || generateId(),
         name: rc.name.trim(),
@@ -386,6 +389,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       worldSetting: result['世界观'] || prev.worldSetting,
       openingScenario: result['开场剧情'] || prev.openingScenario,
       storyTone: result['故事基调'] || prev.storyTone,
+      storyStartTime: prev.storyStartTime, // AI 提取不覆盖时间
       romanceCharacters: rc.length > 0
         ? rc.map((r, i) => ({
             ...emptyRomanceChar(),
@@ -636,6 +640,43 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   {tone}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>故事起始时间</label>
+            <p className="text-[10px] text-gray-500 mb-2">新对话的初始故事时间，可在对话中随时修改</p>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-600 block mb-1">年</label>
+                <input
+                  type="number"
+                  className={inputClass + " text-center"}
+                  value={form.storyStartTime?.year ?? 1}
+                  onChange={e => update('storyStartTime', { ...form.storyStartTime, year: parseInt(e.target.value) || 1 })}
+                  min={1}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-600 block mb-1">月</label>
+                <input
+                  type="number"
+                  className={inputClass + " text-center"}
+                  value={form.storyStartTime?.month ?? 1}
+                  onChange={e => update('storyStartTime', { ...form.storyStartTime, month: Math.min(12, Math.max(1, parseInt(e.target.value) || 1)) })}
+                  min={1} max={12}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] text-gray-600 block mb-1">日</label>
+                <input
+                  type="number"
+                  className={inputClass + " text-center"}
+                  value={form.storyStartTime?.day ?? 1}
+                  onChange={e => update('storyStartTime', { ...form.storyStartTime, day: Math.min(31, Math.max(1, parseInt(e.target.value) || 1)) })}
+                  min={1} max={31}
+                />
+              </div>
             </div>
           </div>
         </div>

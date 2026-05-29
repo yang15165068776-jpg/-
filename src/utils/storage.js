@@ -162,6 +162,7 @@ export function getArchive(archiveId, mode) {
 export function getOrCreateDefaultArchive(characterId, mode) {
   const existing = getArchives(characterId, mode)
   if (existing.length > 0) return existing[0]
+  const char = getCharacter(characterId, mode)
   const archiveId = generateId()
   const archive = {
     id: archiveId,
@@ -171,12 +172,14 @@ export function getOrCreateDefaultArchive(characterId, mode) {
     messages: [],
     affection: null,
     affections: null,
+    storyTime: char?.storyStartTime || { year: 1, month: 1, day: 1 },
   }
   saveArchive(archive, mode)
   return archive
 }
 
 export function createArchive(characterId, name, mode) {
+  const char = getCharacter(characterId, mode)
   const archiveId = generateId()
   const archive = {
     id: archiveId,
@@ -186,6 +189,7 @@ export function createArchive(characterId, name, mode) {
     messages: [],
     affection: null,
     affections: null,
+    storyTime: char?.storyStartTime || { year: 1, month: 1, day: 1 },
   }
   saveArchive(archive, mode)
   return archive

@@ -45,7 +45,7 @@ function findForbiddenWord(text, words) {
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
 }
 
-function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount, lastRiseRound) {
+function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount, lastRiseRound, storyTime) {
   const parts = []
   const name = character.name || '故事'
 
@@ -60,6 +60,18 @@ function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount,
     '如果没有可攻略角色或好感度系统未启用，输出 <affection>无</affection>\n' +
     '这一行必须存在，不能省略，否则回复无效。'
   )
+
+  // 0.5: Story time
+  if (storyTime && storyTime.year) {
+    parts.push(
+      '【当前故事时间】第' + storyTime.year + '年' + storyTime.month + '月' + storyTime.day + '日\n' +
+      '请在叙事中保持时间的准确性，\n' +
+      '提到"昨天""三天前""下周"等相对时间时，\n' +
+      '基于此时间计算。\n' +
+      '可以在合适时机推进时间（场景转换、过夜等），\n' +
+      '用加粗标题标注时间节点：**第X天（周X）：**'
+    )
+  }
 
   // 1: GM identity + Protagonist
   parts.push(
@@ -248,13 +260,13 @@ function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount,
   return parts.join('\n\n')
 }
 
-export function buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound) {
+export function buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound, storyTime) {
   const name = character.name || '角色'
   const parts = []
 
   if (character.chatStyle === 'story') {
     // GM story mode
-    parts.push(buildGMPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound))
+    parts.push(buildGMPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound, storyTime))
     return parts.join('\n\n')
   }
 
@@ -493,7 +505,7 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP, thi
   }
 }
 
-export async function sendMessageStream(character, messages, affectionData, apiKey, roundsSinceLastChange, roundCount, lastRiseRound, onToken) {
+export async function sendMessageStream(character, messages, affectionData, apiKey, roundsSinceLastChange, roundCount, lastRiseRound, storyTime, onToken) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -513,12 +525,12 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   let lastViolation = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
-    let systemPrompt = buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound)
+    let systemPrompt = buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound, storyTime)
 
     // Inject memory content into system prompt
     if (memoryMessages.length > 0) {
       const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
-      systemPrompt += '\n\n【历史剧情摘要 - 以下是此前对话的压缩记录，请基于此理解当前对话的上下文】\n\n' + memoryContent
+      systemPrompt += '\n\n【故事存档——必须完整读取后再继续】\n' + memoryContent + '\n━━━━━━━━━━\n以上是已发生的一切。\n故事从【最后一幕原文】之后继续，\n保持人物关系和场景的完全连续性。'
     }
 
     if (attempt > 0 && lastViolation) {
@@ -580,7 +592,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   return { reply: null, reasoningContent: null, error: lastError || new Error('请求失败，已达最大重试次数') }
 }
 
-export async function sendMessageStructured(character, messages, affectionData, apiKey) {
+export async function sendMessageStructured(character, messages, affectionData, apiKey, storyTime) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -596,12 +608,12 @@ export async function sendMessageStructured(character, messages, affectionData, 
   const contextWindow = character.contextWindow || 40
   const truncated = conversationMessages.slice(-contextWindow)
 
-  let systemPrompt = buildSystemPrompt(character, affectionData)
+  let systemPrompt = buildSystemPrompt(character, affectionData, undefined, undefined, undefined, storyTime)
 
   // Inject memory content into system prompt
   if (memoryMessages.length > 0) {
     const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
-    systemPrompt += '\n\n【历史剧情摘要 - 以下是此前对话的压缩记录，请基于此理解当前对话的上下文】\n\n' + memoryContent
+    systemPrompt += '\n\n【故事存档——必须完整读取后再继续】\n' + memoryContent + '\n━━━━━━━━━━\n以上是已发生的一切。\n故事从【最后一幕原文】之后继续，\n保持人物关系和场景的完全连续性。'
   }
 
   const apiMessages = [
@@ -687,7 +699,7 @@ export async function sendMessageStructured(character, messages, affectionData, 
   return { reply: null, parsed: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
-export async function sendCasualReply(character, messages, affectionData, apiKey) {
+export async function sendCasualReply(character, messages, affectionData, apiKey, storyTime) {
   const model = getModel()
 
   // Separate memory messages
@@ -703,11 +715,11 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
     content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
   }))
 
-  let systemPrompt = buildSystemPrompt(character, affectionData)
+  let systemPrompt = buildSystemPrompt(character, affectionData, undefined, undefined, undefined, storyTime)
 
   if (memoryMessages.length > 0) {
     const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
-    systemPrompt += '\n\n【历史剧情摘要 - 以下是此前对话的压缩记录，请基于此理解当前对话的上下文】\n\n' + memoryContent
+    systemPrompt += '\n\n【故事存档——必须完整读取后再继续】\n' + memoryContent + '\n━━━━━━━━━━\n以上是已发生的一切。\n故事从【最后一幕原文】之后继续，\n保持人物关系和场景的完全连续性。'
   }
 
   let lastError = null
@@ -781,10 +793,10 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
   return { reply: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
-export async function generateActiveMessage(character, affectionData, apiKey) {
+export async function generateActiveMessage(character, affectionData, apiKey, storyTime) {
   const model = getModel()
 
-  let systemPrompt = buildSystemPrompt(character, affectionData)
+  let systemPrompt = buildSystemPrompt(character, affectionData, undefined, undefined, undefined, storyTime)
 
   // Add active message generation instructions
   const triggerCondition = character.activeCondition || '需要主动发起对话'
@@ -1164,7 +1176,7 @@ export async function generateThinkingPrompt(formData, apiKey) {
   }
 }
 
-export async function compressChatHistory(messages, apiKey) {
+export async function compressChatHistory(messages, apiKey, storyTime) {
   const model = getModel()
 
   const chatText = messages
@@ -1179,14 +1191,38 @@ export async function compressChatHistory(messages, apiKey) {
     return { summary: null, error: new Error('没有可压缩的对话内容') }
   }
 
+  const timeInfo = storyTime && storyTime.year
+    ? '当前故事时间：第' + storyTime.year + '年' + storyTime.month + '月' + storyTime.day + '日\n时间线请基于此故事时间计算，不要使用现实时间。\n\n'
+    : ''
+
   const prompt =
-    '请将以下角色扮演对话历史压缩成一段简洁的剧情摘要。要求：\n' +
-    '1. 保留关键剧情发展、重要事件和转折点\n' +
-    '2. 记录角色情感变化和关系进展\n' +
-    '3. 保留用户和角色的重要个人信息\n' +
-    '4. 字数控制在500字以内\n' +
-    '5. 只输出摘要内容，不要加任何前缀或解释\n\n' +
-    '对话历史：\n' + chatText
+    '请把以下对话历史压缩成结构化存档，\n' +
+    '严格按以下格式输出，不要省略任何部分：\n' +
+    '\n' +
+    '【时间线】\n' +
+    '[按时间顺序列出已发生的关键事件，\n' +
+    '每条一行，包含时间点]\n' +
+    '\n' +
+    '【人物关系现状】\n' +
+    '[每对有互动的人物之间的当前关系状态，\n' +
+    '包括已发生的重要转变]\n' +
+    '\n' +
+    '【当前场景】\n' +
+    '时间：[具体时间]\n' +
+    '地点：[具体地点]\n' +
+    '在场人物：[列出所有在场角色]\n' +
+    '场景状态：[正在发生什么，气氛如何]\n' +
+    '\n' +
+    '【特殊物品/信息】\n' +
+    '[出现过的重要物品、秘密、承诺、\n' +
+    '未解决的冲突]\n' +
+    '\n' +
+    '【最后一幕原文】\n' +
+    '[完整保留压缩前最后一轮的回复原文，\n' +
+    '不做任何修改]\n' +
+    '\n' +
+    timeInfo +
+    '待压缩内容：\n' + chatText
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {
