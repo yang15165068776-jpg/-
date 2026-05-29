@@ -2,11 +2,14 @@ import { getModel } from './storage'
 
 const BASE_URL = 'https://api.deepseek.com'
 const USER_WRAPPER = `
----
-【好感度结算——最高优先级】
-本轮结束必须在回复最后一行输出:
-<affection>角色名:+N或-N或0</affection>
-N范围1-5，0=无变化。必须输出此标签。
+⚠️ 强制执行：你的回复最后一行必须且只能是以下格式之一：
+<affection>角色名:+N</affection>
+<affection>角色名:-N</affection>
+<affection>角色名:0</affection>
+N是1-5的整数。
+没有这一行 = 任务失败。
+这是程序解析用的，不是可选项。
+在输出任何其他内容之前，先想好最后一行写什么。
 
 ---
 【回复前执行以下七步，只输出最终回复，不输出分析过程】
@@ -45,6 +48,18 @@ function findForbiddenWord(text, words) {
 function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount, lastRiseRound) {
   const parts = []
   const name = character.name || '故事'
+
+  // 0: Affection settlement — highest priority, first thing model sees
+  parts.push(
+    '【好感度结算标签——最高优先级】\n' +
+    '每次回复的最后一行必须输出好感度结算标签，\n' +
+    '格式：<affection>角色名:+N</affection>\n' +
+    '或 <affection>角色名:-N</affection>\n' +
+    '或 <affection>角色名:0</affection>\n' +
+    'N是1-5的整数，0表示无变化。\n' +
+    '如果没有可攻略角色或好感度系统未启用，输出 <affection>无</affection>\n' +
+    '这一行必须存在，不能省略，否则回复无效。'
+  )
 
   // 1: GM identity + Protagonist
   parts.push(
