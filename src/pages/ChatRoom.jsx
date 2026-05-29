@@ -1064,7 +1064,19 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     // Parse affection tags for story mode
     let finalReply = reply
     if (character.chatStyle === 'story') {
+      // === DEBUG STEP 1: 弹出原始回复末尾 ===
+      alert('原始回复末尾100字：\n' + reply.slice(-100))
+
+      // === DEBUG STEP 2: 测试正则 ===
+      const testStr = '<affection>陆承衍:+3</affection>'
+      const testMatch = testStr.match(/<affection>([\s\S]*?)<\/affection>/i)
+      alert('正则测试：\n测试字符串：' + testStr + '\n匹配结果：' + JSON.stringify(testMatch))
+
+      // === DEBUG STEP 3: 解析前状态 ===
+      alert('解析前 affections state：\n' + JSON.stringify(affections))
+
       const { cleanedContent, changes } = parseAffectionTags(reply)
+      alert('解析结果 changes：\n' + JSON.stringify(changes) + '\n\ncleanedContent 末尾100字：\n' + (cleanedContent || '').slice(-100))
       console.log('[好感度] 解析结果：', changes)
       finalReply = cleanedContent || reply
       // Filter out zero-delta changes (confirmed-no-change) for flash display
@@ -1103,6 +1115,11 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         }
         setAffectionFlash(flashMap)
         setTimeout(() => setAffectionFlash(null), 1500)
+        // === DEBUG: 确认更新后的 state（用 setTimeout 等待 React 渲染） ===
+        setTimeout(() => {
+          const archive = getArchive(archiveId, mode)
+          alert('更新后验证：\nlocalStorage affections：' + JSON.stringify(archive?.affections) + '\n期待 flashMap：' + JSON.stringify(flashMap))
+        }, 500)
       } else {
         // No meaningful change — still increment round count
         const newRoundCount = roundCount + 1
@@ -1113,6 +1130,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
           saveArchive(archive, mode)
         }
         setAffectionNoChange(true)
+        // === DEBUG: 无变化时也弹出 ===
+        alert('本轮好感度无变化\nchanges 数组：' + JSON.stringify(changes) + '\n当前 affections：' + JSON.stringify(affections))
       }
     }
 
