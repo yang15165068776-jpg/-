@@ -196,19 +196,6 @@ function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount,
         const stage = getCurrentAffectionStage(rc, affValue)
         lines.push('当前好感度：' + affValue + '/100' +
           (stage ? '，当前阶段：' + stage.name + '，行为规则：' + stage.behavior : ''))
-        if (rc.cooldownRounds != null && rc.cooldownRounds > 0) {
-          const lrr = (lastRiseRound && lastRiseRound[rc.name]) || 0
-          const rc2 = roundCount || 0
-          const elapsed = rc2 - lrr
-          const remaining = rc.cooldownRounds - elapsed
-          if (remaining <= 0) {
-            lines.push('冷却锁：已解锁 ✓（距上次上涨已过' + elapsed + '轮，冷却需' + rc.cooldownRounds + '轮）→ 本轮可正常上涨')
-          } else {
-            lines.push('冷却锁：锁定中 ✗（上次上涨在第' + lrr + '轮，当前第' + rc2 + '轮，已过' + elapsed + '轮/需' + rc.cooldownRounds + '轮，还需' + remaining + '轮）→ 本轮禁止上涨')
-          }
-        } else {
-          lines.push('冷却锁：无冷却限制，每轮均可上涨')
-        }
         if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
           lines.push('好感度增加条件：\n' + rc.affectionUpRules.trim().split('\n').filter(Boolean).map(r => '- ' + r.trim()).join('\n'))
         }

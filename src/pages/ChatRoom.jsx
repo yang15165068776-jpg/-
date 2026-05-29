@@ -1088,54 +1088,33 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     let finalReply = reply
     if (character.chatStyle === 'story') {
       const { cleanedContent, changes } = parseAffectionTags(reply)
-      console.log('[好感度] 解析结果：', changes)
       finalReply = cleanedContent || reply
-      // Filter out zero-delta changes (confirmed-no-change) for flash display
       const meaningfulChanges = changes.filter(c => c.delta !== 0)
       if (meaningfulChanges.length > 0) {
-        const newRoundCount = roundCount + 1
-        const newLastRiseRound = { ...lastRiseRound }
         const flashMap = {}
         setAffections(prev => {
           const updated = { ...prev }
           meaningfulChanges.forEach(({ name, delta }) => {
             const rc = character.romanceCharacters?.find(c => c.name === name)
-            const oldVal = updated[name] || (rc?.affectionInitial ?? 50)
-            const newVal = oldVal + delta
-            const clamped = clampAffection(newVal, rc)
-            console.log('[好感度] ' + name + '：更新前=' + oldVal + ' → 更新后=' + clamped + '（delta=' + delta + '）')
-            updated[name] = clamped
+            const curVal = updated[name] != null ? updated[name] : (rc?.affectionInitial ?? 50)
+            const newVal = clampAffection(curVal + delta, rc)
+            updated[name] = newVal
             flashMap[name] = delta
-            // Record this round as the last rise round for this character
-            newLastRiseRound[name] = newRoundCount
           })
           return updated
         })
-        // Reset rounds counter for characters that got a non-zero change
-        meaningfulChanges.forEach(({ name }) => {
-          roundsSinceLastAffectionRef.current[name] = 0
-        })
-        setLastRiseRound(newLastRiseRound)
-        setRoundCount(newRoundCount)
-        // Save round data to archive
-        const archive = getArchive(archiveId, mode)
-        if (archive) {
-          archive.roundCount = newRoundCount
-          archive.lastRiseRound = newLastRiseRound
-          saveArchive(archive, mode)
-        }
         setAffectionFlash(flashMap)
         setTimeout(() => setAffectionFlash(null), 1500)
       } else {
-        // No meaningful change — still increment round count
-        const newRoundCount = roundCount + 1
-        setRoundCount(newRoundCount)
-        const archive = getArchive(archiveId, mode)
-        if (archive) {
-          archive.roundCount = newRoundCount
-          saveArchive(archive, mode)
-        }
         setAffectionNoChange(true)
+      }
+      // Increment round count regardless
+      const newRoundCount = roundCount + 1
+      setRoundCount(newRoundCount)
+      const archive = getArchive(archiveId, mode)
+      if (archive) {
+        archive.roundCount = newRoundCount
+        saveArchive(archive, mode)
       }
     }
 
