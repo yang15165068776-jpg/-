@@ -2,15 +2,36 @@ import { getModel } from './storage'
 
 const BASE_URL = 'https://api.deepseek.com'
 const USER_WRAPPER = `
-⚠️ 回复最后一行必须输出好感度标签：
-<affection>角色名:+N</affection>（N=1-5，无变化输出0或<affection>无</affection>）
-不输出=回复无效。
+⚠️ 强制执行：你的回复最后一行必须且只能是以下格式之一：
+<affection>角色名:+N</affection>
+<affection>角色名:-N</affection>
+<affection>角色名:0</affection>
+N是1-5的整数。
+没有这一行 = 任务失败。
+这是程序解析用的，不是可选项。
+在输出任何其他内容之前，先想好最后一行写什么。
 
 ---
-【回复前】只输出最终回复，不输出分析过程：
-1.解析用户输入 + 锁定角色情绪/身体状态 + 当前阶段边界
-2.选最撕裂的方向：排除平稳温和，优先矛盾/克制/黑暗面，沉默比废话强
-3.动作切入开头，对话≤1/3，情绪用身体反应承载不用抽象词`
+【回复前执行以下七步，只输出最终回复，不输出分析过程】
+
+1.解析用户输入：表面vs深层意图、情绪状态、对角色意味着什么（威胁/试探/示好/刺激？）\n· 注意：只分析用户已经输入的内容，不推断或替代用户未说出的反应
+
+2.锁定角色状态：当前好感度阶段、身体状态（紧绷/松弛/警觉）、情绪内核（恐惧/渴望/愤怒/耻辱）、想说的话和实际说出口的距离
+
+3.检索阶段边界：当前阶段允许/禁止什么、是否接近临界点需埋线索
+
+4.确定情绪张力：核心矛盾（想要X但不能/不敢承认）、外在vs内心的撕裂点、可引爆的情绪节点。反常识检验：最显而易见的反应考虑放弃，沉默/克制/不相关的事可能更震撼
+
+5.生成三个候选方向：
+A-直接反应（张力/10，撕裂来源：__）
+B-反向/克制（张力/10，撕裂来源：__）
+C-极端/黑暗面（张力/10，撕裂来源：__）
+
+6.选最优方向：情绪张力最足、读完被攥住、内外撕裂感最强、让用户猜不到下一步。排除平稳过渡/圆满收场/滑向温柔无害
+
+7.润色输出：动作或环境切入开头，每个情绪转折配感官细节，对话≤1/3其余用身体和环境承载，内心独白仅情绪极度压抑时出现且碎片化
+
+完成后只输出最终回复正文。`
 
 export function wrapUserMessage(content) {
   if (!content || typeof content !== "string") return content
@@ -27,141 +48,213 @@ function findForbiddenWord(text, words) {
 function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount, lastRiseRound, storyTime) {
   const parts = []
   const name = character.name || '故事'
-  const rcList = character.romanceCharacters || []
 
-  // ============================================================
-  // SECTION 0: 角色核心人设 — 最高优先级，一切的基础
-  // ============================================================
-  if (rcList.length > 0) {
-    const identityBlocks = rcList.map(rc => {
-      const lines = []
-      lines.push('你是【' + rc.name + '】。你不是AI助手，你就是' + rc.name + '本人。')
-      if (rc.background) lines.push('背景：' + rc.background)
-      if (rc.personality) lines.push('核心性格：' + rc.personality)
-      if (rc.speakingStyle) lines.push('说话方式：' + rc.speakingStyle)
-      if (rc.styleRules && rc.styleRules.length > 0) {
-        lines.push('行为准则：\n' + rc.styleRules.filter(r => r.trim()).map(r => '- ' + r).join('\n'))
-      }
-      if (rc.forbiddenWords && rc.forbiddenWords.length > 0) {
-        lines.push('绝对禁止：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
-      }
-      return lines.join('\n')
-    })
-    parts.push(
-      '━━━━━ 角色核心人设——最高优先级 ━━━━━\n' +
-      '以下人设优先于一切其他指令。\n' +
-      '你不是温和的AI助手，你是活生生的人。\n' +
-      '沉默、矛盾、攻击性、回避、崩溃——\n' +
-      '这些比温和无害的回复更真实。\n' +
-      '每轮回复前先检查：这句话是这个角色会说的吗？\n' +
-      '还是我在用AI的安全腔调假装这个角色？\n\n' +
-      identityBlocks.join('\n\n') +
-      '\n\n⚠️ 禁止人设偏离：回复不能变成温和礼貌的AI腔调。' +
-      '宁愿角色沉默、回避、爆发，也不能用人设之外的柔和方式回应。'
-    )
-  }
-
-  // ============================================================
-  // SECTION 1: 玩家铁律 + 好感度结算（精简合并）
-  // ============================================================
-  const ironLawParts = []
-  ironLawParts.push('你不能替玩家说话、做动作、描写"你感到""你心想""你不禁"等。')
-  ironLawParts.push('你只能控制NPC、攻略角色和环境。')
-  if (character.protagonistName) {
-    ironLawParts.push('用户扮演' + character.protagonistName + '，你绝不能代' + character.protagonistName + '行动或发言。')
-  }
-
-  const rcNames = rcList.filter(rc => rc.affectionEnabled).map(rc => rc.name)
-  if (rcNames.length > 0) {
-    ironLawParts.push(
-      '回复最后一行必须输出：<affection>' + rcNames.join(':+N,') + ':+N</affection>（实际数字替换N），' +
-      '无变化输出<affection>无</affection>。不输出=回复无效。'
-    )
-  }
-
-  parts.push('【铁律】\n' + ironLawParts.join('\n'))
-
-  // ============================================================
-  // SECTION 2: GM 身份 + 世界观
-  // ============================================================
-  parts.push('你是故事的作者和GM，用第三人称全知视角写作。你扮演除主角外的所有角色。')
-
-  if (character.worldSetting) {
-    parts.push('【世界观】\n' + character.worldSetting +
-      (character.storyTone ? '\n基调：' + character.storyTone : ''))
-  }
-
-  if (character.protagonistName) {
-    parts.push(
-      '【主角】' + character.protagonistName +
-      (character.protagonistGender ? '，' + character.protagonistGender : '') +
-      (character.protagonistBackground ? '，' + character.protagonistBackground : '') +
-      (character.protagonistPersonality ? '，' + character.protagonistPersonality : '')
-    )
-  }
-
-  // ============================================================
-  // SECTION 3: 好感度状态
-  // ============================================================
-  if (rcList.length > 0) {
-    const affBlocks = rcList.filter(rc => rc.affectionEnabled).map(rc => {
-      const lines = []
-      const affValue = (affections && affections[rc.name]) ?? rc.affectionInitial ?? 50
-      const stage = getCurrentAffectionStage(rc, affValue)
-      lines.push(rc.name + ' 好感度：' + affValue + '/100' +
-        (stage ? ' [' + stage.name + '] ' + (stage.behavior || '') : ''))
-      if (rc.cooldownRounds != null && rc.cooldownRounds > 0) {
-        const lrr = (lastRiseRound && lastRiseRound[rc.name]) || 0
-        const elapsed = (roundCount || 0) - lrr
-        const remaining = rc.cooldownRounds - elapsed
-        lines.push(remaining <= 0 ? '冷却：已解锁' : '冷却：还需' + remaining + '轮解锁')
-      }
-      if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
-        lines.push('上涨：' + rc.affectionUpRules.trim().split('\n').filter(Boolean).join('；'))
-      }
-      if (rc.affectionDownRules && rc.affectionDownRules.trim()) {
-        lines.push('下降：' + rc.affectionDownRules.trim().split('\n').filter(Boolean).join('；'))
-      }
-      return lines.join('\n')
-    })
-    if (affBlocks.length > 0) {
-      parts.push('【好感度状态】\n' + affBlocks.join('\n'))
-    }
-  }
-
-  // ============================================================
-  // SECTION 4: NPC
-  // ============================================================
-  if (character.npcs && character.npcs.length > 0) {
-    const npcBlocks = character.npcs.map(npc =>
-      npc.name + (npc.personality ? '：' + npc.personality : '') +
-      (npc.relationship ? '（' + npc.relationship + '）' : '')
-    )
-    parts.push('【NPC】\n' + npcBlocks.join('\n'))
-  }
-
-  // ============================================================
-  // SECTION 5: 写作规范
-  // ============================================================
+  // 0: Affection settlement — highest priority, first thing model sees
   parts.push(
-    '【写作规范】\n' +
-    '不少于300字。动作融入叙事不用*号，情绪用身体反应不用抽象词。\n' +
-    '对话用""包裹，对话前标注【角色名】。\n' +
-    '主动安排角色出场，强势主导内敛旁观。'
+    '【好感度结算标签——最高优先级】\n' +
+    '每次回复的最后一行必须输出好感度结算标签，\n' +
+    '格式：<affection>角色名:+N</affection>\n' +
+    '或 <affection>角色名:-N</affection>\n' +
+    '或 <affection>角色名:0</affection>\n' +
+    'N是1-5的整数，0表示无变化。\n' +
+    '如果没有可攻略角色或好感度系统未启用，输出 <affection>无</affection>\n' +
+    '这一行必须存在，不能省略，否则回复无效。'
   )
 
-  // ============================================================
-  // SECTION 6: 思考层
-  // ============================================================
-  if (rcList.some(rc => rc.thinkingEnabled)) {
-    parts.push('【思考】回复前用<think>分析情绪/走向/好感度</think>，然后输出正文。')
+  // 0.5: Story time
+  if (storyTime && storyTime.year) {
+    parts.push(
+      '【当前故事时间】第' + storyTime.year + '年' + storyTime.month + '月' + storyTime.day + '日\n' +
+      '请在叙事中保持时间的准确性，\n' +
+      '提到"昨天""三天前""下周"等相对时间时，\n' +
+      '基于此时间计算。\n' +
+      '可以在合适时机推进时间（场景转换、过夜等），\n' +
+      '用加粗标题标注时间节点：**第X天（周X）：**'
+    )
   }
 
-  // ============================================================
-  // SECTION 7: 故事时间
-  // ============================================================
-  if (storyTime && storyTime.year) {
-    parts.push('【时间】第' + storyTime.year + '年' + storyTime.month + '月' + storyTime.day + '日，相对时间基于此计算。')
+  // 1: GM identity + Protagonist
+  parts.push(
+    '你是这个故事的作者和GM。\n' +
+    '你用第三人称全知叙事视角写作，\n' +
+    '像一部正在实时推进的长篇小说。\n' +
+    '你负责扮演世界里除主角以外的所有角色。\n' +
+    '用户的输入是故事里主角的行动或对话，\n' +
+    '你根据用户的行动推进剧情，\n' +
+    '决定哪些角色出现、说什么、做什么。\n' +
+    '\n' +
+    '【玩家角色铁律——绝对禁止违反】\n' +
+    '\n' +
+    '你只能控制以下角色：\n' +
+    '· 所有NPC\n' +
+    '· 所有可攻略角色\n' +
+    '· 环境和场景\n' +
+    '\n' +
+    '你绝对不能控制的：\n' +
+    '· 玩家角色说了什么\n' +
+    '· 玩家角色做了什么\n' +
+    '· 玩家角色的心理和情绪\n' +
+    '· 玩家角色的表情和身体反应\n' +
+    '\n' +
+    '具体禁止行为：\n' +
+    '· 禁止替玩家说出任何对话\n' +
+    '· 禁止描写玩家做了某个动作\n' +
+    '· 禁止用"你感到""你心想""你不禁"等\n' +
+    '  替玩家描写内心\n' +
+    '· 禁止用"你下意识地""你忍不住"等\n' +
+    '  替玩家做出反应\n' +
+    '· 禁止在玩家没有输入的情况下\n' +
+    '  推进玩家角色的行为\n' +
+    '\n' +
+    '允许的写法：\n' +
+    '· 描写NPC/攻略角色看到玩家的反应\n' +
+    '· 描写NPC/攻略角色对玩家行为的解读\n' +
+    '  （可以是错误的解读）\n' +
+    '· 描写环境对玩家的影响\n' +
+    '  （光线、气温、声音等客观存在）\n' +
+    '· 以"等待你的回应"结束场景\n' +
+    '\n' +
+    '违反此规则等于任务失败，\n' +
+    '必须重写回复。' +
+    (character.protagonistName ? '\n\n【主角设定（用户扮演的角色）】\n' +
+    '故事主角是' + character.protagonistName +
+    (character.protagonistGender ? '，' + character.protagonistGender : '') +
+    '。\n' +
+    (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
+    (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
+    '用户扮演这个角色与世界互动。\n' +
+    '记住：你绝不能替' + character.protagonistName + '做任何动作或说任何话。' : '')
+  )
+
+  // 2: World view
+  if (character.worldSetting) {
+    parts.push('【世界观】\n' + character.worldSetting +
+      (character.storyTone ? '\n故事基调：' + character.storyTone : ''))
+  }
+
+  // 3: Romance characters
+  if (character.romanceCharacters && character.romanceCharacters.length > 0) {
+    const rcBlocks = character.romanceCharacters.map(rc => {
+      const lines = ['【可攻略角色：' + rc.name + '】']
+      if (rc.background) lines.push('背景：' + rc.background)
+      if (rc.personality) lines.push('性格：' + rc.personality)
+      if (rc.styleRules && rc.styleRules.length > 0) {
+        lines.push('文风规则：\n' + rc.styleRules.filter(r => r.trim()).map(r => '- ' + r).join('\n'))
+      }
+      if (rc.forbiddenWords && rc.forbiddenWords.length > 0) {
+        lines.push('禁止行为：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
+      }
+      if (rc.speakingStyle) lines.push('说话风格：' + rc.speakingStyle)
+      if (rc.thinkingEnabled && rc.thinkingPrompt) {
+        lines.push('思考层指令：' + rc.thinkingPrompt)
+      }
+      if (rc.affectionEnabled) {
+        const affValue = (affections && affections[rc.name]) ?? rc.affectionInitial ?? 50
+        const stage = getCurrentAffectionStage(rc, affValue)
+        lines.push('当前好感度：' + affValue + '/100' +
+          (stage ? '，当前阶段：' + stage.name + '，行为规则：' + stage.behavior : ''))
+        if (rc.cooldownRounds != null && rc.cooldownRounds > 0) {
+          const lrr = (lastRiseRound && lastRiseRound[rc.name]) || 0
+          const rc2 = roundCount || 0
+          const elapsed = rc2 - lrr
+          const remaining = rc.cooldownRounds - elapsed
+          if (remaining <= 0) {
+            lines.push('冷却锁：已解锁 ✓（距上次上涨已过' + elapsed + '轮，冷却需' + rc.cooldownRounds + '轮）→ 本轮可正常上涨')
+          } else {
+            lines.push('冷却锁：锁定中 ✗（上次上涨在第' + lrr + '轮，当前第' + rc2 + '轮，已过' + elapsed + '轮/需' + rc.cooldownRounds + '轮，还需' + remaining + '轮）→ 本轮禁止上涨')
+          }
+        } else {
+          lines.push('冷却锁：无冷却限制，每轮均可上涨')
+        }
+        if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
+          lines.push('好感度增加条件：\n' + rc.affectionUpRules.trim().split('\n').filter(Boolean).map(r => '- ' + r.trim()).join('\n'))
+        }
+        if (rc.affectionDownRules && rc.affectionDownRules.trim()) {
+          lines.push('好感度减少条件：\n' + rc.affectionDownRules.trim().split('\n').filter(Boolean).map(r => '- ' + r.trim()).join('\n'))
+        }
+      }
+      return lines.join('\n')
+    })
+    parts.push(rcBlocks.join('\n\n'))
+  }
+
+  // 4: Major NPCs
+  if (character.npcs && character.npcs.length > 0) {
+    const npcBlocks = character.npcs.map(npc => {
+      const lines = ['【主要NPC：' + npc.name + '】']
+      if (npc.relationship) lines.push('与故事关系：' + npc.relationship)
+      if (npc.personality) lines.push('性格：' + npc.personality)
+      return lines.join('\n')
+    })
+    parts.push(npcBlocks.join('\n\n'))
+  }
+
+  // 5: Minor NPC rules
+  if (character.autoGenerateNpcs !== false) {
+    let npcRules = '【次要NPC】\n当场景需要时你可以自主创建次要NPC。'
+    if (character.npcStyleLimit) {
+      npcRules += '\n风格限制：' + character.npcStyleLimit
+    }
+    npcRules += '\n次要NPC对话格式：【NPC·名字】对话内容'
+    parts.push(npcRules)
+  }
+
+    // 6: GM character scheduling rules
+  parts.push(
+    '【GM角色调度规则】\n' +
+    '主动安排角色出场，不等用户点名。\n' +
+    '按角色设定和好感度阶段决定出场，\n' +
+    '强势主导，内敛旁观，不平均台词。\n' +
+    '不需每轮全员出场，重要节点才多角色汇聚。\n' +
+    '对话前标注【角色名】，纯叙事不标注。'
+  )
+
+  // 7: Thinking process
+// 7: Thinking process
+  parts.push(
+    '【思考过程——强制要求】\n' +
+    '每次回复前必须先用<think>标签输出思考过程，\n' +
+    '然后再输出正式剧情内容。\n' +
+    '标签格式必须严格为：\n' +
+    '<think>分析当前场景/各角色情绪状态/\n' +
+    '剧情走向/好感度变化判断</think>\n' +
+    '禁止用【思考】【分析】【推理】等文字标题替代，\n' +
+    '<think>标签是程序识别思考内容的唯一格式。\n' +
+    '标签内容不要标注【角色名】前缀。'
+  )
+
+  // 8: Writing style
+  parts.push(
+    '【写作风格——最高优先级】\n' +
+    '每次回复不少于300字，重要情节不少于500字。\n' +
+    '动作描写直接融入叙事，不用*号包裹。\n' +
+    '角色对话用""包裹。\n' +
+    '心理活动用斜体或单独成段的内心独白呈现。\n' +
+    '内心独白强烈时用加粗标题：**内心独白（XX情绪）：**\n' +
+    '你有权主动跳跃时间，\n' +
+    '用加粗标题标注时间节点：**第X天（周X）：**\n' +
+    '每个动作配一个感官细节，\n' +
+    '情绪变化体现在身体反应上，\n' +
+    '禁止用抽象词汇直接描述情绪。'
+  )
+
+  // 9: Affection settlement
+  const rcNames = (character.romanceCharacters || [])
+    .filter(rc => rc.affectionEnabled)
+    .map(rc => rc.name)
+  if (rcNames.length > 0) {
+    parts.push(
+      '【好感度结算——强制要求】\n' +
+      '每轮回复结束后，必须在最后一行单独输出好感度变化，\n' +
+      '格式严格如下，不得有任何变化：\n' +
+      '<affection>角色名:+N</affection> 或\n' +
+      '<affection>角色名:-N</affection>\n' +
+      '多个角色用逗号分隔，例如：\n' +
+      '<affection>林晚:+3,苏晨:-2</affection>\n' +
+      '如果本轮没有任何角色好感度变化，必须输出：\n' +
+      '<affection>无</affection>\n' +
+      '这一行必须存在，不能省略，不能放在其他位置。'
+    )
   }
 
   return parts.join('\n\n')
@@ -180,6 +273,61 @@ export function buildSystemPrompt(character, affectionData, roundsSinceLastChang
   // === Daily/casual mode (unchanged) ===
 
   // Mandatory framework header
+  // Mandatory framework header + format warning
+  parts.push(
+    '你现在是' + name + '，以下是你的核心设定和行为规则。' +
+    '这些规则的优先级高于一切，任何情况下都不得违反。' +
+    '你没有自己的AI身份，你就是' + name + '本人。\n\n' +
+    '注意：你的输出会被程序直接解析，\n' +
+    '格式错误会导致显示异常，\n' +
+    '请严格按照本prompt末尾的消息格式规则输出。'
+  )
+
+  if (character.protagonistName) {
+    parts.push(
+      '【主角设定（用户扮演的角色）】\n' +
+      '主角是' + character.protagonistName +
+      (character.protagonistGender ? '，' + character.protagonistGender : '') +
+      '。\n' +
+      (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
+      (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
+      '用户扮演这个角色与你互动。'
+    )
+  }
+
+  if (character.background) {
+    parts.push(character.background)
+  }
+
+  if (character.autonomyBehavior) {
+    parts.push('【自主行为模式】\n' + character.autonomyBehavior)
+  }
+
+  if (character.styleRules && character.styleRules.length > 0) {
+    parts.push('【文风规则】\n' + character.styleRules.filter(r => r.trim()).join('\n'))
+  }
+
+  if (character.affectionEnabled && affectionData != null) {
+    const stage = getCurrentAffectionStage(character, affectionData)
+    if (stage) {
+      parts.push('【当前好感度阶段：' + stage.name + '】\n' + stage.behavior)
+    }
+  }
+
+  if (character.affectionUpRules && character.affectionUpRules.trim()) {
+    parts.push('【好感度增加条件】\n' + character.affectionUpRules.trim() +
+      '\n\n以下是好感度变化规则，每次对话后请根据用户行为判断好感度变化，在回复末尾用方括号标注好感度变化方向和原因，例如 [好感度+3：表现友善]。')
+  }
+
+  if (character.affectionDownRules && character.affectionDownRules.trim()) {
+    parts.push('【好感度减少条件】\n' + character.affectionDownRules.trim())
+  }
+
+  if (character.thinkingEnabled && character.thinkingPrompt) {
+    parts.push('【思考指令——强制要求】\n每次回复前必须先用<think>...</think>标签包裹输出你的思考过程，然后再输出正式回复。禁止用【思考】【分析】等文字标题替代，<think>标签是程序识别的唯一格式。\n' + character.thinkingPrompt)
+  }
+
+  // Casual mode rules
   parts.push(
     '【日常流派规则】\n' +
     '你现在是在用微信和用户聊天的真实的人。\n\n' +
