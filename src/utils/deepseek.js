@@ -42,7 +42,7 @@ function findForbiddenWord(text, words) {
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
 }
 
-function buildGMPrompt(character, affections, roundsSinceLastChange) {
+function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount, lastRiseRound) {
   const parts = []
   const name = character.name || '故事'
 
@@ -126,14 +126,18 @@ function buildGMPrompt(character, affections, roundsSinceLastChange) {
         const stage = getCurrentAffectionStage(rc, affValue)
         lines.push('当前好感度：' + affValue + '/100' +
           (stage ? '，当前阶段：' + stage.name + '，行为规则：' + stage.behavior : ''))
-        if (rc.cooldownRounds != null) {
-          const elapsed = (roundsSinceLastChange && roundsSinceLastChange[rc.name]) || 0
+        if (rc.cooldownRounds != null && rc.cooldownRounds > 0) {
+          const lrr = (lastRiseRound && lastRiseRound[rc.name]) || 0
+          const rc2 = roundCount || 0
+          const elapsed = rc2 - lrr
           const remaining = rc.cooldownRounds - elapsed
           if (remaining <= 0) {
-            lines.push('冷却已结束（已过' + elapsed + '轮），本轮可正常上涨')
+            lines.push('冷却锁：已解锁 ✓（距上次上涨已过' + elapsed + '轮，冷却需' + rc.cooldownRounds + '轮）→ 本轮可正常上涨')
           } else {
-            lines.push('冷却锁：还需' + remaining + '轮才能再次上涨（已过' + elapsed + '轮）')
+            lines.push('冷却锁：锁定中 ✗（上次上涨在第' + lrr + '轮，当前第' + rc2 + '轮，已过' + elapsed + '轮/需' + rc.cooldownRounds + '轮，还需' + remaining + '轮）→ 本轮禁止上涨')
           }
+        } else {
+          lines.push('冷却锁：无冷却限制，每轮均可上涨')
         }
         if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
           lines.push('好感度增加条件：\n' + rc.affectionUpRules.trim().split('\n').filter(Boolean).map(r => '- ' + r.trim()).join('\n'))
@@ -229,13 +233,13 @@ function buildGMPrompt(character, affections, roundsSinceLastChange) {
   return parts.join('\n\n')
 }
 
-export function buildSystemPrompt(character, affectionData, roundsSinceLastChange) {
+export function buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound) {
   const name = character.name || '角色'
   const parts = []
 
   if (character.chatStyle === 'story') {
     // GM story mode
-    parts.push(buildGMPrompt(character, affectionData, roundsSinceLastChange))
+    parts.push(buildGMPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound))
     return parts.join('\n\n')
   }
 
@@ -375,8 +379,8 @@ export function parseAffectionTags(content) {
   const changes = tagContent.split(/[,，]/).map(s => {
     const trimmed = s.trim()
     if (!trimmed) return null
-    // Match pattern: 角色名:±N
-    const m = trimmed.match(/^(.+?)\s*:\s*([+-]?\d+)$/)
+    // Match pattern: 角色名:±N or 角色名：±N (both : and ：)
+    const m = trimmed.match(/^(.+?)\s*[:：]\s*([+-]?\d+)$/)
     if (!m) return null
     const name = m[1].trim()
     const delta = parseInt(m[2], 10)
@@ -474,7 +478,7 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP, thi
   }
 }
 
-export async function sendMessageStream(character, messages, affectionData, apiKey, roundsSinceLastChange, onToken) {
+export async function sendMessageStream(character, messages, affectionData, apiKey, roundsSinceLastChange, roundCount, lastRiseRound, onToken) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -494,7 +498,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   let lastViolation = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
-    let systemPrompt = buildSystemPrompt(character, affectionData, roundsSinceLastChange)
+    let systemPrompt = buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound)
 
     // Inject memory content into system prompt
     if (memoryMessages.length > 0) {

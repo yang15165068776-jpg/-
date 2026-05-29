@@ -10,6 +10,7 @@ import {
   saveAffections,
   clearChatHistory,
   saveCharacter,
+  saveArchive,
 } from '../utils/storage'
 import { sendMessageStream, sendCasualReply, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, parseAffectionTags } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
@@ -714,6 +715,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const lastActivityRef = useRef(Date.now())
   const menuTimerRef = useRef(null)
   const roundsSinceLastAffectionRef = useRef({}) // { [charName]: count } — rounds since last non-zero affection change
+  const [roundCount, setRoundCount] = useState(0)
+  const [lastRiseRound, setLastRiseRound] = useState({}) // { [charName]: roundCount when last rise happened }
 
   useEffect(() => {
     const archive = getArchive(archiveId, mode)
@@ -754,6 +757,9 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       const saved = archive.affection
       setAffection(saved !== null ? saved : char.affectionInitial)
     }
+    // Initialize round tracking from archive
+    setRoundCount(archive.roundCount || 0)
+    setLastRiseRound(archive.lastRiseRound || {})
   }, [archiveId])
 
   useEffect(() => {
@@ -1012,6 +1018,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       affectionData,
       apiKey,
       roundsSinceLastAffectionRef.current,
+      roundCount,
+      lastRiseRound,
       (token, fullText, reset) => {
         if (reset) {
           setStreamingText('')
@@ -1057,18 +1065,26 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     let finalReply = reply
     if (character.chatStyle === 'story') {
       const { cleanedContent, changes } = parseAffectionTags(reply)
+      console.log('[好感度] 解析结果：', changes)
       finalReply = cleanedContent || reply
       // Filter out zero-delta changes (confirmed-no-change) for flash display
       const meaningfulChanges = changes.filter(c => c.delta !== 0)
       if (meaningfulChanges.length > 0) {
+        const newRoundCount = roundCount + 1
+        const newLastRiseRound = { ...lastRiseRound }
         const flashMap = {}
         setAffections(prev => {
           const updated = { ...prev }
           meaningfulChanges.forEach(({ name, delta }) => {
             const rc = character.romanceCharacters?.find(c => c.name === name)
-            const newVal = (updated[name] || (rc?.affectionInitial ?? 50)) + delta
-            updated[name] = clampAffection(newVal, rc)
+            const oldVal = updated[name] || (rc?.affectionInitial ?? 50)
+            const newVal = oldVal + delta
+            const clamped = clampAffection(newVal, rc)
+            console.log('[好感度] ' + name + '：更新前=' + oldVal + ' → 更新后=' + clamped + '（delta=' + delta + '）')
+            updated[name] = clamped
             flashMap[name] = delta
+            // Record this round as the last rise round for this character
+            newLastRiseRound[name] = newRoundCount
           })
           return updated
         })
@@ -1076,9 +1092,26 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         meaningfulChanges.forEach(({ name }) => {
           roundsSinceLastAffectionRef.current[name] = 0
         })
+        setLastRiseRound(newLastRiseRound)
+        setRoundCount(newRoundCount)
+        // Save round data to archive
+        const archive = getArchive(archiveId, mode)
+        if (archive) {
+          archive.roundCount = newRoundCount
+          archive.lastRiseRound = newLastRiseRound
+          saveArchive(archive, mode)
+        }
         setAffectionFlash(flashMap)
         setTimeout(() => setAffectionFlash(null), 1500)
       } else {
+        // No meaningful change — still increment round count
+        const newRoundCount = roundCount + 1
+        setRoundCount(newRoundCount)
+        const archive = getArchive(archiveId, mode)
+        if (archive) {
+          archive.roundCount = newRoundCount
+          saveArchive(archive, mode)
+        }
         setAffectionNoChange(true)
       }
     }
