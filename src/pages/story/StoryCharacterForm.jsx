@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../../utils/storage'
-import { generateAutonomySummary, extractCharacterFromText, extractStoryFromText } from '../../utils/deepseek'
+import { generateAutonomySummary, extractCharacterFromText, extractStoryFromText, generateStageBehaviors } from '../../utils/deepseek'
 
 const emptyStage = () => ({
   name: '',
@@ -69,6 +69,7 @@ function imageToBase64(file) {
 export default function StoryCharacterForm({ mode, characterId, onSave, onCancel }) {
   const isEdit = !!characterId
   const [generatingAutonomy, setGeneratingAutonomy] = useState(false)
+  const [generatingBehaviors, setGeneratingBehaviors] = useState(false)
   const [showExtractModal, setShowExtractModal] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
@@ -406,7 +407,12 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   riseCondition: s.riseCondition || '',
                   languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
                   forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
-                  selfDriveBehaviors: Array.isArray(s.selfDriveBehaviors) ? s.selfDriveBehaviors : [],
+                  selfDriveBehaviors: Array.isArray(s.selfDriveBehaviors)
+                    ? s.selfDriveBehaviors.map(b => ({
+                        description: b.behavior || b.description || '',
+                        trigger: b.trigger || 'overNrounds',
+                      }))
+                    : [],
                 }))
               : [emptyStage()],
             transitionTriggers: Array.isArray(r['transitionTriggers']) ? r['transitionTriggers'].join('\n') : (r['transitionTriggers'] || ''),
@@ -432,6 +438,62 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     setShowExtractModal(false)
     setExtractText('')
     if (rc.length > 0) setExpandedRC(0)
+  }
+
+  const handleGenerateBehaviors = async () => {
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert('请先在设置页面填写 DeepSeek API Key')
+      return
+    }
+    const validRC = form.romanceCharacters.filter(rc => rc.name.trim())
+    if (validRC.length === 0) {
+      alert('请先填写至少一个可攻略角色的姓名')
+      return
+    }
+    setGeneratingBehaviors(true)
+    try {
+      const updatedRC = [...form.romanceCharacters]
+      for (let i = 0; i < updatedRC.length; i++) {
+        const rc = updatedRC[i]
+        if (!rc.name.trim() || rc.affectionStages.length === 0) continue
+        const { result, error } = await generateStageBehaviors({
+          name: rc.name,
+          background: rc.background,
+          personality: rc.personality,
+          styleRules: rc.styleRules,
+          speakingStyle: rc.speakingStyle,
+          affectionStages: rc.affectionStages,
+        }, apiKey)
+        if (error || !result) {
+          console.error('[generateBehaviors] 角色 ' + rc.name + ' 生成失败:', error)
+          continue
+        }
+        // Map returned behaviors into stages
+        const aiStages = result.stages || []
+        const newStages = rc.affectionStages.map(stage => {
+          const match = aiStages.find(s => s.label === stage.name) || aiStages.find(s => s.label.includes(stage.name)) || (aiStages.length > 0 ? aiStages[0] : null)
+          // Find by index fallback
+          const stageIdx = rc.affectionStages.indexOf(stage)
+          const aiMatch = match || (aiStages[stageIdx] || null)
+          if (aiMatch && Array.isArray(aiMatch.behaviors)) {
+            return {
+              ...stage,
+              selfDriveBehaviors: aiMatch.behaviors.map(b => ({
+                description: b.behavior || b.description || '',
+                trigger: b.trigger || 'overNrounds',
+              })),
+            }
+          }
+          return stage
+        })
+        updatedRC[i] = { ...rc, affectionStages: newStages }
+      }
+      setForm(prev => ({ ...prev, romanceCharacters: updatedRC }))
+    } catch (err) {
+      alert('生成失败：' + err.message)
+    }
+    setGeneratingBehaviors(false)
   }
 
   const inputClass = "w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
@@ -1062,6 +1124,24 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           </div>
         </div>
       )}
+
+      {/* AI Generate self-drive behaviors */}
+      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-gray-200">AI生成自驱行为</h3>
+            <p className="text-xs text-gray-500 mt-0.5">根据各角色设定，为每个好感度阶段自动生成3-5条自驱行为</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerateBehaviors}
+            disabled={generatingBehaviors}
+            className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+          >
+            {generatingBehaviors ? '生成中...' : '生成自驱行为'}
+          </button>
+        </div>
+      </div>
 
       {/* Submit */}
       <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-700 p-4 max-w-lg mx-auto">

@@ -791,44 +791,53 @@ export async function extractCharacterFromText(text, apiKey) {
   const model = getModel()
 
   const prompt =
-    '你是一个角色设定解析器。\n' +
-    '从下面的文字中提取所有信息，\n' +
-    '严格只返回JSON，不要有任何其他内容，\n' +
-    '不要有markdown代码块，直接输出花括号开头的JSON。\n' +
+    '你是角色设定解析器。\n' +
+    '从以下文本提取所有信息，\n' +
+    '严格只返回JSON，不要任何其他内容，\n' +
+    '不要markdown代码块，直接输出花括号开头的JSON。\n' +
     '\n' +
-    '需要提取的字段：\n' +
     '{\n' +
-    '  "name": "角色名字符串",\n' +
-    '  "background": "背景设定字符串",\n' +
-    '  "userTitle": "角色对用户的称呼字符串，没有则空字符串",\n' +
-    '  "styleRules": ["文风规则数组，每条一个字符串"],\n' +
-    '  "forbiddenBehaviors": ["禁止行为数组，每条一个字符串"],\n' +
-    '  "thinkingEnabled": true或false，文字中是否有思考层/思考框架相关描述,\n' +
-    '  "thinkingPrompt": "思考层指令字符串，没有则空字符串",\n' +
-    '  "affectionEnabled": true或false，判断标准：文字中是否描述了角色对主角的态度会随着互动而变化、是否存在关系发展阶段、是否有好感/亲密/信任等渐进式的情感描述,\n' +
-    '  "affectionInitial": 初始好感度数字0-100，根据角色对主角的初始态度推断：敌视0-20、冷淡20-40、普通40-60、友善60-80、亲密80-100，没有描述默认50,\n' +
-    '  "affectionStages": [\n' +
-    '    从文字中推断好感度阶段，至少1个最多5个，每阶段包含：\n' +
+    '  name: 角色名,\n' +
+    '  background: 背景设定,\n' +
+    '  userTitle: 对用户的称呼,\n' +
+    '  styleRules: [文风规则数组],\n' +
+    '  forbiddenBehaviors: [禁止行为数组],\n' +
+    '  \n' +
+    '  affectionEnabled: 布尔值,\n' +
+    '  affectionInitial: 初始好感度数字,\n' +
+    '  affectionStages: [\n' +
     '    {\n' +
-    '      "label": "阶段名字符串，如：陌生/初识/友好/信任/亲密",\n' +
-    '      "min": 该阶段下限数字0-100,\n' +
-    '      "max": 该阶段上限数字0-100,\n' +
-    '      "rule": "该阶段角色对主角的行为规则，用角色口吻描述，如：保持距离，说话客气但疏远"\n' +
+    '      label: 阶段标题,\n' +
+    '      min: 下限数字,\n' +
+    '      max: 上限数字,\n' +
+    '      coreState: 角色状态描述,\n' +
+    '      playerStrategy: 对玩家的核心策略,\n' +
+    '      riseCondition: 上涨触发条件,\n' +
+    '      languageSamples: 本阶段语言样本,\n' +
+    '      forbiddenBehaviors: 本阶段禁止行为,\n' +
+    '      autonomousBehaviors: [\n' +
+    '        {\n' +
+    '          behavior: 自驱行为描述,\n' +
+    '          trigger: 触发条件描述\n' +
+    '        }\n' +
+    '      ]\n' +
     '    }\n' +
-    '    如果没有明确描述，根据角色的性格和背景自动推测合理的阶段划分\n' +
     '  ],\n' +
-    '  "affectionIncreaseRules": ["好感度增加条件数组，如：送礼物+5、帮助角色+8、说温柔的话+3，根据角色性格推断"],\n' +
-    '  "affectionDecreaseRules": ["好感度减少条件数组，如：态度粗鲁-5、爽约-10、无视角色感受-8，根据角色性格推断"],\n' +
-    '  "autonomousBehaviors": "自主行为字符串，没有则空字符串"\n' +
+    '  \n' +
+    '  transitionTriggers: 阶段转折锚点描述,\n' +
+    '  irreversibleMoment: 不可逆转折描述,\n' +
+    '  cooldownRounds: 冷却锁轮数数字,\n' +
+    '  erosionCondition: 反向侵蚀条件,\n' +
+    '  anchorSuppression: 现实锚点压制场景,\n' +
+    '  \n' +
+    '  thinkingEnabled: 布尔值,\n' +
+    '  thinkingPrompt: 思考层指令,\n' +
+    '  autonomyBehavior: 自主行为总体描述,\n' +
+    '  openingScene: 开场剧情\n' +
     '}\n' +
     '\n' +
-    '关键规则：\n' +
-    '1. 即使文字中只描述了角色的性格和背景，没有明确提到"好感度"三个字，\n' +
-    '   只要角色有情感和态度，就必须将affectionEnabled设为true并推测合理的阶段\n' +
-    '2. 每个可攻略角色都有好感度系统，根据文字中的关系描述来设定\n' +
-    '3. 如果文字描述了一个从冷到热的关系弧线，至少分出3个阶段\n' +
-    '4. 阶段必须覆盖0-100的完整范围，阶段之间无缝衔接\n' +
-    '5. 数组字段没有内容时返回空数组[]，字符串返回""，布尔值返回false\n' +
+    '找不到的字段：数组返回[]，字符串返回空字符串，\n' +
+    '数字返回0，布尔值返回false。\n' +
     '\n' +
     '待解析文字：\n' + text
 
@@ -889,8 +898,25 @@ export async function extractStoryFromText(text, apiKey) {
     '      "说话风格": "说话方式的一两句话描述",\n' +
     '      "好感度初始": 50,\n' +
     '      "好感度阶段": [\n' +
-    '        {"label": "阶段名", "min": 0, "max": 30, "rule": "该阶段角色对主角的行为规则"}\n' +
+    '        {\n' +
+    '          "label": "阶段名",\n' +
+    '          "min": 下限数字,\n' +
+    '          "max": 上限数字,\n' +
+    '          "coreState": "角色状态描述",\n' +
+    '          "playerStrategy": "对玩家的核心策略",\n' +
+    '          "riseCondition": "上涨触发条件（预期被打破）",\n' +
+    '          "languageSamples": "本阶段语言样本",\n' +
+    '          "forbiddenBehaviors": "本阶段禁止行为",\n' +
+    '          "selfDriveBehaviors": [\n' +
+    '            {"behavior": "自驱行为描述", "trigger": "触发条件"}\n' +
+    '          ]\n' +
+    '        }\n' +
     '      ],\n' +
+    '      "transitionTriggers": "阶段转折锚点描述（每行一个）",\n' +
+    '      "irreversibleMoment": "不可逆转折描述",\n' +
+    '      "cooldownRounds": 冷却锁轮数数字,\n' +
+    '      "erosionCondition": "反向侵蚀条件",\n' +
+    '      "anchorSuppression": "现实锚点压制场景",\n' +
     '      "好感度增加规则": ["送礼+5", "帮助+8"],\n' +
     '      "好感度减少规则": ["粗暴-5", "爽约-10"]\n' +
     '    }\n' +
@@ -909,12 +935,82 @@ export async function extractStoryFromText(text, apiKey) {
     '- 如果文本只描述了一个角色，就只返回一个\n' +
     '- 文风规则和禁止行为要具体，每行一条，如果文本中没有明确给出就根据角色性格推断合理的规则\n' +
     '- 好感度阶段根据角色与主角的关系发展弧线推断，至少2个阶段，覆盖0-100范围，阶段之间无缝衔接\n' +
+    '- 每个阶段需要填写coreState（状态描述）、playerStrategy（对玩家策略）、riseCondition（上涨条件）\n' +
+    '- selfDriveBehaviors每个阶段3-5条，behavior描述行为，trigger从以下选：超过N轮用户没主动互动/场景出现特定元素/好感度刚进入本阶段/AI判断局面对自己不利\n' +
+    '- transitionTriggers描述各阶段转折的触发事件类型\n' +
+    '- cooldownRounds默认1，erosionCondition描述什么情况下反而扣减好感度\n' +
     '- 好感度增加/减少规则根据角色性格推断，各3-5条\n' +
     '- NPC只提取文本中明确出现的重要配角\n' +
     '- 所有字段都要用中文key\n' +
     '- 只返回JSON，不要其他内容\n' +
+    '- 找不到的字段：数组返回[]，字符串返回""，数字返回0\n' +
     '\n' +
     '源文本：\n' + text
+
+  try {
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        response_format: { type: 'json_object' },
+      }),
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error?.message || `API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const reply = data.choices?.[0]?.message?.content || ''
+    const parsed = JSON.parse(reply)
+    return { result: parsed, error: null }
+  } catch (err) {
+    return { result: null, error: err }
+  }
+}
+
+export async function generateStageBehaviors(formData, apiKey) {
+  const model = getModel()
+
+  const info = []
+  if (formData.name) info.push('角色名：' + formData.name)
+  if (formData.background) info.push('背景设定：' + formData.background)
+  if (formData.personality) info.push('性格：' + formData.personality)
+  if (formData.styleRules) {
+    const rules = typeof formData.styleRules === 'string'
+      ? formData.styleRules
+      : (Array.isArray(formData.styleRules) ? formData.styleRules.join('\n') : '')
+    if (rules) info.push('文风规则：\n' + rules)
+  }
+  if (formData.speakingStyle) info.push('说话风格：' + formData.speakingStyle)
+  if (formData.affectionStages && formData.affectionStages.length > 0) {
+    const stagesText = formData.affectionStages.map((s, i) => {
+      const parts = ['阶段' + (i + 1) + '：' + (s.name || s.label || '未命名')]
+      if (s.coreState) parts.push('  状态：' + s.coreState)
+      if (s.playerStrategy) parts.push('  策略：' + s.playerStrategy)
+      if (s.riseCondition) parts.push('  上涨条件：' + s.riseCondition)
+      return parts.join('\n')
+    }).join('\n\n')
+    info.push('好感度阶段：\n' + stagesText)
+  }
+
+  const prompt =
+    '根据以下角色设定，\n' +
+    '为每个好感度阶段各生成3-5条自驱行为，\n' +
+    '每条包含：行为描述 和 触发条件，\n' +
+    '触发条件从以下四种里选一种：\n' +
+    '超过N轮用户没主动互动/场景出现特定元素/\n' +
+    '好感度刚进入本阶段/角色判断局面对自己不利\n' +
+    '返回JSON格式：\n' +
+    '{stages: [{label:阶段名, behaviors:[{behavior:描述,trigger:触发条件}]}]}\n' +
+    '角色设定：\n' + info.join('\n\n')
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {

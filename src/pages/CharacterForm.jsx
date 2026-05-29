@@ -261,59 +261,78 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
         update('forbiddenWords', r.forbiddenBehaviors.join('\n'))
       }
 
-      // Thinking — accept any truthy value
-      if (r.thinkingEnabled || r.thinkingPrompt) {
-        update('thinkingEnabled', true)
-        if (r.thinkingPrompt) update('thinkingPrompt', r.thinkingPrompt)
-      }
+      // Opening scene
+      if (r.openingScene) update('openingScenario', r.openingScene)
 
-      // Affection — accept any truthy value, or if stages/rules exist
-      const hasAffection = r.affectionEnabled || r.affectionStages?.length > 0 || r.affectionIncreaseRules?.length > 0 || r.affectionDecreaseRules?.length > 0
-      if (hasAffection) {
+      // Thinking
+      if (r.thinkingEnabled) update('thinkingEnabled', true)
+      if (r.thinkingPrompt) update('thinkingPrompt', r.thinkingPrompt)
+
+      // Affection
+      if (r.affectionEnabled) {
         update('affectionEnabled', true)
-        // Affection initial
         const affInit = Number(r.affectionInitial)
         if (!isNaN(affInit) && affInit >= 0 && affInit <= 100) {
           update('affectionInitial', affInit)
         }
-        // Affection stages
+        // Affection stages — handle expanded format
         if (Array.isArray(r.affectionStages) && r.affectionStages.length > 0) {
-          const mappedStages = r.affectionStages.map(s => ({
-            name: s.label || s.name || '',
-            min: s.min != null ? Number(s.min) : 0,
-            max: s.max != null ? Number(s.max) : 50,
-            behavior: s.rule || s.behavior || '',
-          }))
-          console.log('[handleExtract] 填入好感度阶段:', JSON.stringify(mappedStages))
+          const mappedStages = r.affectionStages.map(s => {
+            // Build behavior from rich fields
+            const behaviorParts = []
+            if (s.coreState) behaviorParts.push('【状态】' + s.coreState)
+            if (s.playerStrategy) behaviorParts.push('【策略】' + s.playerStrategy)
+            if (s.riseCondition) behaviorParts.push('【上涨条件】' + s.riseCondition)
+            if (s.languageSamples) behaviorParts.push('【语言样本】' + s.languageSamples)
+            if (s.forbiddenBehaviors) behaviorParts.push('【禁止】' + s.forbiddenBehaviors)
+            if (Array.isArray(s.autonomousBehaviors) && s.autonomousBehaviors.length > 0) {
+              const behText = s.autonomousBehaviors.map(b => b.behavior + '（触发：' + b.trigger + '）').join('；')
+              behaviorParts.push('【自驱行为】' + behText)
+            }
+            return {
+              name: s.label || s.name || '',
+              min: s.min != null ? Number(s.min) : 0,
+              max: s.max != null ? Number(s.max) : 50,
+              behavior: behaviorParts.join('\n'),
+            }
+          })
           update('affectionStages', mappedStages)
-        } else {
-          console.log('[handleExtract] 好感度阶段为空或不是数组:', r.affectionStages)
         }
-        // Affection increase rules
+
+        // Increase rules — derive from stages' riseCondition if no explicit rules
         if (Array.isArray(r.affectionIncreaseRules) && r.affectionIncreaseRules.length > 0) {
-          console.log('[handleExtract] 填入好感度增加规则:', r.affectionIncreaseRules)
           update('affectionUpRules', r.affectionIncreaseRules.join('\n'))
         } else if (typeof r.affectionIncreaseRules === 'string' && r.affectionIncreaseRules.trim()) {
           update('affectionUpRules', r.affectionIncreaseRules)
         } else {
-          console.log('[handleExtract] 好感度增加规则为空或类型不匹配:', typeof r.affectionIncreaseRules, r.affectionIncreaseRules)
+          // Derive from stage riseConditions
+          const riseConditions = (r.affectionStages || [])
+            .filter(s => s.riseCondition)
+            .map(s => s.riseCondition)
+          if (riseConditions.length > 0) {
+            update('affectionUpRules', riseConditions.join('\n'))
+          }
         }
-        // Affection decrease rules
+
+        // Decrease rules
         if (Array.isArray(r.affectionDecreaseRules) && r.affectionDecreaseRules.length > 0) {
-          console.log('[handleExtract] 填入好感度减少规则:', r.affectionDecreaseRules)
           update('affectionDownRules', r.affectionDecreaseRules.join('\n'))
         } else if (typeof r.affectionDecreaseRules === 'string' && r.affectionDecreaseRules.trim()) {
           update('affectionDownRules', r.affectionDecreaseRules)
-        } else {
-          console.log('[handleExtract] 好感度减少规则为空或类型不匹配:', typeof r.affectionDecreaseRules, r.affectionDecreaseRules)
         }
-      } else {
-        console.log('[handleExtract] hasAffection=false，跳过好感度填入。affectionEnabled:', r.affectionEnabled, 'stages:', r.affectionStages, 'incRules:', r.affectionIncreaseRules, 'decRules:', r.affectionDecreaseRules)
+
+        // Erosion condition
+        if (r.erosionCondition) {
+          const existing = r.affectionDecreaseRules
+            ? (Array.isArray(r.affectionDecreaseRules) ? r.affectionDecreaseRules.join('\n') : r.affectionDecreaseRules)
+            : ''
+          update('affectionDownRules', existing + (existing ? '\n【反向侵蚀】' : '【反向侵蚀】') + r.erosionCondition)
+        }
       }
 
-      // Autonomous behaviors
-      if (r.autonomousBehaviors) {
-        update('autonomyBehavior', r.autonomousBehaviors)
+      // Autonomy behavior
+      if (r.autonomyBehavior) {
+        update('autonomyBehavior', r.autonomyBehavior)
       }
 
       setShowExtractModal(false)
