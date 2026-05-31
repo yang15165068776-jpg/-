@@ -13,6 +13,8 @@ const USER_WRAPPER = `
 · 用户情绪状态
 · 这句话对角色意味着什么：
   威胁/试探/示好/无意识的刺激？
+· 注意：只分析用户已经输入的内容，
+  不推断或替代用户未说出的反应
 
 2. 锁定角色当前状态：
 · 当前好感度数值和阶段标签
@@ -68,13 +70,7 @@ const USER_WRAPPER = `
   读完用户会愣住回不过神，还是平淡？
   目标是前者，否则重新选方向
 
-完成以上七步后，只输出最终回复正文。
-
----
-⚠️ 回复最后一行输出好感度标签：
-<affection>角色名:+N</affection> 或 <affection>角色名:-N</affection>
-N=1-5，无变化输出<affection>无</affection>
-不输出=回复无效。`
+完成以上七步后，只输出最终回复正文。`
 
 export function wrapUserMessage(content) {
   if (!content || typeof content !== "string") return content
@@ -88,21 +84,42 @@ function findForbiddenWord(text, words) {
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
 }
 
-function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount, lastRiseRound, storyTime) {
+function buildGMPrompt(character, affections, storyTime) {
   const parts = []
   const name = character.name || '故事'
 
-  // 0: Affection settlement — highest priority, first thing model sees
-  parts.push(
-    '【好感度结算标签——最高优先级】\n' +
-    '每次回复的最后一行必须输出好感度结算标签，\n' +
-    '格式：<affection>角色名:+N</affection>\n' +
-    '或 <affection>角色名:-N</affection>\n' +
-    '或 <affection>角色名:0</affection>\n' +
-    'N是1-5的整数，0表示无变化。\n' +
-    '如果没有可攻略角色或好感度系统未启用，输出 <affection>无</affection>\n' +
-    '这一行必须存在，不能省略，否则回复无效。'
-  )
+  // 0: Character identity — highest priority, foundation of everything
+  const rcList = character.romanceCharacters || []
+  if (rcList.length > 0) {
+    const identityBlocks = rcList.map(rc => {
+      const lines = []
+      lines.push('【' + rc.name + '】')
+      if (rc.background) lines.push('背景：' + rc.background)
+      if (rc.personality) lines.push('核心性格：' + rc.personality)
+      if (rc.speakingStyle) lines.push('说话方式：' + rc.speakingStyle)
+      if (rc.styleRules && rc.styleRules.length > 0) {
+        lines.push('行为准则：\n' + rc.styleRules.filter(r => r.trim()).map(r => '- ' + r).join('\n'))
+      }
+      if (rc.forbiddenWords && rc.forbiddenWords.length > 0) {
+        lines.push('绝对禁止：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
+      }
+      return lines.join('\n')
+    })
+    parts.push(
+      '━━━━━ 角色核心人设——最高优先级 ━━━━━\n' +
+      '以下人设优先于一切其他指令。\n' +
+      '你扮演的每个角色都是活生生的人，\n' +
+      '不是温和的AI助手。\n' +
+      '沉默、矛盾、攻击性、回避、崩溃——\n' +
+      '这些比温和无害的回复更真实。\n' +
+      '每轮回复前先检查：这句话是这个角色会说的吗？\n' +
+      '还是我在用AI的安全腔调假装这个角色？\n\n' +
+      identityBlocks.join('\n\n') +
+      '\n\n⚠️ 禁止人设偏离：回复不能变成温和礼貌的AI腔调。\n' +
+      '宁愿角色沉默、回避、爆发，\n' +
+      '也不能用人设之外的柔和方式回应。'
+    )
+  }
 
   // 0.5: Story time
   if (storyTime && storyTime.year) {
@@ -196,6 +213,25 @@ function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount,
         const stage = getCurrentAffectionStage(rc, affValue)
         lines.push('当前好感度：' + affValue + '/100' +
           (stage ? '，当前阶段：' + stage.name + '，行为规则：' + stage.behavior : ''))
+        // Full affection stage details: language samples + forbidden behaviors per stage
+        if (rc.affectionStages && rc.affectionStages.length > 0) {
+          const stageBlocks = rc.affectionStages.map((s, i) => {
+            const slines = []
+            slines.push('━━ 阶段' + (i + 1) + '：' + (s.name || s.label || '未命名') + ' (' + s.min + '-' + s.max + ') ━━')
+            if (s.coreState) slines.push('状态：' + s.coreState)
+            if (s.playerStrategy) slines.push('对玩家策略：' + s.playerStrategy)
+            if (s.riseCondition) slines.push('上涨条件：' + s.riseCondition)
+            if (s.languageSamples) slines.push('语言样本：' + s.languageSamples)
+            if (s.forbiddenBehaviors) slines.push('本阶段禁止：' + s.forbiddenBehaviors)
+            if (s.selfDriveBehaviors && s.selfDriveBehaviors.length > 0) {
+              slines.push('自驱行为：\n' + s.selfDriveBehaviors.map(b =>
+                '- ' + (b.behavior || b.description || '') + '（触发：' + (b.trigger || '') + '）'
+              ).join('\n'))
+            }
+            return slines.join('\n')
+          })
+          lines.push('【好感度阶段完整设定】\n' + stageBlocks.join('\n\n'))
+        }
         if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
           lines.push('好感度增加条件：\n' + rc.affectionUpRules.trim().split('\n').filter(Boolean).map(r => '- ' + r.trim()).join('\n'))
         }
@@ -268,35 +304,16 @@ function buildGMPrompt(character, affections, roundsSinceLastChange, roundCount,
     '禁止用抽象词汇直接描述情绪。'
   )
 
-  // 9: Affection settlement
-  const rcNames = (character.romanceCharacters || [])
-    .filter(rc => rc.affectionEnabled)
-    .map(rc => rc.name)
-  if (rcNames.length > 0) {
-    parts.push(
-      '【好感度结算——强制要求】\n' +
-      '每轮回复结束后，必须在最后一行单独输出好感度变化，\n' +
-      '格式严格如下，不得有任何变化：\n' +
-      '<affection>角色名:+N</affection> 或\n' +
-      '<affection>角色名:-N</affection>\n' +
-      '多个角色用逗号分隔，例如：\n' +
-      '<affection>林晚:+3,苏晨:-2</affection>\n' +
-      '如果本轮没有任何角色好感度变化，必须输出：\n' +
-      '<affection>无</affection>\n' +
-      '这一行必须存在，不能省略，不能放在其他位置。'
-    )
-  }
-
   return parts.join('\n\n')
 }
 
-export function buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound, storyTime) {
+export function buildSystemPrompt(character, affectionData, storyTime) {
   const name = character.name || '角色'
   const parts = []
 
   if (character.chatStyle === 'story') {
     // GM story mode
-    parts.push(buildGMPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound, storyTime))
+    parts.push(buildGMPrompt(character, affectionData, storyTime))
     return parts.join('\n\n')
   }
 
@@ -345,8 +362,7 @@ export function buildSystemPrompt(character, affectionData, roundsSinceLastChang
   }
 
   if (character.affectionUpRules && character.affectionUpRules.trim()) {
-    parts.push('【好感度增加条件】\n' + character.affectionUpRules.trim() +
-      '\n\n以下是好感度变化规则，每次对话后请根据用户行为判断好感度变化，在回复末尾用方括号标注好感度变化方向和原因，例如 [好感度+3：表现友善]。')
+    parts.push('【好感度增加条件】\n' + character.affectionUpRules.trim())
   }
 
   if (character.affectionDownRules && character.affectionDownRules.trim()) {
@@ -424,36 +440,100 @@ export function findCharacterAvatar(character, characterName) {
   return null
 }
 
-export function parseAffectionTags(content) {
-  const match = content.match(/<affection>([\s\S]*?)<\/affection>/i)
-  if (!match) return { cleanedContent: content, changes: [] }
-  const tagContent = match[1].trim()
-  // Handle "无" or empty
-  if (!tagContent || tagContent === '无') {
-    const cleaned = content.replace(/<affection>[\s\S]*?<\/affection>/i, '').trim()
-    return { cleanedContent: cleaned, changes: [] }
-  }
-  const changes = tagContent.split(/[,，]/).map(s => {
-    const trimmed = s.trim()
-    if (!trimmed) return null
-    // Match pattern: 角色名:±N or 角色名：±N (both : and ：)
-    const m = trimmed.match(/^(.+?)\s*[:：]\s*([+-]?\d+)$/)
-    if (!m) return null
-    const name = m[1].trim()
-    const delta = parseInt(m[2], 10)
-    if (isNaN(delta)) return null
-    return { name, delta }
-  }).filter(Boolean)
-  // Remove all <affection> tags from displayed content
-  const cleaned = content.replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim()
-  return { cleanedContent: cleaned, changes }
-}
-
 export function getCurrentAffectionStage(character, affection) {
   if (!character.affectionEnabled || !character.affectionStages) return null
   return character.affectionStages.find(
     s => affection >= s.min && affection <= s.max
   ) || null
+}
+
+export async function judgeAffectionDelta(character, affections, userInput, aiReply, apiKey) {
+  const rcList = (character.romanceCharacters || []).filter(rc => rc.affectionEnabled)
+  if (rcList.length === 0) return { changes: [], error: null }
+
+  const charBlocks = rcList.map(rc => {
+    const value = affections?.[rc.name] ?? rc.affectionInitial ?? 50
+    const stage = getCurrentAffectionStage(rc, value)
+    const lines = [
+      '角色：' + rc.name,
+      '当前好感度：' + value + (stage ? '（阶段：' + stage.name + '）' : ''),
+    ]
+    if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
+      lines.push('上涨触发条件（预期被打破，不是被善待）：\n' + rc.affectionUpRules.trim())
+    }
+    if (rc.affectionDownRules && rc.affectionDownRules.trim()) {
+      lines.push('好感度减少条件：\n' + rc.affectionDownRules.trim())
+    }
+    if (rc.erosionCondition && rc.erosionCondition.trim()) {
+      lines.push('反向侵蚀条件：\n' + rc.erosionCondition.trim())
+    }
+    if (rc.anchorSuppression && rc.anchorSuppression.trim()) {
+      lines.push('现实锚点压制（以下场景本轮禁止上涨）：\n' + rc.anchorSuppression.trim())
+    }
+    return lines.join('\n')
+  })
+
+  const replyExcerpt = (aiReply || '').slice(0, 500)
+
+  const userMessage =
+    charBlocks.join('\n\n') +
+    '\n\n---' +
+    '\n本轮用户说：' + (userInput || '') +
+    '\n本轮角色回复：' + replyExcerpt +
+    '\n\n---' +
+    '\n根据以上信息判断每个角色的好感度变化。' +
+    '\n规则：' +
+    '\n· 每次最多变化3分' +
+    '\n· 角色被善待（被理解、被保护、被在意）可以上涨' +
+    '\n· 预期被打破（角色以为会被怎样对待，结果相反）触发上涨' +
+    '\n· 触发减少条件或侵蚀条件给负分' +
+    '\n· 触发压制场景给0' +
+    '\n· 拿不准就给0' +
+    '\n\n每个角色必须输出一行，严格格式：角色名:+N 或 角色名:-N 或 角色名:0（例如：林晚:+2）。不要输出任何其他内容。'
+
+  try {
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-v4-flash',
+        messages: [
+          { role: 'system', content: '你是好感度裁判。每个角色输出一行，严格格式为"角色名:整数"，整数范围-3到+3。不要输出任何其他文字、解释或标点。' },
+          { role: 'user', content: userMessage },
+        ],
+        max_tokens: 30,
+        temperature: 0.3,
+        stream: false,
+      }),
+    })
+
+    if (!response.ok) {
+      console.warn('[judgeAffectionDelta] API error, status:', response.status)
+      return { changes: [], error: 'API error: ' + response.status }
+    }
+
+    const data = await response.json()
+    const rawReply = data.choices?.[0]?.message?.content || ''
+
+    const changes = rawReply.split('\n')
+      .map(line => {
+        const m = line.trim().match(/^(.+?)\s*[:：]\s*([+-]?\d+)$/)
+        if (!m) return null
+        const name = m[1].trim()
+        const delta = parseInt(m[2], 10)
+        if (isNaN(delta) || delta < -3 || delta > 3) return null
+        return { name, delta }
+      })
+      .filter(Boolean)
+
+    return { changes, error: null }
+  } catch (err) {
+    console.warn('[judgeAffectionDelta] Error:', err)
+    return { changes: [], error: err.message }
+  }
 }
 
 async function* streamCompletion(messages, apiKey, model, temperature, topP, thinkingEnabled) {
@@ -535,7 +615,7 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP, thi
   }
 }
 
-export async function sendMessageStream(character, messages, affectionData, apiKey, roundsSinceLastChange, roundCount, lastRiseRound, storyTime, onToken) {
+export async function sendMessageStream(character, messages, affectionData, apiKey, storyTime, onToken) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -555,7 +635,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   let lastViolation = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
-    let systemPrompt = buildSystemPrompt(character, affectionData, roundsSinceLastChange, roundCount, lastRiseRound, storyTime)
+    let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
 
     // Inject memory content into system prompt
     if (memoryMessages.length > 0) {
@@ -638,7 +718,7 @@ export async function sendMessageStructured(character, messages, affectionData, 
   const contextWindow = character.contextWindow || 40
   const truncated = conversationMessages.slice(-contextWindow)
 
-  let systemPrompt = buildSystemPrompt(character, affectionData, undefined, undefined, undefined, storyTime)
+  let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
 
   // Inject memory content into system prompt
   if (memoryMessages.length > 0) {
@@ -745,7 +825,7 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
     content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
   }))
 
-  let systemPrompt = buildSystemPrompt(character, affectionData, undefined, undefined, undefined, storyTime)
+  let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
 
   if (memoryMessages.length > 0) {
     const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
@@ -826,7 +906,7 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
 export async function generateActiveMessage(character, affectionData, apiKey, storyTime) {
   const model = getModel()
 
-  let systemPrompt = buildSystemPrompt(character, affectionData, undefined, undefined, undefined, storyTime)
+  let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
 
   // Add active message generation instructions
   const triggerCondition = character.activeCondition || '需要主动发起对话'
@@ -910,7 +990,6 @@ export async function extractCharacterFromText(text, apiKey) {
     '  \n' +
     '  transitionTriggers: 阶段转折锚点描述,\n' +
     '  irreversibleMoment: 不可逆转折描述,\n' +
-    '  cooldownRounds: 冷却锁轮数数字,\n' +
     '  erosionCondition: 反向侵蚀条件,\n' +
     '  anchorSuppression: 现实锚点压制场景,\n' +
     '  \n' +
@@ -998,7 +1077,6 @@ export async function extractStoryFromText(text, apiKey) {
     '      ],\n' +
     '      "transitionTriggers": "阶段转折锚点描述（每行一个）",\n' +
     '      "irreversibleMoment": "不可逆转折描述",\n' +
-    '      "cooldownRounds": 冷却锁轮数数字,\n' +
     '      "erosionCondition": "反向侵蚀条件",\n' +
     '      "anchorSuppression": "现实锚点压制场景",\n' +
     '      "好感度增加规则": ["送礼+5", "帮助+8"],\n' +
@@ -1022,7 +1100,7 @@ export async function extractStoryFromText(text, apiKey) {
     '- 每个阶段需要填写coreState（状态描述）、playerStrategy（对玩家策略）、riseCondition（上涨条件）\n' +
     '- selfDriveBehaviors每个阶段3-5条，behavior描述行为，trigger从以下选：超过N轮用户没主动互动/场景出现特定元素/好感度刚进入本阶段/AI判断局面对自己不利\n' +
     '- transitionTriggers描述各阶段转折的触发事件类型\n' +
-    '- cooldownRounds默认1，erosionCondition描述什么情况下反而扣减好感度\n' +
+    '- erosionCondition描述什么情况下反而扣减好感度\n' +
     '- 好感度增加/减少规则根据角色性格推断，各3-5条\n' +
     '- NPC只提取文本中明确出现的重要配角\n' +
     '- 所有字段都要用中文key\n' +

@@ -27,7 +27,6 @@ const emptyRomanceChar = () => ({
   affectionStages: [emptyStage()],
   transitionTriggers: '',
   irreversibleMoment: '',
-  cooldownRounds: 1,
   erosionCondition: '',
   anchorSuppression: '',
   thinkingEnabled: true,
@@ -331,7 +330,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           : [],
         transitionTriggers: rc.affectionEnabled ? parseLines(rc.transitionTriggers) : [],
         irreversibleMoment: rc.affectionEnabled ? rc.irreversibleMoment.trim() : '',
-        cooldownRounds: rc.affectionEnabled ? (parseInt(rc.cooldownRounds) || 1) : 1,
         erosionCondition: rc.affectionEnabled ? rc.erosionCondition.trim() : '',
         anchorSuppression: rc.affectionEnabled ? rc.anchorSuppression.trim() : '',
         thinkingEnabled: true,
@@ -421,7 +419,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
               : [emptyStage()],
             transitionTriggers: Array.isArray(r['transitionTriggers']) ? r['transitionTriggers'].join('\n') : (r['transitionTriggers'] || ''),
             irreversibleMoment: r['irreversibleMoment'] || '',
-            cooldownRounds: r['cooldownRounds'] ?? 1,
             erosionCondition: r['erosionCondition'] || '',
             anchorSuppression: r['anchorSuppression'] || '',
             thinkingEnabled: true,
@@ -944,10 +941,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                         {/* Iron Law */}
                         <div className="bg-gray-700/50 rounded p-2 space-y-2">
                           <label className="text-[11px] text-gray-400 font-medium">数值增长铁律</label>
-                          <div>
-                            <label className="text-[10px] text-gray-500">冷却锁（涨完需几轮才能再涨）</label>
-                            <input type="number" min="1" max="20" className={inputClass + " mt-0.5"} value={rc.cooldownRounds} onChange={e => updateRC(i, 'cooldownRounds', parseInt(e.target.value) || 1)} />
-                          </div>
                           <div>
                             <label className="text-[10px] text-gray-500">反向侵蚀条件（什么情况下反而-值）</label>
                             <textarea className={inputClass + " h-12 resize-none mt-0.5"} value={rc.erosionCondition} onChange={e => updateRC(i, 'erosionCondition', e.target.value)} placeholder="例如：连续3轮没有任何情绪波动" />

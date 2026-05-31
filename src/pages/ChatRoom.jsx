@@ -12,7 +12,7 @@ import {
   saveCharacter,
   saveArchive,
 } from '../utils/storage'
-import { sendMessageStream, sendCasualReply, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, parseAffectionTags } from '../utils/deepseek'
+import { sendMessageStream, sendCasualReply, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
 
 function Avatar({ src, name, className }) {
@@ -714,9 +714,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const activeTimerRef = useRef(null)
   const lastActivityRef = useRef(Date.now())
   const menuTimerRef = useRef(null)
-  const roundsSinceLastAffectionRef = useRef({}) // { [charName]: count } — rounds since last non-zero affection change
-  const [roundCount, setRoundCount] = useState(0)
-  const [lastRiseRound, setLastRiseRound] = useState({}) // { [charName]: roundCount when last rise happened }
   const [storyTime, setStoryTime] = useState({ year: 1, month: 1, day: 1 })
   const [showTimeEditor, setShowTimeEditor] = useState(false)
   const [editTime, setEditTime] = useState({ year: 1, month: 1, day: 1 })
@@ -760,9 +757,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       const saved = archive.affection
       setAffection(saved !== null ? saved : char.affectionInitial)
     }
-    // Initialize round tracking from archive
-    setRoundCount(archive.roundCount || 0)
-    setLastRiseRound(archive.lastRiseRound || {})
     // Initialize story time from archive or character
     if (archive.storyTime) {
       setStoryTime(archive.storyTime)
@@ -1022,16 +1016,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       return true
     }
 
-    // Increment rounds since last affection change for all tracked characters
-    if (character.chatStyle === 'story' && character.romanceCharacters) {
-      const roundsRef = roundsSinceLastAffectionRef.current
-      character.romanceCharacters.forEach(rc => {
-        if (rc.affectionEnabled) {
-          roundsRef[rc.name] = (roundsRef[rc.name] || 0) + 1
-        }
-      })
-    }
-
     // Story mode: streaming with affections object
     const affectionData = character.chatStyle === 'story' ? affections : affection
     const { reply, reasoningContent, usage, error: apiError } = await sendMessageStream(
@@ -1039,9 +1023,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       newMessages,
       affectionData,
       apiKey,
-      roundsSinceLastAffectionRef.current,
-      roundCount,
-      lastRiseRound,
       storyTime,
       (token, fullText, reset) => {
         if (reset) {
@@ -1086,35 +1067,41 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
 
     // Parse affection tags for story mode
     let finalReply = reply
-    if (character.chatStyle === 'story') {
-      const { cleanedContent, changes } = parseAffectionTags(reply)
-      finalReply = cleanedContent || reply
-      const meaningfulChanges = changes.filter(c => c.delta !== 0)
-      if (meaningfulChanges.length > 0) {
-        const flashMap = {}
-        setAffections(prev => {
-          const updated = { ...prev }
-          meaningfulChanges.forEach(({ name, delta }) => {
-            const rc = character.romanceCharacters?.find(c => c.name === name)
-            const curVal = updated[name] != null ? updated[name] : (rc?.affectionInitial ?? 50)
-            const newVal = clampAffection(curVal + delta, rc)
-            updated[name] = newVal
-            flashMap[name] = delta
-          })
-          return updated
-        })
-        setAffectionFlash(flashMap)
-        setTimeout(() => setAffectionFlash(null), 1500)
-      } else {
+    if (character.chatStyle === 'story' && character.romanceCharacters?.length > 0) {
+      // Clean any residual <affection> tags from reply (backwards compat)
+      finalReply = reply.replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim() || reply
+
+      const { changes, error: judgeError } = await judgeAffectionDelta(
+        character,
+        affections,
+        userText,
+        reply,
+        apiKey
+      )
+
+      if (judgeError) {
+        console.warn('[doSend] Affection judgment failed, skipping:', judgeError)
         setAffectionNoChange(true)
-      }
-      // Increment round count regardless
-      const newRoundCount = roundCount + 1
-      setRoundCount(newRoundCount)
-      const archive = getArchive(archiveId, mode)
-      if (archive) {
-        archive.roundCount = newRoundCount
-        saveArchive(archive, mode)
+      } else {
+        const meaningfulChanges = changes.filter(c => c.delta !== 0)
+        if (meaningfulChanges.length > 0) {
+          const flashMap = {}
+          setAffections(prev => {
+            const updated = { ...prev }
+            meaningfulChanges.forEach(({ name, delta }) => {
+              const rc = character.romanceCharacters?.find(c => c.name === name)
+              const curVal = updated[name] != null ? updated[name] : (rc?.affectionInitial ?? 50)
+              const newVal = clampAffection(curVal + delta, rc)
+              updated[name] = newVal
+              flashMap[name] = delta
+            })
+            return updated
+          })
+          setAffectionFlash(flashMap)
+          setTimeout(() => setAffectionFlash(null), 1500)
+        } else {
+          setAffectionNoChange(true)
+        }
       }
     }
 
@@ -1129,7 +1116,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
     triggerActiveCheck()
     return true
-  }, [character, affection, affections, adjustAffection, triggerActiveCheck, roundCount, lastRiseRound, storyTime])
+  }, [character, affection, affections, adjustAffection, triggerActiveCheck, storyTime])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
