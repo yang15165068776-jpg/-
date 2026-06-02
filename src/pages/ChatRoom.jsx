@@ -10,7 +10,6 @@ import {
   saveAffections,
   clearChatHistory,
   saveCharacter,
-  saveArchive,
 } from '../utils/storage'
 import { sendMessageStream, sendCasualReply, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
@@ -187,6 +186,57 @@ function NovelContent({ content, character }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function MemoryCard({ content }) {
+  const [expanded, setExpanded] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = (e) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }).catch(() => {
+      // Fallback for non-HTTPS
+      const textarea = document.createElement('textarea')
+      textarea.value = content
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      document.body.appendChild(textarea)
+      textarea.select()
+      try { document.execCommand('copy') } catch {}
+      document.body.removeChild(textarea)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div
+      className="mx-3 my-2 rounded-lg overflow-hidden border border-amber-900/40 bg-gray-800/60 cursor-pointer"
+      onClick={() => setExpanded(v => !v)}
+    >
+      <div className="flex items-center justify-between px-3 py-2">
+        <div className="flex items-center gap-2 text-amber-400 text-xs font-medium">
+          <span>📋</span>
+          <span>对话记忆</span>
+          <span className="text-gray-500">{expanded ? '▲' : '▼'}</span>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="text-[11px] text-gray-400 hover:text-white px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 transition-colors"
+        >
+          {copied ? '已复制' : '复制'}
+        </button>
+      </div>
+      {expanded && (
+        <div className="px-3 pb-3 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap border-t border-gray-700/50 pt-2">
+          {content}
+        </div>
+      )}
     </div>
   )
 }
@@ -714,9 +764,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const activeTimerRef = useRef(null)
   const lastActivityRef = useRef(Date.now())
   const menuTimerRef = useRef(null)
-  const [storyTime, setStoryTime] = useState({ year: 1, month: 1, day: 1 })
-  const [showTimeEditor, setShowTimeEditor] = useState(false)
-  const [editTime, setEditTime] = useState({ year: 1, month: 1, day: 1 })
 
   useEffect(() => {
     const archive = getArchive(archiveId, mode)
@@ -757,14 +804,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       const saved = archive.affection
       setAffection(saved !== null ? saved : char.affectionInitial)
     }
-    // Initialize story time from archive or character
-    if (archive.storyTime) {
-      setStoryTime(archive.storyTime)
-    } else if (char?.storyStartTime) {
-      setStoryTime(char.storyStartTime)
-    } else {
-      setStoryTime({ year: 1, month: 1, day: 1 })
-    }
   }, [archiveId])
 
   useEffect(() => {
@@ -789,15 +828,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
   }, [affections, archiveId, character, mode])
 
-  useEffect(() => {
-    if (character?.chatStyle === 'story' && storyTime) {
-      const archive = getArchive(archiveId, mode)
-      if (archive) {
-        archive.storyTime = storyTime
-        saveArchive(archive, mode)
-      }
-    }
-  }, [storyTime, archiveId, character, mode])
 
   // Shared function to display active messages sequentially
   const displayActiveMessages = useCallback((messages, archiveId) => {
@@ -965,7 +995,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         newMessages,
         affection,
         apiKey,
-        storyTime,
       )
 
       setLoading(false)
@@ -1023,7 +1052,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       newMessages,
       affectionData,
       apiKey,
-      storyTime,
       (token, fullText, reset) => {
         if (reset) {
           setStreamingText('')
@@ -1080,7 +1108,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       )
 
       if (judgeError) {
-        console.warn('[doSend] Affection judgment failed, skipping:', judgeError)
+        console.error('[好感度裁判] 调用失败，跳过本轮:', judgeError)
         setAffectionNoChange(true)
       } else {
         const meaningfulChanges = changes.filter(c => c.delta !== 0)
@@ -1116,7 +1144,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
     triggerActiveCheck()
     return true
-  }, [character, affection, affections, adjustAffection, triggerActiveCheck, storyTime])
+  }, [character, affection, affections, adjustAffection, triggerActiveCheck])
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
@@ -1266,16 +1294,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               )
             })}
           </div>
-          {/* Story time */}
-          <div className="mt-1.5 pt-1.5 border-t border-gray-700/30 flex items-center gap-2">
-            <button
-              onClick={() => { setEditTime({ ...storyTime }); setShowTimeEditor(true) }}
-              className="text-[10px] text-gray-500 hover:text-amber-400 transition-colors cursor-pointer"
-              title="点击编辑故事时间"
-            >
-              📅 第{storyTime.year}年{storyTime.month}月{storyTime.day}日
-            </button>
-          </div>
           {affectionNoChange && (
             <div className="text-center mt-1">
               <span className="text-[10px] text-gray-600">本轮好感度无变化</span>
@@ -1380,15 +1398,18 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               )
             }
             const isDice = msg.content.startsWith('随机事件触发')
-            const isMemory = msg.isMemory || msg.content.startsWith('【历史剧情摘要】')
+            const isMemory = msg.isMemory || msg.content.startsWith('【历史剧情摘要】') || msg.content.startsWith('---（以上为更早的存档）---')
+            if (isMemory) {
+              return <MemoryCard key={i} content={msg.content} />
+            }
             return (
               <div key={i} className="flex justify-center my-2 animate-fade-in">
-                <div className={(isDice ? 'bg-orange-500/10 border-orange-500/20' : 'bg-amber-500/10 border-amber-500/20') + ' border rounded-lg px-4 py-2 max-w-[85%]'}>
-                  <div className={'text-[10px] mb-1 ' + (isDice ? 'text-orange-400' : 'text-amber-400')}>
-                    {isDice ? '🎲 随机事件' : '📋 对话记忆'}
+                <div className={'bg-orange-500/10 border-orange-500/20 border rounded-lg px-4 py-2 max-w-[85%]'}>
+                  <div className="text-[10px] mb-1 text-orange-400">
+                    {isDice ? '🎲 随机事件' : '📋 系统消息'}
                   </div>
                   <div className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
-                    {msg.content.replace(/^【历史剧情摘要】\n?/, '').slice(0, 300)}
+                    {msg.content.slice(0, 300)}
                     {msg.content.length > 300 ? '...' : ''}
                   </div>
                 </div>
@@ -1636,12 +1657,18 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   setError('请先在设置页面填写 API Key')
                   return
                 }
-                if (messages.filter(m => m.role !== 'system').length === 0) {
+                const conversationMessages = messages.filter(m => m.role !== 'system')
+                if (conversationMessages.length === 0) {
                   setError('没有可压缩的对话内容')
                   return
                 }
+                // Collect existing memory messages from previous compressions
+                const existingMemoryMessages = messages.filter(m => m.role === 'system' && !m.isRetry)
+                const existingMemoryText = existingMemoryMessages.length > 0
+                  ? existingMemoryMessages.map(m => m.content).join('\n\n---（以上为更早的存档）---\n\n')
+                  : ''
                 setCompressing(true)
-                const { summary, error: compressError } = await compressChatHistory(messages, apiKey, storyTime)
+                const { summary, error: compressError } = await compressChatHistory(conversationMessages, apiKey, null, existingMemoryText)
                 setCompressing(false)
                 if (compressError || !summary) {
                   setError('压缩失败: ' + (compressError?.message || '未知错误'))
@@ -1676,7 +1703,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                     .replace(/【思考】[\s\S]*?【\/思考】/g, '')
                     .replace(/【思考】[\s\S]*?(?=\n[^\s]|$)/g, '')
                     .trim()
-                  // Preserve the last complete turn (last user msg + last assistant msg)
+                  // Collect existing memory messages for merging
+                  const existingMemoryMessages = messages.filter(m => m.role === 'system' && !m.isRetry)
+                  const existingMemoryText = existingMemoryMessages.length > 0
+                    ? existingMemoryMessages.map(m => m.content).join('\n\n---（以上为更早的存档）---\n\n')
+                    : ''
+                  // Merge old + new: old archive on top, new summary appended below
+                  const mergedMemory = existingMemoryText
+                    ? existingMemoryText + '\n\n---（以下为最新存档）---\n\n' + cleanSummary
+                    : cleanSummary
+                  // Preserve the last complete turn (last user msg + response)
                   const nonSystem = messages.filter(m => m.role !== 'system')
                   let lastUserIdx = -1
                   for (let i = nonSystem.length - 1; i >= 0; i--) {
@@ -1685,7 +1721,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   const lastTurn = lastUserIdx >= 0
                     ? nonSystem.slice(lastUserIdx, lastUserIdx + 2).filter(m => m.role === 'user' || m.role === 'assistant')
                     : []
-                  const memoryMsg = { role: 'system', content: cleanSummary, isMemory: true }
+                  const memoryMsg = { role: 'system', content: mergedMemory, timestamp: Date.now(), isMemory: true }
                   const newMessages = lastTurn.length > 0
                     ? [memoryMsg, ...lastTurn]
                     : [memoryMsg]
@@ -1693,7 +1729,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   // Save compressed memory to character JSON
                   const char = getCharacter(character.id, mode)
                   if (char) {
-                    char.compressedMemory = cleanSummary
+                    char.compressedMemory = mergedMemory
                     saveCharacter(char, mode)
                   }
                   setShowCompress(false)
@@ -1777,64 +1813,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   掷骰子
                 </button>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Time editor modal */}
-      {showTimeEditor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowTimeEditor(false)}>
-          <div className="bg-gray-800 rounded-2xl border border-gray-700 p-5 mx-4 w-full max-w-xs" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-medium text-gray-200 mb-3 text-center">📅 编辑故事时间</h3>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 block mb-1">年</label>
-                <input
-                  type="number"
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none text-center"
-                  value={editTime.year}
-                  onChange={e => setEditTime(prev => ({ ...prev, year: parseInt(e.target.value) || 1 }))}
-                  min={1}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 block mb-1">月</label>
-                <input
-                  type="number"
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none text-center"
-                  value={editTime.month}
-                  onChange={e => setEditTime(prev => ({ ...prev, month: Math.min(12, Math.max(1, parseInt(e.target.value) || 1)) }))}
-                  min={1} max={12}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-500 block mb-1">日</label>
-                <input
-                  type="number"
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none text-center"
-                  value={editTime.day}
-                  onChange={e => setEditTime(prev => ({ ...prev, day: Math.min(31, Math.max(1, parseInt(e.target.value) || 1)) }))}
-                  min={1} max={31}
-                />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowTimeEditor(false)}
-                className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => {
-                  setStoryTime({ ...editTime })
-                  setShowTimeEditor(false)
-                }}
-                className="flex-[2] py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-sm font-medium transition-all active:scale-[0.98]"
-              >
-                确认
-              </button>
             </div>
           </div>
         </div>

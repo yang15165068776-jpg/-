@@ -11,6 +11,9 @@ const emptyStage = () => ({
   riseCondition: '',
   languageSamples: '',
   forbiddenBehaviors: '',
+  stageDetails: '',
+  emotionalTraits: '',
+  stageExplosion: '',
   selfDriveBehaviors: [],
 })
 const emptyRomanceChar = () => ({
@@ -106,7 +109,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     autonomyBehavior: '',
     temperature: 0.9,
     topP: 0.95,
-    storyStartTime: { year: 1, month: 1, day: 1 },
   })
 
   useEffect(() => {
@@ -156,7 +158,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           autonomyBehavior: char.autonomyBehavior || '',
           temperature: char.temperature ?? 0.9,
           topP: char.topP ?? 0.95,
-          storyStartTime: char.storyStartTime || { year: 1, month: 1, day: 1 },
         })
       }
     }
@@ -303,7 +304,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       worldSetting: form.worldSetting.trim(),
       openingScenario: form.openingScenario.trim(),
       storyTone: form.storyTone,
-      storyStartTime: form.storyStartTime || { year: 1, month: 1, day: 1 },
       romanceCharacters: validRC.map(rc => ({
         id: rc.id || generateId(),
         name: rc.name.trim(),
@@ -326,6 +326,9 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
               languageSamples: parseLines(s.languageSamples),
               forbiddenBehaviors: parseLines(s.forbiddenBehaviors),
               selfDriveBehaviors: (s.selfDriveBehaviors || []).filter(b => b.description.trim()),
+              stageDetails: s.stageDetails?.trim() || '',
+              emotionalTraits: s.emotionalTraits?.trim() || '',
+              stageExplosion: s.stageExplosion?.trim() || '',
             }))
           : [],
         transitionTriggers: rc.affectionEnabled ? parseLines(rc.transitionTriggers) : [],
@@ -387,7 +390,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       worldSetting: result['世界观'] || prev.worldSetting,
       openingScenario: result['开场剧情'] || prev.openingScenario,
       storyTone: result['故事基调'] || prev.storyTone,
-      storyStartTime: prev.storyStartTime, // AI 提取不覆盖时间
       romanceCharacters: rc.length > 0
         ? rc.map((r, i) => ({
             ...emptyRomanceChar(),
@@ -415,6 +417,9 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                         trigger: b.trigger || 'overNrounds',
                       }))
                     : [],
+                  stageDetails: Array.isArray(s.stageDetails) ? s.stageDetails.join('\n') : (s.stageDetails || ''),
+                  emotionalTraits: Array.isArray(s.emotionalTraits) ? s.emotionalTraits.join('\n') : (s.emotionalTraits || ''),
+                  stageExplosion: s.stageExplosion || '',
                 }))
               : [emptyStage()],
             transitionTriggers: Array.isArray(r['transitionTriggers']) ? r['transitionTriggers'].join('\n') : (r['transitionTriggers'] || ''),
@@ -639,43 +644,6 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
               ))}
             </div>
           </div>
-
-          <div>
-            <label className={labelClass}>故事起始时间</label>
-            <p className="text-[10px] text-gray-500 mb-2">新对话的初始故事时间，可在对话中随时修改</p>
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-600 block mb-1">年</label>
-                <input
-                  type="number"
-                  className={inputClass + " text-center"}
-                  value={form.storyStartTime?.year ?? 1}
-                  onChange={e => update('storyStartTime', { ...form.storyStartTime, year: parseInt(e.target.value) || 1 })}
-                  min={1}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-600 block mb-1">月</label>
-                <input
-                  type="number"
-                  className={inputClass + " text-center"}
-                  value={form.storyStartTime?.month ?? 1}
-                  onChange={e => update('storyStartTime', { ...form.storyStartTime, month: Math.min(12, Math.max(1, parseInt(e.target.value) || 1)) })}
-                  min={1} max={12}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-[10px] text-gray-600 block mb-1">日</label>
-                <input
-                  type="number"
-                  className={inputClass + " text-center"}
-                  value={form.storyStartTime?.day ?? 1}
-                  onChange={e => update('storyStartTime', { ...form.storyStartTime, day: Math.min(31, Math.max(1, parseInt(e.target.value) || 1)) })}
-                  min={1} max={31}
-                />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -880,6 +848,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                                 <textarea className={inputClass + " h-12 resize-none"} value={stage.riseCondition} onChange={e => updateRCStage(i, si, 'riseCondition', e.target.value)} placeholder="上涨触发条件（预期被打破，不是被善待）" />
                                 <textarea className={inputClass + " h-12 resize-none"} value={stage.languageSamples} onChange={e => updateRCStage(i, si, 'languageSamples', e.target.value)} placeholder="本阶段语言样本（每行一句，2-3句）" />
                                 <textarea className={inputClass + " h-12 resize-none"} value={stage.forbiddenBehaviors} onChange={e => updateRCStage(i, si, 'forbiddenBehaviors', e.target.value)} placeholder="本阶段禁止行为（每行一条）" />
+
+                                <textarea className={inputClass + " h-16 resize-none"} value={stage.stageDetails} onChange={e => updateRCStage(i, si, 'stageDetails', e.target.value)} placeholder="【本阶段表现细节】每行一条具体行为（如：远远看见你脚步一顿转身走开）。AI会将其作为高频自发动作执行。" />
+                                <textarea className={inputClass + " h-16 resize-none"} value={stage.emotionalTraits} onChange={e => updateRCStage(i, si, 'emotionalTraits', e.target.value)} placeholder="【核心情绪与语言特征】每行一条情绪锁（如：任何你对他的冷淡都会让他陷入恐慌）。AI会将其作为底层心理逻辑。" />
+                                <textarea className={inputClass + " h-20 resize-none"} value={stage.stageExplosion} onChange={e => updateRCStage(i, si, 'stageExplosion', e.target.value)} placeholder="【阶段爆发/转折点名场面】描述一个当好感度到达临界或转折时的具体剧情高光（如：血色、车祸、失控大哭等名场面）。AI会在剧情需要时强行触发。" />
 
                                 {/* Self-drive behaviors */}
                                 <div className="border-t border-gray-600/50 pt-1.5 mt-1.5">

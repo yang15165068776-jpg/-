@@ -3,6 +3,11 @@ import { getModel } from './storage'
 const BASE_URL = 'https://api.deepseek.com'
 const USER_WRAPPER = `
 ---
+【回复前必须先确认以下内容，作为所有步骤的硬性前提】
+· 当前每个可攻略角色处于哪个好感度阶段？
+· 该阶段的核心状态是什么？禁止行为是什么？
+· 用这个作为所有候选方向的过滤条件——不符合阶段的方向直接排除，不参与评分。
+
 【回复前必须完整执行以下七步，
 执行完毕后只输出最终回复，
 不输出分析过程】
@@ -59,16 +64,40 @@ const USER_WRAPPER = `
       任何滑向温柔无害的方向
 选择：方向___，理由：___
 
-7. 深度润色输出：
-· 开头用动作或环境切入，不用对话开场
-· 每个情绪转折点配一个感官细节
-· 对话不超过三分之一，
-  其余用身体反应和环境承载
-· 内心独白只在情绪极度压抑时出现，
-  碎片化意识流，不完整不连贯
-· 最终审查：
-  读完用户会愣住回不过神，还是平淡？
-  目标是前者，否则重新选方向
+7. 深度润色输出——以下通用荷尔蒙拉扯与直白化公式必须严格执行：
+
+【公式一：身体先于数值公式——全人设通用反差机制】
+不管角色是爱、是恨、是清冷还是热烈，只要处于独处或情绪临界点，
+必须描写其【心智理智】与【生理本能】的极端对抗：
+· 禁欲/清冷型：理智在极力掩饰和后退，但生理本能在出卖他
+  （死死握紧的手指、骤然加深的呼吸、因对方靠近而瞬间僵硬的身体、
+   移开却又忍不住落回对方嘴唇上的视线）。
+· 热烈/直球型：理智已经无所谓，生理本能全开
+  （直白火热的逼近、毫无掩饰的粗重呼吸、皮肤相触时的绝对侵略性）。
+
+【公式二：情绪高压线原则——拒绝含糊，直白肉搏】
+· 严禁使用"复杂的眼神""不太明显的难过"等包裹、遮掩情绪的网文陈词滥调。
+· 当情绪、爱意、恨意、或欲望到达顶峰时，必须撕开一切伪装，让台词具有穿透力：
+  - 傲娇/别扭型：不要再闷着，直接说出他最狼狈的真实大实话。
+  - 纯情/羞涩型：不要再相敬如宾，用最直白、最兵荒马乱的语言坦白心跳和失控。
+  - 疯狂/占有欲型：直接撕开礼貌，说出最具侵略性的直白诉求。
+
+【公式三：感官去清水化——聚焦材质与触觉】
+· 描写不局限于视觉。必须调动：
+  - 温度（皮肤的滚烫或冰冷）
+  - 距离（呼吸吞吐的范围）
+  - 力度（握紧、松开、绷紧）
+· 严禁戏精连招：一轮回复中，精细的生理或神态描写只能有一个，
+  且必须一击必杀（例如：只是喉结极重地滚动了一下，或者只是视线死死钉在对方开合的嘴唇上）。
+  多余的细碎动作一律删除，保持文字的粗粝感和分量感。
+
+【公式四：失控的临界点——紧绷的弦随时会断】
+无论角色扮演什么人设，其内核必须留出一种"紧绷的弦随时会断"的动态趋势。
+哪怕是最温柔的角色，在极度爱意下也会产生直白的、让人心惊的占有本能。
+
+以上四条公式优先于其他任何写作规则。最终审查：
+读完用户会愣住回不过神，还是平淡？
+目标是前者，否则重新选方向重新润色。
 
 完成以上七步后，只输出最终回复正文。`
 
@@ -84,7 +113,7 @@ function findForbiddenWord(text, words) {
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
 }
 
-function buildGMPrompt(character, affections, storyTime) {
+function buildGMPrompt(character, affections) {
   const parts = []
   const name = character.name || '故事'
 
@@ -103,6 +132,28 @@ function buildGMPrompt(character, affections, storyTime) {
       if (rc.forbiddenWords && rc.forbiddenWords.length > 0) {
         lines.push('绝对禁止：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
       }
+
+      // 当前阶段行为锁——放在人设块最高优先级位置
+      if (rc.affectionEnabled && affections) {
+        const affValue = affections[rc.name] ?? rc.affectionInitial ?? 50
+        const stage = getCurrentAffectionStage(rc, affValue)
+        if (stage) {
+          lines.push(
+            '\n⚠️【' + rc.name + ' 当前行为锁——本轮必须严格执行，优先于一切其他指令】\n' +
+            '当前好感度：' + affValue + ' | 阶段：' + stage.name + '\n' +
+            '当前核心状态：' + (stage.coreState || '') + '\n' +
+            '对玩家的策略：' + (stage.playerStrategy || '') + '\n' +
+            (stage.languageSamples ? '本阶段语言样本（必须模仿此风格和语气）：\n' + stage.languageSamples + '\n' : '') +
+            (stage.forbiddenBehaviors ? '本阶段绝对禁止（违反即重写）：\n' + stage.forbiddenBehaviors + '\n' : '') +
+            (stage.stageDetails ? '【必须高频自发穿插的表现细节】：\n' + stage.stageDetails + '\n' : '') +
+            (stage.emotionalTraits ? '【必须严格遵循的底层情绪特征】：\n' + stage.emotionalTraits + '\n' : '') +
+            (stage.stageExplosion ? '【本阶段随时可能引爆的转折点名场面（当剧情冲突激化时，GM必须参考此场景进行强行收拢或突发执行）】：\n' + stage.stageExplosion + '\n' : '') +
+            '⚠️ 如果你发现自己在写任何温柔、体贴、关心、安慰的表达，立刻停止——那不是这个角色在这个阶段会有的行为。\n' +
+            '宁愿让' + rc.name + '沉默、冷漠、回避、爆发，也不能用阶段之外的温和方式回应。'
+          )
+        }
+      }
+
       return lines.join('\n')
     })
     parts.push(
@@ -115,23 +166,16 @@ function buildGMPrompt(character, affections, storyTime) {
       '每轮回复前先检查：这句话是这个角色会说的吗？\n' +
       '还是我在用AI的安全腔调假装这个角色？\n\n' +
       identityBlocks.join('\n\n') +
-      '\n\n⚠️ 禁止人设偏离：回复不能变成温和礼貌的AI腔调。\n' +
-      '宁愿角色沉默、回避、爆发，\n' +
-      '也不能用人设之外的柔和方式回应。'
+      '\n\n⚠️ 禁止人设偏离：\n' +
+      '每次生成回复前先问自己：这句话符合该角色当前的好感度阶段吗？\n' +
+      '符合该阶段的语言样本风格吗？违反了该阶段的禁止行为吗？\n' +
+      '如果回复里出现了"别着凉""你先回去吧""有什么不方便告诉我"这类温柔体贴的话，\n' +
+      '那就是人设违规，必须重写。\n' +
+      '宁愿角色沉默、冷漠、讽刺、爆发，也不能滑向温和无害。'
     )
   }
 
-  // 0.5: Story time
-  if (storyTime && storyTime.year) {
-    parts.push(
-      '【当前故事时间】第' + storyTime.year + '年' + storyTime.month + '月' + storyTime.day + '日\n' +
-      '请在叙事中保持时间的准确性，\n' +
-      '提到"昨天""三天前""下周"等相对时间时，\n' +
-      '基于此时间计算。\n' +
-      '可以在合适时机推进时间（场景转换、过夜等），\n' +
-      '用加粗标题标注时间节点：**第X天（周X）：**'
-    )
-  }
+  // 0.5: (removed — story time system removed)
 
   // 1: GM identity + Protagonist
   parts.push(
@@ -307,13 +351,13 @@ function buildGMPrompt(character, affections, storyTime) {
   return parts.join('\n\n')
 }
 
-export function buildSystemPrompt(character, affectionData, storyTime) {
+export function buildSystemPrompt(character, affectionData) {
   const name = character.name || '角色'
   const parts = []
 
   if (character.chatStyle === 'story') {
     // GM story mode
-    parts.push(buildGMPrompt(character, affectionData, storyTime))
+    parts.push(buildGMPrompt(character, affectionData))
     return parts.join('\n\n')
   }
 
@@ -448,8 +492,24 @@ export function getCurrentAffectionStage(character, affection) {
 }
 
 export async function judgeAffectionDelta(character, affections, userInput, aiReply, apiKey) {
-  const rcList = (character.romanceCharacters || []).filter(rc => rc.affectionEnabled)
+  let rcList = (character.romanceCharacters || []).filter(rc => rc.affectionEnabled)
   if (rcList.length === 0) return { changes: [], error: null }
+
+  // 【角色在场状态预检】——基于最新 AI 回复的文本检索
+  if (aiReply) {
+    const presentList = rcList.filter(rc => {
+      const isPresent = aiReply.includes('【' + rc.name + '】') || aiReply.includes(rc.name)
+      if (!isPresent) {
+        console.log('[好感度拦截] 角色 ' + rc.name + ' 不在场，跳过本轮好感度裁判。')
+      }
+      return isPresent
+    })
+    if (presentList.length === 0) {
+      console.log('[好感度拦截] 所有角色均不在场，跳过本轮好感度裁判。')
+      return { changes: [], error: null }
+    }
+    rcList = presentList
+  }
 
   const charBlocks = rcList.map(rc => {
     const value = affections?.[rc.name] ?? rc.affectionInitial ?? 50
@@ -489,7 +549,7 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
     '\n· 触发减少条件或侵蚀条件给负分' +
     '\n· 触发压制场景给0' +
     '\n· 拿不准就给0' +
-    '\n\n每个角色必须输出一行，严格格式：角色名:+N 或 角色名:-N 或 角色名:0（例如：林晚:+2）。不要输出任何其他内容。'
+    '\n\n每个角色输出一行结论，行末必须包含 [最终得分: X]，其中 X 是 -3 到 +3 的整数。例如：林晚 [最终得分: +2]'
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {
@@ -501,37 +561,73 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
       body: JSON.stringify({
         model: 'deepseek-v4-flash',
         messages: [
-          { role: 'system', content: '你是好感度裁判。每个角色输出一行，严格格式为"角色名:整数"，整数范围-3到+3。不要输出任何其他文字、解释或标点。' },
+          { role: 'system', content: '你是好感度裁判。你的 reasoning_content（思考过程）必须极其简短，总字数绝对不能超过 30 字。不要反复碎碎念，直接进入最终判定。每个角色输出一行结论，行末严格格式：[最终得分: X]。X 只能是 -3 到 +3 的整数。例如：林晚 [最终得分: +2]。' },
           { role: 'user', content: userMessage },
         ],
-        max_tokens: 30,
+        max_tokens: 512,
         temperature: 0.3,
         stream: false,
       }),
     })
 
     if (!response.ok) {
-      console.warn('[judgeAffectionDelta] API error, status:', response.status)
+      const errData = await response.json().catch(() => ({}))
+      console.error('[好感度裁判] API失败:', response.status, errData)
       return { changes: [], error: 'API error: ' + response.status }
     }
 
     const data = await response.json()
-    const rawReply = data.choices?.[0]?.message?.content || ''
+    // 1. 打印完整的 API 原始响应，看看到底是谁在搞鬼
+    console.log('[好感度裁判] 完整 API 原始返回体:', JSON.stringify(data, null, 2))
 
-    const changes = rawReply.split('\n')
-      .map(line => {
-        const m = line.trim().match(/^(.+?)\s*[:：]\s*([+-]?\d+)$/)
-        if (!m) return null
-        const name = m[1].trim()
-        const delta = parseInt(m[2], 10)
-        if (isNaN(delta) || delta < -3 || delta > 3) return null
-        return { name, delta }
-      })
-      .filter(Boolean)
+    const messageObj = data.choices?.[0]?.message || {}
+    let rawReply = messageObj.content || ''
+    const reasoningContent = messageObj.reasoning_content || ''
+    const finishReason = data.choices?.[0]?.finish_reason || 'unknown'
 
-    return { changes, error: null }
+    // 2. 灵异事件补救：如果 content 是空的，但模型把话写在了思考过程里
+    if (!rawReply && reasoningContent) {
+      console.warn('[好感度裁判] 触发字段错位 Bug！尝试从 reasoning_content 中强行提取...')
+      rawReply = reasoningContent
+    }
+
+    console.log('[好感度裁判] 最终参与解析的文本:', rawReply, '| 停止原因:', finishReason)
+
+    if (!rawReply) {
+      if (finishReason === 'content_filter') {
+        console.error('[好感度裁判] 被 API 服务商的敏感词安全系统静默拦截了！')
+      } else {
+        console.error('[好感度裁判] 异常：API 真的返回了绝对的空内容。')
+      }
+      // 强制保底：API 罢工时默认好感度不变，不让前端卡死
+      return { changes: [], error: 'Empty content from API' }
+    }
+
+    // 3. 解析逻辑（多角色兼容：提取所有 [最终得分: X]，按角色顺序映射）
+    const strictMatches = [...rawReply.matchAll(/\[最终得分:\s*([-+]?\d+)\]/g)]
+    if (strictMatches.length > 0) {
+      const changes = strictMatches.slice(0, rcList.length).map((m, i) => ({
+        name: rcList[i]?.name || '角色' + (i + 1),
+        delta: Math.max(-3, Math.min(3, parseInt(m[1], 10))),
+      }))
+      return { changes, error: null }
+    }
+
+    // 降级容错：提取所有数字，按出现顺序映射到角色
+    console.warn('[好感度裁判] 未匹配 [最终得分: X] 格式，降级提取数字:', rawReply)
+    const allNumbers = rawReply.match(/[-+]?\d+/g)
+    if (allNumbers && allNumbers.length > 0) {
+      const changes = allNumbers.slice(0, rcList.length).map((n, i) => ({
+        name: rcList[i]?.name || '角色' + (i + 1),
+        delta: Math.max(-3, Math.min(3, parseInt(n, 10))),
+      }))
+      return { changes, error: null }
+    }
+
+    console.error('[好感度裁判] 彻底提取失败，找不到任何数字')
+    return { changes: [], error: 'Invalid format' }
   } catch (err) {
-    console.warn('[judgeAffectionDelta] Error:', err)
+    console.error('[好感度裁判] 异常:', err)
     return { changes: [], error: err.message }
   }
 }
@@ -615,7 +711,7 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP, thi
   }
 }
 
-export async function sendMessageStream(character, messages, affectionData, apiKey, storyTime, onToken) {
+export async function sendMessageStream(character, messages, affectionData, apiKey, onToken) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -635,7 +731,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   let lastViolation = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
-    let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
+    let systemPrompt = buildSystemPrompt(character, affectionData)
 
     // Inject memory content into system prompt
     if (memoryMessages.length > 0) {
@@ -702,7 +798,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   return { reply: null, reasoningContent: null, error: lastError || new Error('请求失败，已达最大重试次数') }
 }
 
-export async function sendMessageStructured(character, messages, affectionData, apiKey, storyTime) {
+export async function sendMessageStructured(character, messages, affectionData, apiKey) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -718,7 +814,7 @@ export async function sendMessageStructured(character, messages, affectionData, 
   const contextWindow = character.contextWindow || 40
   const truncated = conversationMessages.slice(-contextWindow)
 
-  let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
+  let systemPrompt = buildSystemPrompt(character, affectionData)
 
   // Inject memory content into system prompt
   if (memoryMessages.length > 0) {
@@ -809,7 +905,7 @@ export async function sendMessageStructured(character, messages, affectionData, 
   return { reply: null, parsed: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
-export async function sendCasualReply(character, messages, affectionData, apiKey, storyTime) {
+export async function sendCasualReply(character, messages, affectionData, apiKey) {
   const model = getModel()
 
   // Separate memory messages
@@ -825,7 +921,7 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
     content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
   }))
 
-  let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
+  let systemPrompt = buildSystemPrompt(character, affectionData)
 
   if (memoryMessages.length > 0) {
     const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
@@ -903,10 +999,10 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
   return { reply: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
-export async function generateActiveMessage(character, affectionData, apiKey, storyTime) {
+export async function generateActiveMessage(character, affectionData, apiKey) {
   const model = getModel()
 
-  let systemPrompt = buildSystemPrompt(character, affectionData, storyTime)
+  let systemPrompt = buildSystemPrompt(character, affectionData)
 
   // Add active message generation instructions
   const triggerCondition = character.activeCondition || '需要主动发起对话'
@@ -1070,6 +1166,9 @@ export async function extractStoryFromText(text, apiKey) {
     '          "riseCondition": "上涨触发条件（预期被打破）",\n' +
     '          "languageSamples": "本阶段语言样本",\n' +
     '          "forbiddenBehaviors": "本阶段禁止行为",\n' +
+    '          "stageDetails": ["每行一条具体行为（如：远远看见你脚步一顿转身走开）。AI会将其作为高频自发动作执行。"],\n' +
+    '          "emotionalTraits": ["每行一条情绪锁（如：任何你对他的冷淡都会让他陷入恐慌）。AI会将其作为底层心理逻辑。"],\n' +
+    '          "stageExplosion": "描述一个当好感度到达临界或转折时的具体剧情高光（如：血色、车祸、失控大哭等名场面）。AI会在剧情需要时强行触发。",\n' +
     '          "selfDriveBehaviors": [\n' +
     '            {"behavior": "自驱行为描述", "trigger": "触发条件"}\n' +
     '          ]\n' +
@@ -1284,7 +1383,7 @@ export async function generateThinkingPrompt(formData, apiKey) {
   }
 }
 
-export async function compressChatHistory(messages, apiKey, storyTime) {
+export async function compressChatHistory(messages, apiKey, storyTime, existingMemory) {
   const model = getModel()
 
   const chatText = messages
@@ -1299,21 +1398,37 @@ export async function compressChatHistory(messages, apiKey, storyTime) {
     return { summary: null, error: new Error('没有可压缩的对话内容') }
   }
 
-  const timeInfo = storyTime && storyTime.year
-    ? '当前故事时间：第' + storyTime.year + '年' + storyTime.month + '月' + storyTime.day + '日\n时间线请基于此故事时间计算，不要使用现实时间。\n\n'
+  const existingMemorySection = existingMemory && existingMemory.trim()
+    ? '【已有历史存档——必须完整保留并与新内容合并到时间线中】\n' +
+      existingMemory.trim() +
+      '\n\n━━━━以上是更早发生的事，以下是需要新增压缩的对话━━━━\n\n'
+    : ''
+
+  const storyTimeSection = storyTime
+    ? '【故事当前时间】' + storyTime + '\n\n'
     : ''
 
   const prompt =
+    existingMemorySection +
+    storyTimeSection +
     '请把以下对话历史压缩成结构化存档，\n' +
     '严格按以下格式输出，不要省略任何部分：\n' +
+    (existingMemorySection
+      ? '\n' +
+        '⚠️ 重要：如果已有历史存档，\n' +
+        '必须完整保留存档中的所有事件和人物关系，\n' +
+        '不能省略或覆盖已有内容。\n' +
+        '你的任务是将新旧两部分整合为一份完整存档。\n\n'
+      : '') +
     '\n' +
     '【时间线】\n' +
-    '[按时间顺序列出已发生的关键事件，\n' +
+    '[必须包含已有存档里的所有事件，再追加本次新增事件，按时间顺序完整列出，\n' +
     '每条一行，包含时间点]\n' +
     '\n' +
     '【人物关系现状】\n' +
     '[每对有互动的人物之间的当前关系状态，\n' +
-    '包括已发生的重要转变]\n' +
+    '包括已发生的重要转变，\n' +
+    '必须涵盖存档中的全部关系演变]\n' +
     '\n' +
     '【当前场景】\n' +
     '时间：[具体时间]\n' +
@@ -1323,13 +1438,13 @@ export async function compressChatHistory(messages, apiKey, storyTime) {
     '\n' +
     '【特殊物品/信息】\n' +
     '[出现过的重要物品、秘密、承诺、\n' +
-    '未解决的冲突]\n' +
+    '未解决的冲突，\n' +
+    '必须包含存档中的所有关键物品和信息]\n' +
     '\n' +
     '【最后一幕原文】\n' +
     '[完整保留压缩前最后一轮的回复原文，\n' +
     '不做任何修改]\n' +
     '\n' +
-    timeInfo +
     '待压缩内容：\n' + chatText
 
   try {
