@@ -865,7 +865,7 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
       '当前好感度：' + value + (stage ? '（阶段：' + stage.name + '）' : ''),
     ]
     if (rc.affectionUpRules && rc.affectionUpRules.trim()) {
-      lines.push('上涨触发条件（预期被打破，不是被善待）：\n' + rc.affectionUpRules.trim())
+      lines.push('上涨触发条件：\n' + rc.affectionUpRules.trim())
     }
     if (rc.affectionDownRules && rc.affectionDownRules.trim()) {
       lines.push('好感度减少条件：\n' + rc.affectionDownRules.trim())
@@ -890,8 +890,8 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
     '\n根据以上信息判断每个角色的好感度变化。' +
     '\n规则：' +
     '\n· 每次最多变化3分' +
-    '\n· 角色被善待（被理解、被保护、被在意）可以上涨' +
-    '\n· 预期被打破（角色以为会被怎样对待，结果相反）触发上涨' +
+    '\n· 被善待（被理解、被保护、被在意）可以上涨，通常 +1 到 +2' +
+    '\n· 预期被打破（角色原以为会被怎样对待，结果完全相反）可以较大上涨，最高 +3' +
     '\n· 触发减少条件或侵蚀条件给负分' +
     '\n· 触发压制场景给0' +
     '\n· 拿不准就给0' +
