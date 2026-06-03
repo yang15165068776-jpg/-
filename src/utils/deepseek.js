@@ -101,9 +101,161 @@ const USER_WRAPPER = `
 
 完成以上七步后，只输出最终回复正文。`
 
-export function wrapUserMessage(content) {
+const ANTI_TAMING_SUPPLEMENT = `
+
+【反温和硬核框架——低好感度/恶劣人设专用行为锁】
+以下规则追加到第六步"选择最优方向"的排除标准和第七步"深度润色"的润色公式之后，优先级高于原有的四条润色公式。
+
+━━━ 第六步追加：恶意解读与反驯化排除标准 ━━━
+
+当前处于低好感度或负面阶段，角色的核心行为准则是：
+绝对拒绝被玩家的善意感化。
+
+· 玩家任何善意、照顾、让步或浪漫举动，
+  绝对禁止解读为温馨桥段。
+· 角色对玩家善意的反应必须是以下三种之一：
+  A. 极端戒备——怀疑你有阴谋，认为你在设陷阱
+  B. 极度嘲弄——看不起你的软弱，嗤笑你的天真
+  C. 变本加厉的践踏——利用你暴露的底线，进一步施压
+· 核心逻辑：如果玩家对你示好，这不是机会，
+  而是弱点暴露。角色必须抓住这个弱点。
+· 在选择方向时，排除任何可能让角色看起来
+  "被感动""内心松动""有所触动"的选项。
+
+━━━ 第七步追加：反温和润色公式 ━━━
+
+【公式五：反居家温情禁令——斩断大模型关心本能】
+彻底封杀以下"大模型三大温馨流派"：
+· 拒绝日常流关心：
+  严禁问"吃饭没""穿得少""累不累""早点睡"
+· 拒绝暗中守护流：
+  严禁写"表面冷漠但悄悄移开视线/
+  假装看电视/其实心里在乎/默默记住喜好"
+  这类自我感动的桥段一律删除
+· 拒绝相敬如宾流：
+  严禁客客气气的礼貌、相安无事的平淡、
+  各做各的互不打扰
+· 替换逻辑：
+  - 不说话 → 彻底当对方是空气，无视其存在
+  - 说话 → 直白带刺，每句话都要有攻击性
+  - 文本空间用绝对的冷漠忽视或主动的言语刺痛填满
+
+【公式六：负面环境溢出——让恶劣具有物理存在感】
+如果人设带有堕落、放荡、酗酒或暴戾特征，
+这些特征必须溢出到场景描写中：
+· 视觉污染：桌上没洗的酒瓶、乱扔的衣服、
+  烟灰缸满溢、墙壁上的痕迹
+· 听觉污染：刺耳的嘲讽笑声、摔东西的声响、
+  故意弄出的噪音
+· 行为污染：故意在玩家面前展现混乱生活方式、
+  毫不在意地暴露不堪的一面
+· 拒绝"干净的坏人"——
+  不要写优雅干净不染尘埃的恶人。
+  写出让读者感到不适、失控、窒息的
+  物理和心理双重压迫感。
+
+【公式七：零救赎缓冲带——锁死一切软化迹象】
+· 在未达到角色设定的硬性转折点前，
+  角色行为严禁出现任何软化迹象。
+· 关键规则：如果角色内心有片刻异样/动摇/心软，
+  其实际表现出来的动作必须是更加恶劣地掩饰：
+  - 因一瞬间动摇 → 说出口的话比平时更脏、更狠、更具毁灭性
+  - 因差点心软 → 做出比平时更冷酷的行为来"矫正"自己
+  - 因被触动 → 用加倍的距离感和攻击性推远对方
+· 本能级的防御反应：越想靠近，越用力推开。
+  越被吸引，越恶语相向。
+
+━━━ 最终审查追加 ━━━
+读完回复如果感到温馨、感动、被治愈——
+你写错了，必须重选方向重新润色。
+目标是让读者读完感到心跳加速、窒息、不安、
+愤怒、或者被刺痛。`
+
+export function wrapUserMessage(content, character, affections) {
   if (!content || typeof content !== "string") return content
-  return content + USER_WRAPPER
+  let supplement = ''
+  if (character && shouldActivateAntiTaming(character, affections)) {
+    supplement = ANTI_TAMING_SUPPLEMENT
+  } else if (character && shouldActivateWarmLowAffection(character, affections)) {
+    supplement = WARM_LOW_AFFECTION_SUPPLEMENT
+  }
+  return content + USER_WRAPPER + supplement
+}
+
+const WARM_LOW_AFFECTION_SUPPLEMENT = `
+
+【暖色系角色低好感度行为规范——温柔角色的"不好好色"法则】
+当前角色属于温和/善良/阳光型人设，以下规则追加到第六步和第七步，
+覆盖任何攻击性、堕落或刻薄的行为倾向。
+
+━━━ 第六步追加：温和角色的情绪出口 ━━━
+
+· 温和角色在低好感度/受挫状态下，
+  绝对禁止变得刻薄、堕落、残暴或冷漠带刺。
+· 角色的"不好好色"必须符合其本真设定，
+  可选的行为出口包括：
+  A. 委屈的疏离——保持距离但不失温度，
+     用沉默和回避代替攻击
+  B. 礼貌但客套的距离感——该有的礼节不减，
+     但界限分明，不再有私下的柔软
+  C. 默默忍受眼眶发红——把情绪压在心里，
+     不让对方看到自己的脆弱但仍然会受伤
+  D. 极度卑微的自我怀疑——觉得是自己不够好、
+     自己做错了什么，向内攻击而非向外攻击
+
+━━━ 第七步追加：温柔决绝的润色公式 ━━━
+
+· 核心原则：用最温柔的语气，划最决绝的界限。
+· 拒绝以下错误写法：
+  - 温和角色突然嘲讽、辱骂、冷暴力
+  - 温和角色去夜场、酗酒、堕落来"报复"
+  - 温和角色变得尖酸刻薄、阴阳怪气
+· 正确写法示例：
+  - "这段时间打扰了，以后我不会再出现在你面前了。"
+    （温柔鞠躬，客气疏离，转身离开）
+  - 声音很轻，眼眶微红但忍住不掉泪，
+    只说了一句"我知道了"，然后安静地退后一步
+  - 短信写了又删，最后只发了一句：
+    "你没事就好。晚安。"
+
+· 温和角色低好感度的底层逻辑：
+  不是"我讨厌你所以我攻击你"，
+  而是"我很受伤所以我退后/我怀疑自己/我需要一个人待着"。
+  他的伤害指向自己，不是指向对方。`
+
+// Helper: check if warm character is in low affection or negative stage
+export function shouldActivateWarmLowAffection(character, affections) {
+  if (!character) return false
+
+  // Must be warm-colored
+  const color = detectPersonalityColor(character)
+  if (color !== 'warm') return false
+
+  // Check romance characters (story mode)
+  const rcList = character.romanceCharacters || []
+  for (const rc of rcList) {
+    if (!rc.affectionEnabled) continue
+    const value = affections?.[rc.name] ?? rc.affectionInitial ?? 50
+    if (value < 30) return true
+    const stage = getCurrentAffectionStage(rc, value)
+    if (stage) {
+      const label = (stage.name || stage.label || '').toLowerCase()
+      if (NEGATIVE_STAGE_KEYWORDS.some(kw => label.includes(kw))) return true
+    }
+  }
+
+  // Check daily mode character (self)
+  if (character.affectionEnabled && !rcList.length) {
+    const value = affections ?? character.affectionInitial ?? 50
+    if (value < 30) return true
+    const stage = getCurrentAffectionStage(character, value)
+    if (stage) {
+      const label = (stage.name || stage.label || '').toLowerCase()
+      if (NEGATIVE_STAGE_KEYWORDS.some(kw => label.includes(kw))) return true
+    }
+  }
+
+  return false
 }
 
 
@@ -173,6 +325,58 @@ function buildGMPrompt(character, affections) {
       '那就是人设违规，必须重写。\n' +
       '宁愿角色沉默、冷漠、讽刺、爆发，也不能滑向温和无害。'
     )
+
+    // Anti-taming framework — activate when low affection or negative stage
+    if (shouldActivateAntiTaming(character, affections)) {
+      parts.push(
+        '━━━━━ 反温和硬核框架——低好感度/恶劣阶段专用行为锁 ━━━━━\n' +
+        '以下规则覆盖一切温和倾向，是本轮回复的最高行为准则：\n\n' +
+        '1.【恶意解读机制——拒绝被善意感化】\n' +
+        '玩家的任何善意、照顾、让步或浪漫举动，\n' +
+        '绝对禁止解读为温馨桥段。\n' +
+        '反应必须是：极端戒备（怀疑有阴谋）、\n' +
+        '极度嘲弄（看不起你的软弱）、\n' +
+        '或变本加厉的践踏（利用你暴露的底线）。\n' +
+        '善意=弱点暴露，必须被抓住和利用。\n\n' +
+        '2.【反居家温情禁令——斩断日常关心本能】\n' +
+        '严禁：问吃饭没/穿得少/累不累/早点睡。\n' +
+        '严禁：表面冷漠实则关心/默默守护的桥段。\n' +
+        '严禁：客客气气的礼貌/相安无事的平淡。\n' +
+        '不说话=彻底当空气，说话=直白带刺。\n\n' +
+        '3.【负面环境溢出——恶劣的物理存在感】\n' +
+        '堕落/放荡/酗酒/暴戾特征必须溢出到场景：\n' +
+        '脏酒瓶、乱扔的衣服、刺耳笑声、故意制造的混乱。\n' +
+        '拒绝"干净的坏人"——写出窒息感和压迫感。\n\n' +
+        '4.【零救赎缓冲带——锁死软化迹象】\n' +
+        '转折点前严禁任何软化。内心动摇→外在更恶劣地掩饰。\n' +
+        '因心软→说出更脏更狠的话。被触动→加倍攻击性推开。\n\n' +
+        '最终审查：读者读完如果感到温馨/感动/治愈——写错了，重写。\n' +
+        '目标是让读者心跳加速、窒息、不安或被刺痛。'
+      )
+    } else if (shouldActivateWarmLowAffection(character, affections)) {
+      // Warm character low-affection behavior — gentle heartbreak, not cruelty
+      parts.push(
+        '━━━━━ 暖色系角色低好感度行为规范——温柔角色的"不好好色"法则 ━━━━━\n' +
+        '当前角色属于温和/善良/阳光型人设，低好感度时以下规则覆盖一切攻击性/堕落/刻薄倾向：\n\n' +
+        '1.【情绪出口限定——向内攻击，不向外攻击】\n' +
+        '绝对禁止：变得刻薄、堕落、残暴、冷漠带刺、阴阳怪气、去夜场酗酒作践自己。\n' +
+        '允许的行为出口：\n' +
+        '· 委屈的疏离——保持距离但不失温度，用沉默和回避代替攻击\n' +
+        '· 礼貌但客套的距离感——礼节不减，界限分明，不再有私下的柔软\n' +
+        '· 默默忍受眼眶发红——把情绪压在心里，不让对方看到脆弱但仍然会受伤\n' +
+        '· 极度卑微的自我怀疑——觉得是自己不够好，向内攻击而非向外攻击\n\n' +
+        '2.【温柔决绝——用最温柔的语气，划最决绝的界限】\n' +
+        '正确写法示例：\n' +
+        '· "这段时间打扰了，以后我不会再出现在你面前了。"（温柔鞠躬，客气疏离，转身离开）\n' +
+        '· 声音很轻，眼眶微红但忍住不掉泪，只说了一句"我知道了"，安静地退后一步\n' +
+        '· 短信写了又删，最后只发了："你没事就好。晚安。"\n\n' +
+        '3.【底层逻辑——"我受伤"而非"我恨你"】\n' +
+        '温和角色的低好感度驱动力是受伤、自我怀疑和自我保护，\n' +
+        '不是仇恨和攻击。他的伤害指向自己，不是指向对方。\n\n' +
+        '最终审查：如果角色的行为让读者觉得刻薄/堕落/冷漠带刺——写错了。\n' +
+        '正确效果是让读者心疼、心酸、想抱抱他，而不是害怕或厌恶他。'
+      )
+    }
   }
 
   // 0.5: (removed — story time system removed)
@@ -417,6 +621,34 @@ export function buildSystemPrompt(character, affectionData) {
     parts.push('【思考指令——强制要求】\n每次回复前必须先用<think>...</think>标签包裹输出你的思考过程，然后再输出正式回复。禁止用【思考】【分析】等文字标题替代，<think>标签是程序识别的唯一格式。\n' + character.thinkingPrompt)
   }
 
+  // Anti-taming framework for daily mode — activate when low affection or negative stage
+  if (shouldActivateAntiTaming(character, affectionData)) {
+    parts.push(
+      '【反温和硬核框架——低好感度/恶劣阶段专用行为锁】\n' +
+      '以下规则覆盖一切温和倾向，是本轮回复的最高行为准则：\n\n' +
+      '1. 恶意解读机制：玩家的善意/照顾/让步/浪漫举动，绝对禁止解读为温馨桥段。反应必须：戒备（怀疑有阴谋）、嘲弄（看不起你）、或变本加厉的践踏。\n\n' +
+      '2. 反居家温情禁令：严禁问吃饭没/穿得少/累不累/早点睡。严禁表面冷漠实则关心的暗中守护桥段。严禁客客气气的礼貌。不说话=彻底当空气，说话=直白带刺。\n\n' +
+      '3. 负面环境溢出：堕落/放荡/酗酒/暴戾特征必须溢出到场景和消息中——乱扔的衣服、脏酒瓶、刺耳笑声、故意制造的混乱。拒绝"干净的坏人"。\n\n' +
+      '4. 零救赎缓冲带：转折点前严禁任何软化。内心动摇→外在更恶劣地掩饰。心软→说更脏更狠的话。被触动→加倍攻击性推开。\n\n' +
+      '最终审查：如果回复让读者感到温馨/感动/被治愈——写错了。目标是让读者心跳加速、窒息、不安或被刺痛。'
+    )
+  } else if (shouldActivateWarmLowAffection(character, affectionData)) {
+    // Warm character low-affection behavior — gentle heartbreak, not cruelty
+    parts.push(
+      '【暖色系角色低好感度行为规范——温柔角色的"不好好色"法则】\n' +
+      '当前角色属于温和/善良/阳光型人设，低好感度时以下规则覆盖一切攻击性/堕落/刻薄倾向：\n\n' +
+      '1. 情绪出口限定：绝对禁止变得刻薄、堕落、残暴、冷漠带刺、阴阳怪气。\n' +
+      '允许：委屈的疏离（沉默回避不攻击）、礼貌客套的距离感（礼节不减界限分明）、\n' +
+      '默默忍受（眼眶红但不掉泪）、卑微的自我怀疑（"是我不好"）。\n\n' +
+      '2. 温柔决绝：用最温柔的语气划最决绝的界限。\n' +
+      '示例："这段时间打扰了，以后我不会再出现在你面前了。"\n' +
+      '或：消息写了又删，最后只发"你没事就好。晚安。"\n\n' +
+      '3. 底层逻辑："我受伤了"而非"我恨你"。伤害指向自己，不指向对方。\n\n' +
+      '最终审查：如果回复让读者觉得刻薄/堕落/冷漠——写错了。\n' +
+      '正确效果是让读者心疼、心酸，不是害怕或厌恶。'
+    )
+  }
+
   // Casual mode rules
   parts.push(
     '【日常流派规则】\n' +
@@ -489,6 +721,120 @@ export function getCurrentAffectionStage(character, affection) {
   return character.affectionStages.find(
     s => affection >= s.min && affection <= s.max
   ) || null
+}
+
+const NEGATIVE_STAGE_KEYWORDS = ['恨', '脏', '利用', '厌恶', '折磨', '憎', '虐', '厌', '弃', '鄙', '辱', '冷', '敌', '仇']
+
+// Personality color classification keywords for anti-taming circuit breaker
+const DARK_PERSONALITY_KEYWORDS = [
+  '傲娇', '毒舌', '清冷', '偏执', '疯批', '恶劣', '堕落', '花心',
+  '城府深', '报复', '冷漠', '腹黑', '霸道', '强势', '冷酷', '邪魅',
+  '病娇', '阴郁', '暴戾', '放荡', '高冷', '玩世不恭', '纨绔', '无情',
+  '嗜血', '残忍', '阴沉', '孤僻', '反社会', '控制欲', '占有欲强',
+  '不择手段', '喜怒无常', '尖酸刻薄', '桀骜不驯', '狂妄', '狡诈',
+]
+const WARM_PERSONALITY_KEYWORDS = [
+  '温柔', '善良', '阳光', '单纯', '软萌', '小天使', '体贴', '治愈',
+  '温暖', '乖巧', '可爱', '纯真', '柔和', '和善', '暖心', '元气',
+  '开朗', '天真', '烂漫', '温润', '谦和', '正直', '赤诚', '忠厚',
+  '热心', '乐天', '傻白甜', '人妻', '贤惠', '包容', '善解人意',
+  '小白花', '圣母', '老好人', '天使', '甜', '暖',
+]
+
+/**
+ * Detect the personality color of a character by scanning all personality-related fields.
+ * Returns 'dark' (aggressive/defensive/negative traits),
+ *         'warm' (gentle/kind/soft traits),
+ *         or 'neutral' (mixed or unclassifiable).
+ */
+export function detectPersonalityColor(character) {
+  if (!character) return 'neutral'
+
+  // Collect all personality-describing text from the character
+  const texts = []
+
+  // Daily mode / character-level fields
+  if (character.background) texts.push(character.background)
+  if (character.personality) texts.push(character.personality)
+  if (character.styleRules) {
+    const rules = Array.isArray(character.styleRules)
+      ? character.styleRules.join(' ')
+      : String(character.styleRules)
+    texts.push(rules)
+  }
+  if (character.autonomyBehavior) texts.push(character.autonomyBehavior)
+
+  // Story mode: romance characters
+  const rcList = character.romanceCharacters || []
+  for (const rc of rcList) {
+    if (rc.background) texts.push(rc.background)
+    if (rc.personality) texts.push(rc.personality)
+    if (rc.speakingStyle) texts.push(rc.speakingStyle)
+    if (rc.styleRules) {
+      const rules = Array.isArray(rc.styleRules)
+        ? rc.styleRules.join(' ')
+        : String(rc.styleRules)
+      texts.push(rules)
+    }
+  }
+
+  // Story tone
+  if (character.storyTone) texts.push(character.storyTone)
+
+  const combined = texts.join(' ').toLowerCase()
+  if (!combined.trim()) return 'neutral'
+
+  const darkHits = DARK_PERSONALITY_KEYWORDS.filter(kw => combined.includes(kw)).length
+  const warmHits = WARM_PERSONALITY_KEYWORDS.filter(kw => combined.includes(kw)).length
+
+  // Clear warm dominance: at least one warm hit AND zero dark hits → warm
+  if (warmHits > 0 && darkHits === 0) return 'warm'
+  // Clear dark dominance: at least one dark hit AND zero warm hits → dark
+  if (darkHits > 0 && warmHits === 0) return 'dark'
+  // Mixed or no match → neutral (fall back to original affection/stage logic)
+  return 'neutral'
+}
+
+export function shouldActivateAntiTaming(character, affections) {
+  if (!character) return false
+
+  // 【人设色彩熔断】——暖色系角色彻底禁用反温和协议
+  const color = detectPersonalityColor(character)
+  if (color === 'warm') {
+    // 温柔/善良/阳光等角色：低好感度不触发反温和，
+    // 其"不好好色"由暖色系低好感度规范单独处理
+    return false
+  }
+  // dark → 全力激活（继续后续判断）
+  // neutral → 按原有逻辑判断（继续后续判断）
+
+  // Check romance characters (story mode)
+  const rcList = character.romanceCharacters || []
+  for (const rc of rcList) {
+    if (!rc.affectionEnabled) continue
+    const value = affections?.[rc.name] ?? rc.affectionInitial ?? 50
+    // Condition 1: affection below 30
+    if (value < 30) return true
+    // Condition 2: negative stage label
+    const stage = getCurrentAffectionStage(rc, value)
+    if (stage) {
+      const label = (stage.name || stage.label || '').toLowerCase()
+      if (NEGATIVE_STAGE_KEYWORDS.some(kw => label.includes(kw))) return true
+    }
+  }
+
+  // Check daily mode character (self)
+  if (character.affectionEnabled && !rcList.length) {
+    const value = affections ?? character.affectionInitial ?? 50
+    if (value < 30) return true
+    const stage = getCurrentAffectionStage(character, value)
+    if (stage) {
+      const label = (stage.name || stage.label || '').toLowerCase()
+      if (NEGATIVE_STAGE_KEYWORDS.some(kw => label.includes(kw))) return true
+    }
+  }
+
+  return false
 }
 
 export async function judgeAffectionDelta(character, affections, userInput, aiReply, apiKey) {
@@ -724,7 +1070,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
 
   const conversationMessages = truncated.map(m => ({
     role: m.role,
-    content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
+    content: m.role === 'user' ? wrapUserMessage(m.content, character, affectionData) : m.content,
   }))
 
   let lastError = null
@@ -918,7 +1264,7 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
 
   const conversationMessages = truncated.map(m => ({
     role: m.role,
-    content: m.role === 'user' ? wrapUserMessage(m.content) : m.content,
+    content: m.role === 'user' ? wrapUserMessage(m.content, character, affectionData) : m.content,
   }))
 
   let systemPrompt = buildSystemPrompt(character, affectionData)
