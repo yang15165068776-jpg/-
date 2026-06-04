@@ -355,28 +355,12 @@ function parseCasualReply(rawText) {
 
   if (rawSegments.length === 0) return [{ text: rawText.trim() || rawText, action: null, thought: null }]
 
-  let groupAction = null
-  let groupThought = null
-  const textSegments = []
-
-  for (const seg of rawSegments) {
-    if (seg.startsWith('ACTION:')) {
-      groupAction = seg.slice(7).trim()
-    } else if (seg.startsWith('THOUGHT:')) {
-      groupThought = seg.slice(8).trim()
-    } else {
-      textSegments.push(seg.trim())
-    }
-  }
-
-  if (textSegments.length === 0) {
-    return [{ text: '', action: groupAction, thought: groupThought }]
-  }
-
-  return textSegments.map((text, i) => ({
-    text,
-    action: i === 0 ? groupAction : null,
-    thought: i === textSegments.length - 1 ? groupThought : null,
+  // 捡手机文学格式：每条消息就是角色在手机上敲出来的纯文本
+  // ACTION:/THOUGHT: 前缀已废除，所有内容都是气泡文字
+  return rawSegments.map(text => ({
+    text: text.trim(),
+    action: null,
+    thought: null,
   }))
 }
 
@@ -429,15 +413,9 @@ function StoryBubble({ msg, index, character, userAvatar, onRegenerate, showActi
           <span className="text-[9px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded self-start">自主消息</span>
         )}
 
-        {/* New casual format: segments array */}
+        {/* Casual format: pure phone chat bubbles, no action/thought */}
         {hasSegments && revealed ? (
           <>
-            {/* Action text — rendered once above all bubbles, gray small text */}
-            {revealed[0]?.action && (
-              <div className="text-[11px] leading-relaxed whitespace-pre-wrap mb-1" style={{ color: '#999' }}>
-                {revealed[0].action}
-              </div>
-            )}
             {revealed.map((seg, si) => (
               <div key={si} className={'animate-fade-in' + (si < revealed.length - 1 ? ' mb-1' : '')}>
                 {seg.text && (
@@ -447,15 +425,6 @@ function StoryBubble({ msg, index, character, userAvatar, onRegenerate, showActi
                 )}
               </div>
             ))}
-            {/* Thought — rendered below last bubble, gray italic */}
-            {(() => {
-              const lastSeg = revealed[revealed.length - 1]
-              return lastSeg?.thought ? (
-                <div className="text-[11px] leading-relaxed whitespace-pre-wrap italic mt-1" style={{ color: '#888' }}>
-                  {lastSeg.thought}
-                </div>
-              ) : null
-            })()}
             {pending && (
               <div className="flex items-center gap-1 py-1">
                 <span className="inline-flex gap-0.5">
