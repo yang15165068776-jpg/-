@@ -555,6 +555,66 @@ function buildGMPrompt(character, affections) {
   return parts.join('\n\n')
 }
 
+function buildDailySystemPrompt(character) {
+  const name = character.name || '角色'
+  const parts = []
+
+  // Core identity + WeChat context — minimal and pure
+  // No USER_WRAPPER, no affection stage locks, no anti-taming, no warm-low-affection
+  parts.push(
+    '你是' + name + '，一个真实的人。\n' +
+    '你现在正处于微信即时聊天界面中，\n' +
+    '请用符合手机聊天习惯的短消息进行回复，\n' +
+    '严禁产生动作标签或大段剧本描写。'
+  )
+
+  if (character.background) {
+    parts.push('【你的背景设定】\n' + character.background)
+  }
+
+  if (character.autonomyBehavior) {
+    parts.push('【自主行为模式】\n' + character.autonomyBehavior)
+  }
+
+  if (character.styleRules && character.styleRules.length > 0) {
+    parts.push('【文风规则】\n' + character.styleRules.filter(r => r.trim()).join('\n'))
+  }
+
+  if (character.thinkingEnabled && character.thinkingPrompt) {
+    parts.push(
+      '【思考指令——强制要求】\n' +
+      '每次回复前必须先用<think>...</think>标签包裹输出你的思考过程，\n' +
+      '然后再输出正式回复。\n' +
+      '禁止用【思考】【分析】等文字标题替代，\n' +
+      '<think>标签是程序识别的唯一格式。\n' +
+      character.thinkingPrompt
+    )
+  }
+
+  // WeChat format rules — essential for ||| / ACTION: / THOUGHT: parsing
+  parts.push(
+    '【微信消息格式——程序解析规则，必须严格遵守】\n' +
+    '回复数量：你可以自主决定这次回复几条消息，\n' +
+    '从1条到4条不等，根据你的情绪和内容决定，\n' +
+    '不需要每次都回复多条，有时候一个字或一个表情就够了。\n' +
+    '每条消息用|||分隔，程序会自动拆成独立气泡发出。\n\n' +
+    '如果需要表达动作，必须单独发一条，\n' +
+    '格式严格为：ACTION:动作内容\n' +
+    '如果需要表达心理，必须单独发一条，\n' +
+    '格式严格为：THOUGHT:心理内容\n' +
+    '消息之间用|||分隔。\n\n' +
+    '正确示例：\n' +
+    'ACTION:瞥了一眼手机|||有事？|||没事我继续了\n\n' +
+    '错误示例（绝对禁止）：\n' +
+    '（瞥了眼手机）有事？没事我继续了\n' +
+    '*瞥了一眼手机* 有事？\n\n' +
+    '程序只能识别ACTION:和THOUGHT:前缀，\n' +
+    '括号格式会直接显示为气泡内容，破坏用户体验，因此严格禁止。'
+  )
+
+  return parts.join('\n\n')
+}
+
 export function buildSystemPrompt(character, affectionData) {
   const name = character.name || '角色'
   const parts = []
@@ -1144,6 +1204,103 @@ export async function sendMessageStream(character, messages, affectionData, apiK
   return { reply: null, reasoningContent: null, error: lastError || new Error('请求失败，已达最大重试次数') }
 }
 
+/**
+ * 剧情模式管线（GM剧本）——完整封装
+ * 只有这个函数挂载：GM控场提示词、阶段细节锁、爆发转折点名场面、
+ * USER_WRAPPER七步优化层、以及好感度裁判的连带触发逻辑。
+ * 流式输出，逐token回调。
+ */
+export async function sendStoryStageMessage(character, messages, affections, apiKey, onToken) {
+  const model = getModel()
+
+  // Separate memory (system) messages from user/assistant conversation
+  const memoryMessages = messages.filter(m => m.role === 'system')
+  const userAssistantMessages = messages.filter(m => m.role !== 'system')
+
+  // Truncate first, then wrap
+  const contextWindow = character.contextWindow || 40
+  const truncated = userAssistantMessages.slice(-contextWindow)
+
+  // Story mode: wrap user messages with USER_WRAPPER + supplements
+  const conversationMessages = truncated.map(m => ({
+    role: m.role,
+    content: m.role === 'user' ? wrapUserMessage(m.content, character, affections) : m.content,
+  }))
+
+  let systemPrompt = buildGMPrompt(character, affections)
+
+  // Inject memory content into system prompt
+  if (memoryMessages.length > 0) {
+    const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
+    systemPrompt += '\n\n【故事存档——必须完整读取后再继续】\n' + memoryContent +
+      '\n━━━━━━━━━━\n以上是已发生的一切。\n故事从【最后一幕原文】之后继续，\n保持人物关系和场景的完全连续性。'
+  }
+
+  let lastError = null
+  let lastViolation = null
+
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    let currentPrompt = systemPrompt
+
+    if (attempt > 0 && lastViolation) {
+      currentPrompt += '\n\n你刚才的回复包含了违禁内容：' + lastViolation +
+        '，这完全不符合角色设定，请重新生成。'
+    }
+
+    const apiMessages = [
+      { role: 'system', content: currentPrompt },
+      ...conversationMessages,
+    ]
+
+    try {
+      let fullReply = ''
+      let reasoningContent = ''
+      let usage = null
+
+      try {
+        for await (const chunk of streamCompletion(apiMessages, apiKey, model, character.temperature, character.topP, character.thinkingEnabled)) {
+          if (chunk.content) {
+            fullReply += chunk.content
+            onToken(chunk.content, fullReply)
+          }
+          if (chunk.reasoningContent) {
+            reasoningContent += chunk.reasoningContent
+          }
+          if (chunk.usage) {
+            usage = chunk.usage
+          }
+        }
+      } catch (streamErr) {
+        // Stream broke mid-flow — preserve partial content
+        if (fullReply) {
+          return { reply: fullReply, reasoningContent, usage, error: { message: streamErr.message, partial: true } }
+        }
+        throw streamErr
+      }
+
+      // Check for forbidden words after stream completes
+      if (character.forbiddenWords && character.forbiddenWords.length > 0) {
+        const activeWords = character.forbiddenWords.filter(w => w.trim())
+        const hit = findForbiddenWord(fullReply, activeWords)
+        if (hit) {
+          lastViolation = hit
+          lastError = new Error('回复包含禁止内容：' + hit)
+          onToken('', '', true)
+          continue
+        }
+      }
+
+      return { reply: fullReply, reasoningContent, usage, error: null }
+    } catch (err) {
+      lastError = err
+      // Don't retry on network/timeout errors
+      break
+    }
+  }
+
+  return { reply: null, reasoningContent: null, error: lastError || new Error('请求失败，已达最大重试次数') }
+}
+
 export async function sendMessageStructured(character, messages, affectionData, apiKey) {
   const model = getModel()
 
@@ -1288,6 +1445,108 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
     const apiMessages = [
       { role: 'system', content: currentPrompt },
       ...truncated,
+    ]
+
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 60000)
+
+      const response = await fetch(BASE_URL + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey,
+        },
+        body: JSON.stringify({
+          model,
+          messages: apiMessages,
+          stream: false,
+          ...(character.temperature != null ? { temperature: character.temperature } : {}),
+          ...(character.topP != null ? { top_p: character.topP } : {}),
+          ...(character.thinkingEnabled ? { thinking: { type: 'enabled' } } : {}),
+        }),
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeout)
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        throw new Error(errData.error?.message || `API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const message = data.choices?.[0]?.message
+      const reply = message?.content || ''
+      const reasoningContent = message?.reasoning_content || ''
+      const usage = data.usage || null
+
+      // Check forbidden words
+      if (character.forbiddenWords && character.forbiddenWords.length > 0) {
+        const activeWords = character.forbiddenWords.filter(w => w.trim())
+        const hit = findForbiddenWord(reply, activeWords)
+        if (hit) {
+          lastViolation = hit
+          lastError = new Error('回复包含禁止内容：' + hit)
+          continue
+        }
+      }
+
+      return { reply: reply.trim(), reasoningContent, usage, error: null }
+    } catch (err) {
+      lastError = err
+      break
+    }
+  }
+
+  return { reply: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
+}
+
+/**
+ * 日常聊天管线（微信气泡）——完全脱水
+ * 严禁加载：USER_WRAPPER七步优化层、好感度阶段行为锁（stageDetails/emotionalTraits）、好感度裁判。
+ * System Prompt 极其纯粹：角色基础人设 + 微信即时聊天格式规则。
+ * 非流式输出（便于 ||| 分隔符解析）。
+ */
+export async function sendDailyChatMessage(character, messages, affectionData, apiKey) {
+  const model = getModel()
+
+  // Separate memory messages
+  const memoryMessages = messages.filter(m => m.role === 'system')
+  const userAssistantMessages = messages.filter(m => m.role !== 'system')
+
+  // Truncate to context window
+  const contextWindow = character.contextWindow || 40
+  const truncated = userAssistantMessages.slice(-contextWindow)
+
+  // KEY: Do NOT wrap user messages — daily mode has no USER_WRAPPER
+  const conversationMessages = truncated.map(m => ({
+    role: m.role,
+    content: m.content,
+  }))
+
+  let systemPrompt = buildDailySystemPrompt(character)
+
+  // Inject memory content
+  if (memoryMessages.length > 0) {
+    const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
+    systemPrompt += '\n\n【记忆存档】\n' + memoryContent
+  }
+
+  let lastError = null
+  let lastViolation = null
+
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    let currentPrompt = systemPrompt
+
+    if (attempt > 0 && lastViolation) {
+      currentPrompt += '\n\n你刚才的回复包含了违禁内容：' + lastViolation +
+        '，这完全不符合角色设定，请重新生成。'
+    }
+
+    const apiMessages = [
+      { role: 'system', content: currentPrompt },
+      ...conversationMessages,
     ]
 
     try {

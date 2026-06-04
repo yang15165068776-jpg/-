@@ -11,7 +11,7 @@ import {
   clearChatHistory,
   saveCharacter,
 } from '../utils/storage'
-import { sendMessageStream, sendCasualReply, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
+import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
 
 function Avatar({ src, name, className }) {
@@ -990,7 +990,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setLoading(true)
 
     if (character.chatStyle === 'casual') {
-      const { reply, reasoningContent, usage, error: apiError } = await sendCasualReply(
+      const { reply, reasoningContent, usage, error: apiError } = await sendDailyChatMessage(
         character,
         newMessages,
         affection,
@@ -1046,11 +1046,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
 
     // Story mode: streaming with affections object
-    const affectionData = character.chatStyle === 'story' ? affections : affection
-    const { reply, reasoningContent, usage, error: apiError } = await sendMessageStream(
+    const { reply, reasoningContent, usage, error: apiError } = await sendStoryStageMessage(
       character,
       newMessages,
-      affectionData,
+      affections,
       apiKey,
       (token, fullText, reset) => {
         if (reset) {
