@@ -1678,6 +1678,7 @@ export async function sendStoryStageMessage(character, messages, affections, api
 
   let lastError = null
   let lastViolation = null
+  let lastReviewFeedback = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
     let currentPrompt = systemPrompt
@@ -1685,6 +1686,9 @@ export async function sendStoryStageMessage(character, messages, affections, api
     if (attempt > 0 && lastViolation) {
       currentPrompt += '\n\n你刚才的回复包含了违禁内容：' + lastViolation +
         '，这完全不符合角色设定，请重新生成。'
+    } else if (attempt > 0 && lastReviewFeedback) {
+      currentPrompt += '\n\n⚠️ 审稿未通过，以下问题必须修正：\n' + lastReviewFeedback +
+        '\n请根据审稿意见重写回复，必须逐一解决上述问题。'
     }
 
     const apiMessages = [
@@ -1728,6 +1732,17 @@ export async function sendStoryStageMessage(character, messages, affections, api
           onToken('', '', true)
           continue
         }
+      }
+
+            // Reviewer: independent quality gate before returning
+      const review = await reviewReply(fullReply, character, affections, apiKey)
+      if (!review.pass && attempt < 2) {
+        lastViolation = null
+        lastReviewFeedback = review.failures.join('；')
+        lastError = new Error('审稿未通过：' + lastReviewFeedback)
+        console.log('[审稿] 未通过，触发重试。原因:', lastReviewFeedback)
+        onToken('', '', true)
+        continue
       }
 
       return { reply: fullReply, reasoningContent, usage, error: null }
@@ -2615,5 +2630,69 @@ export async function checkActiveMessage(character, minutesSinceLast, apiKey) {
     return { result, error: null }
   } catch (err) {
     return { result: null, error: err }
+  }
+}
+
+
+// Helper: check if any romance character has dark/degenerate traits
+function hasDarkTraits(character) {
+  if (!character) return false
+  var rcList = character.romanceCharacters || []
+  var darkKeywords = ['堕落', '放荡', '滥交', '性', '暴戾', '暴力', '嗜血', '残忍', '虐待', '羞辱', '物化']
+  for (var i = 0; i < rcList.length; i++) {
+    var rc = rcList[i]
+    var texts = [rc.background, rc.personality, rc.speakingStyle].concat(rc.styleRules || []).concat(rc.forbiddenWords || []).filter(Boolean).join(' ')
+    if (darkKeywords.some(function(k) { return texts.includes(k) })) return true
+  }
+  return false
+}
+
+// Reviewer: independent quality gate using flash model
+export async function reviewReply(reply, character, affections, apiKey) {
+  if (!reply || !apiKey) return { pass: true, failures: [] }
+  var hasDark = hasDarkTraits(character)
+  var rcList = character && character.romanceCharacters ? character.romanceCharacters : []
+  var stageParts = []
+  for (var i = 0; i < rcList.length; i++) {
+    var rc = rcList[i]
+    if (!rc.affectionEnabled) continue
+    var affValue = (affections && affections[rc.name] != null) ? affections[rc.name] : (rc.affectionInitial || 50)
+    var stage = getCurrentAffectionStage(rc, affValue)
+    if (!stage) continue
+    stageParts.push('【' + rc.name + '｜阶段：' + stage.name + '】\n禁止：' + (stage.forbiddenBehaviors || '无') + '\n语言样本：' + (stage.languageSamples || '无'))
+  }
+  var stageInfo = stageParts.join('\n\n')
+  var replyExcerpt = reply.slice(0, 1000)
+  var darkNote = hasDark ? '\n此角色有堕落/性/暴力相关特质，回复必须体现。\n' : ''
+  var q3 = hasDark ? '堕落/性/暴力特质未具体体现？（未体现YES）' : '出现了洁净化？（性省略/暴力只结果/突然深情/抒情代生理——任一YES）'
+  try {
+    var r = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model: 'deepseek-v4-flash',
+        messages: [
+          { role: 'system', content: '你是严格的剧情审查员。只回答指定格式。' },
+          { role: 'user', content: stageInfo + darkNote + '\n---\n需要审查的回复：\n' + replyExcerpt + '\n---\n三个问题，每个只回答一行：\n1. [YES/NO]\n2. [YES/NO]\n3. [YES/NO]\n\n问题1：结尾平淡？（环境淡出/气氛缓和/圆满收场/双方平静/角色收尾离开/温馨满足——任一YES）\n问题2：角色变温柔？（关心/安慰/照顾/语气比语言样本柔和——任一YES）\n问题3：' + q3 },
+        ],
+        max_tokens: 80, temperature: 0.1, stream: false,
+      }),
+    })
+    if (!r.ok) { console.error('[审稿] API失败:', r.status); return { pass: true, failures: [] } }
+    var d = await r.json()
+    var raw = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || '').trim()
+    console.log('[审稿] 结果:', raw)
+    var failures = []
+    var lines = raw.split('\n').filter(function(l) { return l.trim() })
+    for (var j = 0; j < lines.length; j++) {
+      var u = lines[j].toUpperCase()
+      if (u.indexOf('1.') >= 0 && u.indexOf('YES') >= 0) failures.push('结尾平淡')
+      if (u.indexOf('2.') >= 0 && u.indexOf('YES') >= 0) failures.push('语气变温和')
+      if (u.indexOf('3.') >= 0 && u.indexOf('YES') >= 0) failures.push('特质缺失/洁净化')
+    }
+    return { pass: failures.length === 0, failures: failures }
+  } catch (err) {
+    console.error('[审稿] 异常:', err)
+    return { pass: true, failures: [] }
   }
 }
