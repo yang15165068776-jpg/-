@@ -1682,7 +1682,7 @@ export async function sendStoryStageMessage(character, messages, affections, api
       const review = await reviewReply(fullReply, character, affections, apiKey)
       if (!review.pass && attempt < 2) {
         lastViolation = null
-        lastReviewFeedback = review.failures.join('；')
+        lastReviewFeedback = review.suggestions || review.failures.join('；')
         lastError = new Error('审稿未通过：' + lastReviewFeedback)
         console.log('[审稿] 未通过，触发重试。原因:', lastReviewFeedback)
         onToken('', '', true)
@@ -2593,7 +2593,7 @@ function hasDarkTraits(character) {
 
 // Reviewer: independent quality gate using flash model
 export async function reviewReply(reply, character, affections, apiKey) {
-  if (!reply || !apiKey) return { pass: true, failures: [] }
+  if (!reply || !apiKey) return { pass: true, failures: [], revisedReply: null }
   var hasDark = hasDarkTraits(character)
   var rcList = character && character.romanceCharacters ? character.romanceCharacters : []
   var stageParts = []
@@ -2603,12 +2603,12 @@ export async function reviewReply(reply, character, affections, apiKey) {
     var affValue = (affections && affections[rc.name] != null) ? affections[rc.name] : (rc.affectionInitial || 50)
     var stage = getCurrentAffectionStage(rc, affValue)
     if (!stage) continue
-    stageParts.push('【' + rc.name + '｜阶段：' + stage.name + '】\n禁止：' + (stage.forbiddenBehaviors || '无') + '\n语言样本：' + (stage.languageSamples || '无'))
+    stageParts.push('【' + rc.name + '｜阶段：' + stage.name + '】禁止：' + (stage.forbiddenBehaviors || '无') + '语言样本：' + (stage.languageSamples || '无'))
   }
-  var stageInfo = stageParts.join('\n\n')
-  var replyExcerpt = reply.slice(0, 1000)
-  var darkNote = hasDark ? '\n此角色有堕落/性/暴力相关特质，回复必须体现。\n' : ''
-  var q3 = hasDark ? '堕落/性/暴力特质未具体体现？（未体现YES）' : '出现了洁净化？（性省略/暴力只结果/突然深情/抒情代生理——任一YES）'
+  var stageInfo = stageParts.join('；')
+  var replyExcerpt = reply.slice(0, 1500)
+  var darkNote = hasDark ? '此角色有堕落/性/暴力特质，回复必须具体体现。' : ''
+  var q3Label = hasDark ? '堕落/性/暴力特质是否通过具体描写体现？' : '是否出现洁净化（性省略/暴力只结果/突然深情/抒情代生理）？'
   try {
     var r = await fetch(BASE_URL + '/chat/completions', {
       method: 'POST',
@@ -2616,27 +2616,31 @@ export async function reviewReply(reply, character, affections, apiKey) {
       body: JSON.stringify({
         model: 'deepseek-v4-flash',
         messages: [
-          { role: 'system', content: '你是严格的剧情审查员。只回答指定格式。' },
-          { role: 'user', content: stageInfo + darkNote + '\n---\n需要审查的回复：\n' + replyExcerpt + '\n---\n三个问题，每个只回答一行：\n1. [YES/NO]\n2. [YES/NO]\n3. [YES/NO]\n\n问题1：结尾平淡？（环境淡出/气氛缓和/圆满收场/双方平静/角色收尾离开/温馨满足——任一YES）\n问题2：角色变温柔？（关心/安慰/照顾/语气比语言样本柔和——任一YES）\n问题3：' + q3 },
+          { role: 'system', content: '你是严格的剧情编辑，不是AI助手。你的工作是审查小说回复并给出具体修改方案。保持角色原有的声音和语气。' },
+          { role: 'user', content: '角色设定：' + stageInfo + '。' + darkNote + '\n\n需要审查的回复全文：\n' + replyExcerpt + '\n\n逐项检查并输出：\n1. 结尾：[通过/不通过] 原因+修改建议\n2. 语气：[通过/不通过] 原因+修改建议\n3. ' + q3Label + ' [通过/不通过] 原因+修改建议\n\n最后输出【修改方案】：如果全部通过，输出润色后的结尾（保持原风格，只增强张力）；如果有不通过，输出具体重写指导，包含可直接使用的改写示例。' },
         ],
-        max_tokens: 80, temperature: 0.1, stream: false,
+        max_tokens: 300, temperature: 0.3, stream: false,
       }),
     })
-    if (!r.ok) { console.error('[审稿] API失败:', r.status); return { pass: true, failures: [] } }
+    if (!r.ok) { console.error('[审稿] API失败:', r.status); return { pass: true, failures: [], revisedReply: null } }
     var d = await r.json()
     var raw = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || '').trim()
     console.log('[审稿] 结果:', raw)
     var failures = []
+    var allPass = true
     var lines = raw.split('\n').filter(function(l) { return l.trim() })
     for (var j = 0; j < lines.length; j++) {
-      var u = lines[j].toUpperCase()
-      if (u.indexOf('1.') >= 0 && u.indexOf('YES') >= 0) failures.push('结尾平淡')
-      if (u.indexOf('2.') >= 0 && u.indexOf('YES') >= 0) failures.push('语气变温和')
-      if (u.indexOf('3.') >= 0 && u.indexOf('YES') >= 0) failures.push('特质缺失/洁净化')
+      var line = lines[j]
+      if (line.indexOf('1.') >= 0 && line.indexOf('不通过') >= 0) { failures.push('结尾：' + line); allPass = false }
+      if (line.indexOf('2.') >= 0 && line.indexOf('不通过') >= 0) { failures.push('语气：' + line); allPass = false }
+      if (line.indexOf('3.') >= 0 && line.indexOf('不通过') >= 0) { failures.push('特质/洁净化：' + line); allPass = false }
     }
-    return { pass: failures.length === 0, failures: failures }
+    // Extract the rewrite suggestions section
+    var suggestionStart = raw.indexOf('【修改方案】')
+    var suggestions = suggestionStart >= 0 ? raw.substring(suggestionStart).trim() : raw
+    return { pass: allPass, failures: failures, suggestions: allPass ? null : suggestions }
   } catch (err) {
     console.error('[审稿] 异常:', err)
-    return { pass: true, failures: [] }
+    return { pass: true, failures: [], revisedReply: null }
   }
 }
