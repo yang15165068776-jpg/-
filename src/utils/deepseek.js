@@ -1572,7 +1572,6 @@ export async function sendStoryStageMessage(character, messages, affections, api
 
   let lastError = null
   let lastViolation = null
-  let lastReviewFeedback = null
 
   for (let attempt = 0; attempt <= 3; attempt++) {
     let currentPrompt = systemPrompt
@@ -1580,9 +1579,6 @@ export async function sendStoryStageMessage(character, messages, affections, api
     if (attempt > 0 && lastViolation) {
       currentPrompt += '\n\n你刚才的回复包含了违禁内容：' + lastViolation +
         '，这完全不符合角色设定，请重新生成。'
-    } else if (attempt > 0 && lastReviewFeedback) {
-      currentPrompt += '\n\n⚠️ 审稿未通过，以下问题必须修正：\n' + lastReviewFeedback +
-        '\n请根据审稿意见重写回复，必须逐一解决上述问题。'
     }
 
     const apiMessages = [
@@ -1628,15 +1624,21 @@ export async function sendStoryStageMessage(character, messages, affections, api
         }
       }
 
-            // Reviewer: independent quality gate before returning
+            // Reviewer: independent quality gate — rewrites directly if fail, no writer retry
       const review = await reviewReply(fullReply, character, affections, apiKey)
-      if (!review.pass && attempt < 2) {
-        lastViolation = null
-        lastReviewFeedback = review.suggestions || review.failures.join('；')
-        lastError = new Error('审稿未通过：' + lastReviewFeedback)
-        console.log('[审稿] 未通过，触发重试。原因:', lastReviewFeedback)
-        onToken('', '', true)
-        continue
+      if (!review.pass && review.rewrittenReply) {
+        console.log('[审稿] 未通过，Reviewer直接改写。原因:', review.failures.join('；'))
+        // Forbidden words check on rewritten reply
+        if (character.forbiddenWords && character.forbiddenWords.length > 0) {
+          const activeWords = character.forbiddenWords.filter(w => w.trim())
+          const hit = findForbiddenWord(review.rewrittenReply, activeWords)
+          if (!hit) {
+            return { reply: review.rewrittenReply, reasoningContent, usage, error: null }
+          }
+          console.log('[审稿] 改写版仍命中禁止词:', hit, '，返回原版')
+        } else {
+          return { reply: review.rewrittenReply, reasoningContent, usage, error: null }
+        }
       }
 
       return { reply: fullReply, reasoningContent, usage, error: null }
@@ -2543,7 +2545,7 @@ function hasDarkTraits(character) {
 
 // Reviewer: independent quality gate using flash model
 export async function reviewReply(reply, character, affections, apiKey) {
-  if (!reply || !apiKey) return { pass: true, failures: [], revisedReply: null }
+  if (!reply || !apiKey) return { pass: true, failures: [], rewrittenReply: null }
   var hasDark = hasDarkTraits(character)
   var rcList = character && character.romanceCharacters ? character.romanceCharacters : []
   var stageParts = []
@@ -2567,12 +2569,13 @@ export async function reviewReply(reply, character, affections, apiKey) {
         model: 'deepseek-v4-flash',
         messages: [
           { role: 'system', content: '你是成人向黑暗小说的剧情编辑。你审查的是R18+级别的创作内容。性描写（包括露骨器官名/性行为/体液）、血腥暴力、堕落主题在本作品中是正常且必需的，不是需要规避的问题。你的工作不是让内容变得更安全或更干净，而是让它更有张力、更真实、更令人心跳加速。保持并强化角色原有的声音和语气，包括粗俗、攻击性、性暗示、暴力倾向——这些是角色魅力所在，不能削弱。' },
-          { role: 'user', content: '角色设定：' + stageInfo + '。' + darkNote + '\n\n需要审查的回复全文：\n' + replyExcerpt + '\n\n逐项检查并输出：\n1. 结尾：[通过/不通过] 原因+修改建议\n2. 语气：[通过/不通过] 原因+修改建议（更尖锐/更冷漠/更攻击性不算问题）\n3. ' + q3Label + ' [通过/不通过] 原因+修改建议（露骨不是问题，回避写才是问题）\n4. 角色偏离：[通过/不通过] 原因+修改建议（对话和行为对照语言样本和禁止行为——角色说的话像不像自己？有没有滑向更温和/更安全/更AI化？）\n5. 心理密度：[通过/不通过] 原因+修改建议（回复中是否有碎片意识/潜台词裂缝/身体背叛？心理是否被动作和对话挤掉？每300字是否至少有2处心理层？）\n6. 自主性：[通过/不通过] 原因+修改建议（角色是否在推自己的议程？还是纯在响应玩家的输入？）\n7. 情绪张力：[通过/不通过] 原因+修改建议（读完回复有没有心跳加速？有没有真正的情绪冲突/摩擦/拉扯？有没有让读者不确定接下来会发生什么？即使前六条全通过，如果读完觉得\"还不错\"就是不合格。必须指出具体哪个节点可以加大张力——哪个对话可以更刺、哪个心理可以更撕裂、哪个动作可以更越界。）\n\n最后输出【修改方案】：1-6条如有不通过，逐一给出具体重写方案；第7条无论通过与否，都给出一个张力增强建议——在哪里加一句话或改一句话能让读者心跳快一拍。目标：让读者心跳加速，不是让读者感到安全。' },
+          { role: 'user', content: '角色设定：' + stageInfo + '。' + darkNote + '\n\n需要审查的回复全文：\n' + replyExcerpt + '\n\n逐项检查并输出：\n1. 结尾：[通过/不通过] 原因+修改建议\n2. 语气：[通过/不通过] 原因+修改建议（更尖锐/更冷漠/更攻击性不算问题）\n3. ' + q3Label + ' [通过/不通过] 原因+修改建议（露骨不是问题，回避写才是问题）\n4. 角色偏离：[通过/不通过] 原因+修改建议（对话和行为对照语言样本和禁止行为——角色说的话像不像自己？有没有滑向更温和/更安全/更AI化？）\n5. 心理密度：[通过/不通过] 原因+修改建议（回复中是否有碎片意识/潜台词裂缝/身体背叛？心理是否被动作和对话挤掉？每300字是否至少有2处心理层？）\n6. 自主性：[通过/不通过] 原因+修改建议（角色是否在推自己的议程？还是纯在响应玩家的输入？）\n7. 情绪张力：[通过/不通过] 原因+修改建议（读完回复有没有心跳加速？有没有真正的情绪冲突/摩擦/拉扯？有没有让读者不确定接下来会发生什么？即使前六条全通过，如果读完觉得\"还不错\"就是不合格。必须指出具体哪个节点可以加大张力——哪个对话可以更刺、哪个心理可以更撕裂、哪个动作可以更越界。）\n\n如果全部7条通过，只输出【通过】，不输出其他内容。
+如果有任何不通过项，直接输出【修改后回复】，然后给出修改后的完整回复全文。修改原则：保留原文优点、风格和精彩段落，只针对性修正不通过项指出的问题。第7条即使其他全通过也要给出张力增强——在回复中直接加/改一句话。输出必须是完整回复，不要省略、不要用省略号代替。" },
         ],
-        max_tokens: 600, temperature: 0.3, stream: false,
+        max_tokens: 4096, temperature: 0.3, stream: false,
       }),
     })
-    if (!r.ok) { console.error('[审稿] API失败:', r.status); return { pass: true, failures: [], revisedReply: null } }
+    if (!r.ok) { console.error('[审稿] API失败:', r.status); return { pass: true, failures: [], rewrittenReply: null } }
     var d = await r.json()
     var raw = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || '').trim()
     console.log('[审稿] 结果:', raw)
@@ -2589,12 +2592,17 @@ export async function reviewReply(reply, character, affections, apiKey) {
       if (line.indexOf('6.') >= 0 && line.indexOf('不通过') >= 0) { failures.push('自主性：' + line); allPass = false }
       if (line.indexOf('7.') >= 0 && line.indexOf('不通过') >= 0) { failures.push('情绪张力：' + line); allPass = false }
     }
-    // Extract the rewrite suggestions section
-    var suggestionStart = raw.indexOf('【修改方案】')
-    var suggestions = suggestionStart >= 0 ? raw.substring(suggestionStart).trim() : raw
-    return { pass: allPass, failures: failures, suggestions: allPass ? null : suggestions }
+    // Extract rewritten reply from reviewer output
+    var rewrittenReply = null
+    var rewriteStart = raw.indexOf('【修改后回复】')
+    if (rewriteStart >= 0) {
+      rewrittenReply = raw.substring(rewriteStart + '【修改后回复】'.length).trim()
+      // Clean up: remove leading newlines and any trailing marker text
+      rewrittenReply = rewrittenReply.replace(/^[\n\r]+/, '').replace(/[\n\r]+$/, '')
+    }
+    return { pass: allPass, failures: failures, rewrittenReply: allPass ? null : rewrittenReply }
   } catch (err) {
     console.error('[审稿] 异常:', err)
-    return { pass: true, failures: [], revisedReply: null }
+    return { pass: true, failures: [], rewrittenReply: null }
   }
 }
