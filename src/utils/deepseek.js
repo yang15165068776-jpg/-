@@ -1430,12 +1430,29 @@ export async function sendStoryStageMessage(character, messages, affections, api
       if (onPolishingStart) onPolishingStart()
       const lastUserMsg = [...truncated].reverse().find(m => m.role === 'user')
       const userText = lastUserMsg?.content || ''
+
+      // 提取最近3轮对话作为前情提要，防止Reviewer产生连续性幻觉
+      const recentTurns = []
+      const nonSystemMsgs = truncated.filter(m => m.role === 'user' || m.role === 'assistant')
+      const lastUserIdx = [...nonSystemMsgs].reverse().findIndex(m => m.role === 'user')
+      // Take last 6 messages before current user input (3 turns), excluding current user msg
+      const historyStart = Math.max(0, nonSystemMsgs.length - 1 - lastUserIdx - 6)
+      const historyEnd = nonSystemMsgs.length - 1 - lastUserIdx
+      for (let k = historyStart; k < historyEnd; k++) {
+        const msg = nonSystemMsgs[k]
+        const prefix = msg.role === 'user' ? '玩家：' : '角色：'
+        const excerpt = (msg.content || '').slice(0, 300)
+        recentTurns.push(prefix + excerpt)
+      }
+      const recentHistory = recentTurns.length > 0 ? recentTurns.join('\n') : null
+
       const { reply: finalReply, enhanced, error: reviewError } = await reviewReply(
         character,
         affections,
         userText,
         fullReply,
-        apiKey
+        apiKey,
+        recentHistory
       )
       if (reviewError) {
         console.warn('[Reviewer] 强化失败，使用Writer原版:', reviewError)
@@ -2345,7 +2362,7 @@ export async function checkActiveMessage(character, minutesSinceLast, apiKey) {
 
 // Helper: check if any romance character has dark/degenerate traits
 // Reviewer: 血肉强化——Writer出草稿，Reviewer注入意识流/潜台词/感官细节
-export async function reviewReply(character, affections, userInput, writerReply, apiKey) {
+export async function reviewReply(character, affections, userInput, writerReply, apiKey, recentHistory) {
   if (!writerReply || !apiKey) return { reply: writerReply, enhanced: false, error: '缺少回复或API Key' }
 
   const rcList = character.romanceCharacters || []
@@ -2441,6 +2458,20 @@ export async function reviewReply(character, affections, userInput, writerReply,
     '那这句话就不是强化，是编造。强化是让已有的更强烈，不是让缺失的变成存在。\n' +
     '违反此条 = 任务失败。\n' +
     '\n' +
+    '【连续性铁律——已发生的事实不可更改。与阶段框架同等优先级】\n' +
+    '前情提要里标记为\"已发生\"的内容，是既定的故事事实。你在强化时：\n' +
+    '\n' +
+    '× 不能改变角色已经说过的话的实质内容——可以加深潜台词，但不能改口\n' +
+    '× 不能改变已建立的场景位置、时间、在场人物\n' +
+    '× 不能推翻已发生的剧情节点\n' +
+    '× 不能把\"当时他拒绝了\"强化成\"当时他默认了\"\n' +
+    '× 不能把\"上次她说喜欢红色\"强化成\"上次她说讨厌红色\"\n' +
+    '× 情绪可以推向更极端，但情绪的起因不能从A变成B\n' +
+    '\n' +
+    '强化前先检查：我有没有改动任何前情提要里已经定下来的事实？\n' +
+    '如果有——撤销它。强化情绪和感官，不改事实。\n' +
+    '违反此条 = 任务失败。\n' +
+    '\n' +
     '【写作铁律：直白粗粝，拒绝文艺腔——与阶段框架同等优先级】\n' +
     '以下违禁写法全部禁止出现在强化后的正文中：\n' +
     '\n' +
@@ -2522,10 +2553,15 @@ export async function reviewReply(character, affections, userInput, writerReply,
     '· 强化后的版本必须比草稿更让人心跳加速\n' +
     '· 直接输出强化后的完整正文，不加任何说明或标注'
 
+  const historyBlock = recentHistory
+    ? '\n\n【前情提要——以上内容已经发生，不可更改任何事实】\n' + recentHistory + '\n'
+    : ''
+
   const userPrompt =
     '【角色设定】\n' +
     stageInfo +
-    '\n\n【玩家本轮输入】\n' +
+    historyBlock +
+    '\n【玩家本轮输入】\n' +
     (userInput || '') +
     '\n\n【需要强化的草稿】\n' +
     (writerReply || '').slice(0, 2000) +
