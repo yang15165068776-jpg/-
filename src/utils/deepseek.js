@@ -1344,7 +1344,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
  * USER_WRAPPER七步优化层、以及好感度裁判的连带触发逻辑。
  * 流式输出，逐token回调。
  */
-export async function sendStoryStageMessage(character, messages, affections, apiKey, onToken) {
+export async function sendStoryStageMessage(character, messages, affections, apiKey, onToken, onPolishingStart) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -1427,6 +1427,7 @@ export async function sendStoryStageMessage(character, messages, affections, api
       }
 
       // Reviewer: 血肉强化——永远输出增强版
+      if (onPolishingStart) onPolishingStart()
       const lastUserMsg = [...truncated].reverse().find(m => m.role === 'user')
       const userText = lastUserMsg?.content || ''
       const { reply: finalReply, enhanced, error: reviewError } = await reviewReply(

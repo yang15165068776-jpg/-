@@ -14,6 +14,29 @@ import {
 import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
 
+function PolishingDots() {
+  return (
+    <div className="flex items-center gap-[3px]">
+      {[0, 1, 2].map(i => (
+        <div
+          key={i}
+          className="w-1 h-1 rounded-full bg-amber-500/70"
+          style={{
+            animation: 'polishBounce 1.2s ease-in-out infinite',
+            animationDelay: `${i * 0.2}s`,
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes polishBounce {
+          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+          30% { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
   if (src) {
@@ -709,6 +732,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [affections, setAffections] = useState(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [polishing, setPolishing] = useState(false)
   const [error, setError] = useState('')
   const [streamingText, setStreamingText] = useState('')
   const [retrying, setRetrying] = useState(false)
@@ -1028,11 +1052,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         }
         setRetrying(false)
         setStreamingText(fullText)
+      },
+      // Writer 完成，进入润色阶段
+      () => {
+        setLoading(false)
+        setStreamingText('')
+        setPolishing(true)
       }
     )
 
-    setLoading(false)
-    setStreamingText('')
+    setPolishing(false)
 
     // Handle stream error with partial content
     if (apiError && apiError.partial && reply) {
@@ -1441,6 +1470,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
             </div>
             <div className="flex-1 min-w-0">
               <span className="text-[10px] text-gray-500 mb-1.5 block">{character.name}</span>
+              <div className="text-[10px] text-gray-600 mb-1 flex items-center gap-1">
+                <span className="inline-block w-1 h-1 rounded-full bg-blue-500/50 animate-pulse" />
+                初稿生成中
+              </div>
               {character.chatStyle === 'story' ? (
                 <div className="relative pl-4 border-l-2 border-gray-700/60">
                   <div className="text-[15px] leading-[1.8] text-gray-200 whitespace-pre-wrap break-words">
@@ -1454,6 +1487,24 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   <span className="inline-block w-1.5 h-4 bg-gray-400 ml-0.5 animate-pulse align-middle" />
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Polishing indicator (Writer→Reviewer transition) */}
+        {polishing && (
+          <div className="flex items-start gap-2 px-3 py-2 animate-fade-in">
+            <div className="w-9 h-9 rounded-md bg-gray-700 flex items-center justify-center flex-shrink-0 text-xs text-gray-400">
+              ✦
+            </div>
+            <div className="flex flex-col gap-1 pt-1">
+              <div className="flex items-center gap-2">
+                <PolishingDots />
+                <span className="text-xs text-gray-500">正在润色中</span>
+              </div>
+              <div className="text-[11px] text-gray-600 mt-0.5">
+                Reviewer 正在强化情绪张力与心理层…
+              </div>
             </div>
           </div>
         )}
