@@ -191,6 +191,7 @@ src/
 - **流式错误处理**: 中途断开保留部分内容（`isPartial: true`），完全失败显示红色重试气泡（`isRetry: true`）
 - **好感度越界保护**: `clampAffection` 基于阶段 min/max 限制，进度条百分比用实际范围计算
 - **localStorage 保护**: `safeSetItem` 捕获 QuotaExceededError → `cleanOldMessages` 截断旧消息（保留最近20条）→ 重试一次 → alert 提示
+- **故事存档反回顾**: Reviewer连续性铁律含时间方向条款——禁止复述已知过去、故事只往前不回头看
 
 ## AI 一键提取（extractCharacterFromText / extractStoryFromText）
 - 两个提取函数分别服务日常模式和剧情模式，prompt 覆盖所有新增字段
