@@ -1,7 +1,30 @@
 import { getModel } from './storage'
 
 const BASE_URL = 'https://api.deepseek.com'
-function buildUserWrapper(character, affections) {
+function buildUserWrapper(character, affections, storyTime) {
+  let dynamicContext = ''
+
+  // 故事时间（动态，原来在 system prompt 里，移到这里以启用缓存）
+  if (storyTime && storyTime.year) {
+    dynamicContext += '【当前故事时间】第' + storyTime.year + '年' +
+      storyTime.month + '月' + storyTime.day + '日\n'
+  }
+
+  // 好感度当前数值（动态，每轮可能变化，放在用户消息里避免破坏缓存前缀）
+  if (character?.chatStyle === 'story' && character?.romanceCharacters) {
+    const affLines = character.romanceCharacters
+      .filter(rc => rc.affectionEnabled)
+      .map(rc => {
+        const affValue = affections?.[rc.name] ?? rc.affectionInitial ?? 50
+        const stage = getCurrentAffectionStage(rc, affValue)
+        return rc.name + ' 当前好感度：' + affValue +
+          (stage ? '（' + stage.name + '）' : '')
+      })
+    if (affLines.length > 0) {
+      dynamicContext += '【当前好感度】' + affLines.join('｜') + '\n'
+    }
+  }
+
   let stageCalibration = ''
 
   if (character?.chatStyle === 'story' && character?.romanceCharacters) {
@@ -12,7 +35,7 @@ function buildUserWrapper(character, affections) {
         const stage = getCurrentAffectionStage(rc, affValue)
         if (!stage) return null
         const lines = [
-          rc.name + '｜' + stage.name + '｜好感度' + affValue,
+          rc.name + '｜' + stage.name,
         ]
         if (stage.forbiddenBehaviors) lines.push('禁止：' + stage.forbiddenBehaviors)
         if (stage.languageSamples) {
@@ -33,7 +56,7 @@ function buildUserWrapper(character, affections) {
   return `
 
 ---
-${stageCalibration}【本轮三条底线，违反任何一条立即重写】
+${dynamicContext}${stageCalibration}【本轮三条底线，违反任何一条立即重写】
 1. 角色语气不能比语言样本更温柔
 2. 结尾不能让场面平息或让玩家感到被安慰
 3. 每300字至少一处心理层
@@ -100,7 +123,7 @@ const ANTI_TAMING_SUPPLEMENT = `
 目标是让读者读完感到心跳加速、窒息、不安、
 愤怒、或者被刺痛。`
 
-export function wrapUserMessage(content, character, affections) {
+export function wrapUserMessage(content, character, affections, storyTime) {
   if (!content || typeof content !== "string") return content
   let supplement = ''
   if (character && shouldActivateAntiTaming(character, affections)) {
@@ -108,7 +131,7 @@ export function wrapUserMessage(content, character, affections) {
   } else if (character && shouldActivateWarmLowAffection(character, affections)) {
     supplement = WARM_LOW_AFFECTION_SUPPLEMENT
   }
-  return content + buildUserWrapper(character, affections) + supplement
+  return content + buildUserWrapper(character, affections, storyTime) + supplement
 }
 
 const WARM_LOW_AFFECTION_SUPPLEMENT = `
@@ -247,7 +270,7 @@ function buildGMPrompt(character, affections) {
         if (stage) {
           lines.push(
             '\n⚠️【' + rc.name + ' 当前行为锁——本轮必须严格执行，优先于一切其他指令】\n' +
-            '当前好感度：' + affValue + ' | 阶段：' + stage.name + '\n' +
+            '当前阶段：' + stage.name + '\n' +
             '当前核心状态：' + (stage.coreState || '') + '\n' +
             '对玩家的策略：' + (stage.playerStrategy || '') + '\n' +
             (stage.languageSamples ? '本阶段语言样本（必须模仿此风格和语气）：\n' + stage.languageSamples + '\n' : '') +
@@ -362,8 +385,6 @@ function buildGMPrompt(character, affections) {
       if (rc.affectionEnabled) {
         const affValue = (affections && affections[rc.name]) ?? rc.affectionInitial ?? 50
         const stage = getCurrentAffectionStage(rc, affValue)
-        lines.push('当前好感度：' + affValue + '/100' +
-          (stage ? '，当前阶段：' + stage.name + '，行为规则：' + stage.behavior : ''))
         // Condensed affection stage details: current stage full, rest name+range only
         if (rc.affectionStages && rc.affectionStages.length > 0) {
           const currentIdx = rc.affectionStages.findIndex(
@@ -1243,7 +1264,7 @@ async function* streamCompletion(messages, apiKey, model, temperature, topP, thi
   }
 }
 
-export async function sendMessageStream(character, messages, affectionData, apiKey, onToken) {
+export async function sendMessageStream(character, messages, affectionData, apiKey, onToken, storyTime) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -1256,7 +1277,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
 
   const conversationMessages = truncated.map(m => ({
     role: m.role,
-    content: m.role === 'user' ? wrapUserMessage(m.content, character, affectionData) : m.content,
+    content: m.role === 'user' ? wrapUserMessage(m.content, character, affectionData, storyTime) : m.content,
   }))
 
   let lastError = null
@@ -1297,6 +1318,16 @@ export async function sendMessageStream(character, messages, affectionData, apiK
           }
           if (chunk.usage) {
             usage = chunk.usage
+            // 缓存命中监控
+            if (usage.prompt_cache_hit_tokens != null) {
+              const hitRate = usage.prompt_cache_hit_tokens /
+                (usage.prompt_cache_hit_tokens + (usage.prompt_cache_miss_tokens || 0))
+              console.log(
+                '[Cache] 命中：' + usage.prompt_cache_hit_tokens +
+                ' | 未命中：' + (usage.prompt_cache_miss_tokens || 0) +
+                ' | 命中率：' + (hitRate * 100).toFixed(1) + '%'
+              )
+            }
           }
         }
       } catch (streamErr) {
@@ -1336,7 +1367,7 @@ export async function sendMessageStream(character, messages, affectionData, apiK
  * USER_WRAPPER七步优化层、以及好感度裁判的连带触发逻辑。
  * 流式输出，逐token回调。
  */
-export async function sendStoryStageMessage(character, messages, affections, apiKey, onToken, onPolishingStart) {
+export async function sendStoryStageMessage(character, messages, affections, apiKey, onToken, onPolishingStart, storyTime) {
   const model = getModel()
 
   // Separate memory (system) messages from user/assistant conversation
@@ -1350,7 +1381,7 @@ export async function sendStoryStageMessage(character, messages, affections, api
   // Story mode: wrap user messages with USER_WRAPPER + supplements
   const conversationMessages = truncated.map(m => ({
     role: m.role,
-    content: m.role === 'user' ? wrapUserMessage(m.content, character, affections) : m.content,
+    content: m.role === 'user' ? wrapUserMessage(m.content, character, affections, storyTime) : m.content,
   }))
 
   let systemPrompt = buildGMPrompt(character, affections)
@@ -1396,6 +1427,16 @@ export async function sendStoryStageMessage(character, messages, affections, api
           }
           if (chunk.usage) {
             usage = chunk.usage
+            // 缓存命中监控
+            if (usage.prompt_cache_hit_tokens != null) {
+              const hitRate = usage.prompt_cache_hit_tokens /
+                (usage.prompt_cache_hit_tokens + (usage.prompt_cache_miss_tokens || 0))
+              console.log(
+                '[Cache] 命中：' + usage.prompt_cache_hit_tokens +
+                ' | 未命中：' + (usage.prompt_cache_miss_tokens || 0) +
+                ' | 命中率：' + (hitRate * 100).toFixed(1) + '%'
+              )
+            }
           }
         }
       } catch (streamErr) {
@@ -1581,7 +1622,7 @@ export async function sendMessageStructured(character, messages, affectionData, 
   return { reply: null, parsed: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
-export async function sendCasualReply(character, messages, affectionData, apiKey) {
+export async function sendCasualReply(character, messages, affectionData, apiKey, storyTime) {
   const model = getModel()
 
   // Separate memory messages
@@ -1594,7 +1635,7 @@ export async function sendCasualReply(character, messages, affectionData, apiKey
 
   const conversationMessages = truncated.map(m => ({
     role: m.role,
-    content: m.role === 'user' ? wrapUserMessage(m.content, character, affectionData) : m.content,
+    content: m.role === 'user' ? wrapUserMessage(m.content, character, affectionData, storyTime) : m.content,
   }))
 
   let systemPrompt = buildSystemPrompt(character, affectionData)
@@ -2624,6 +2665,15 @@ export async function reviewReply(character, affections, userInput, writerReply,
 
     const data = await response.json()
     const enhanced = data.choices?.[0]?.message?.content || ''
+
+    // 缓存命中监控
+    const rUsage = data.usage || {}
+    if (rUsage.prompt_cache_hit_tokens != null) {
+      console.log(
+        '[Reviewer Cache] 命中：' + rUsage.prompt_cache_hit_tokens +
+        ' | 未命中：' + (rUsage.prompt_cache_miss_tokens || 0)
+      )
+    }
 
     if (!enhanced.trim()) {
       return { reply: writerReply, enhanced: false, error: '强化结果为空' }
