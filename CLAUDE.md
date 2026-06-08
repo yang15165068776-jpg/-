@@ -192,6 +192,7 @@ src/
 - **好感度越界保护**: `clampAffection` 基于阶段 min/max 限制，进度条百分比用实际范围计算
 - **localStorage 保护**: `safeSetItem` 捕获 QuotaExceededError → `cleanOldMessages` 截断旧消息（保留最近20条）→ 重试一次 → alert 提示
 - **故事存档反回顾**: Reviewer连续性铁律含时间方向条款——禁止复述已知过去、故事只往前不回头看
+- **Reviewer人设行为补充权**: Reviewer有权补充Writer遗漏的人设行为（依据coreState/emotionalTraits），但禁止编造剧情/复述过去/改变走向
 
 ## AI 一键提取（extractCharacterFromText / extractStoryFromText）
 - 两个提取函数分别服务日常模式和剧情模式，prompt 覆盖所有新增字段
