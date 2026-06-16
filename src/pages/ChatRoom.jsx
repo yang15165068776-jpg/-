@@ -1031,6 +1031,9 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       }
     )
 
+    setLoading(false)
+    setStreamingText('')
+
     // Handle stream error with partial content
     if (apiError && apiError.partial && reply) {
       const partialMsg = {
