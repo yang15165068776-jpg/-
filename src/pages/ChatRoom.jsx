@@ -11,49 +11,8 @@ import {
   clearChatHistory,
   saveCharacter,
 } from '../utils/storage'
-import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta, reviewReply } from '../utils/deepseek'
+import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
-
-function PolishingDots() {
-  return (
-    <div className="flex items-center gap-[3px]">
-      {[0, 1, 2].map(i => (
-        <div
-          key={i}
-          className="w-1 h-1 rounded-full bg-amber-500/70"
-          style={{
-            animation: 'polishBounce 1.2s ease-in-out infinite',
-            animationDelay: `${i * 0.2}s`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes polishBounce {
-          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-          30% { transform: translateY(-4px); opacity: 1; }
-        }
-      `}</style>
-    </div>
-  )
-}
-
-function VersionToggle({ msg, onSwitch }) {
-  const isDraft = msg._showingDraft
-  return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onSwitch() }}
-      disabled={!msg.writerDraft}
-      className="text-[11px] px-2 py-0.5 rounded transition-colors ml-1"
-      style={{
-        color: isDraft ? '#f59e0b' : '#6b7280',
-        background: isDraft ? 'rgba(245,158,11,0.1)' : 'transparent',
-        border: '1px solid ' + (isDraft ? 'rgba(245,158,11,0.3)' : 'rgba(107,114,128,0.3)'),
-      }}
-    >
-      {isDraft ? '草稿版' : '润色版'}
-    </button>
-  )
-}
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -114,7 +73,7 @@ function ThinkToggle({ content }) {
   )
 }
 
-function StoryReplyBlock({ msg, character, index, onRegenerate, onReReview, reviewing, onToggleVersion, showActions, onToggleActions, userAvatar }) {
+function StoryReplyBlock({ msg, character, index, onRegenerate, showActions, onToggleActions, userAvatar }) {
   const [copied, setCopied] = useState(false)
   const nativeThinking = msg.reasoningContent || null
   const { thinkContent: parsedThink, mainContent } = parseThinkBlock(msg.content)
@@ -162,22 +121,6 @@ function StoryReplyBlock({ msg, character, index, onRegenerate, onReReview, revi
               <div className="flex gap-1">
                 <button onClick={handleRegenerate} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300">🔄</button>
                 <button onClick={handleCopy} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300">{copied ? '✓ 已复制' : '📋'}</button>
-                {msg.writerDraft && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onReReview(msg, index) }}
-                    disabled={reviewing}
-                    className="text-[11px] px-1.5 py-0.5 rounded bg-purple-700/50 hover:bg-purple-600 text-purple-300 transition-colors disabled:opacity-50"
-                    title="只重新润色，不重新生成"
-                  >
-                    {reviewing ? '润色中…' : '✦ 重新润色'}
-                  </button>
-                )}
-                {msg.writerDraft && msg.reviewerEnhanced && (
-                  <VersionToggle
-                    msg={msg}
-                    onSwitch={() => onToggleVersion(index)}
-                  />
-                )}
               </div>
             )}
           </div>
@@ -766,8 +709,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [affections, setAffections] = useState(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [polishing, setPolishing] = useState(false)
-  const [reviewing, setReviewing] = useState(false)
   const [error, setError] = useState('')
   const [streamingText, setStreamingText] = useState('')
   const [retrying, setRetrying] = useState(false)
@@ -1074,7 +1015,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
 
     // Story mode: streaming with affections object
-    const { reply, reasoningContent, usage, writerDraft, enhanced, error: apiError } = await sendStoryStageMessage(
+    const { reply, reasoningContent, usage, error: apiError } = await sendStoryStageMessage(
       character,
       newMessages,
       affections,
@@ -1087,16 +1028,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         }
         setRetrying(false)
         setStreamingText(fullText)
-      },
-      // Writer 完成，进入润色阶段
-      () => {
-        setLoading(false)
-        setStreamingText('')
-        setPolishing(true)
       }
     )
-
-    setPolishing(false)
 
     // Handle stream error with partial content
     if (apiError && apiError.partial && reply) {
@@ -1168,11 +1101,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     const assistantMsg = {
       role: 'assistant',
       content: finalReply,
-      _enhancedContent: finalReply,
-      writerDraft: enhanced ? writerDraft : null,
-      reviewerEnhanced: enhanced,
-      _showingDraft: false,
-      userInput: userText,
       reasoningContent,
       usage,
       timestamp: Date.now()
@@ -1224,52 +1152,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setMessages(truncated.slice(0, -1))
     doSend(lastUserMsg.content, truncated.slice(0, -1))
   }, [messages, doSend])
-
-  const handleReReview = useCallback(async (msg, msgIndex) => {
-    if (!msg.writerDraft || !msg.userInput) return
-    const apiKey = getApiKey()
-    if (!apiKey) return
-
-    setReviewing(true)
-
-    const { reply: finalReply, enhanced, error } = await reviewReply(
-      character,
-      affections,
-      msg.userInput,
-      msg.writerDraft,
-      apiKey
-    )
-
-    setReviewing(false)
-
-    if (error || !enhanced) return
-
-    setMessages(prev => {
-      const updated = prev.map((m, i) => {
-        if (i !== msgIndex) return m
-        return {
-          ...m,
-          content: finalReply,
-          _enhancedContent: finalReply,
-          _showingDraft: false,
-        }
-      })
-      saveChatMessages(archiveId, updated, mode)
-      return updated
-    })
-  }, [character, affections, archiveId, mode])
-
-  const handleToggleVersion = useCallback((msgIndex) => {
-    setMessages(prev => prev.map((m, i) => {
-      if (i !== msgIndex) return m
-      const showingDraft = !m._showingDraft
-      return {
-        ...m,
-        content: showingDraft ? m.writerDraft : m._enhancedContent,
-        _showingDraft: showingDraft,
-      }
-    }))
-  }, [])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1532,9 +1414,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                 character={character}
                 userAvatar={userAvatar}
                 onRegenerate={handleRegenerateMessage}
-                onReReview={handleReReview}
-                reviewing={reviewing}
-                onToggleVersion={handleToggleVersion}
                 showActions={activeMenuIdx === i}
                 onToggleActions={handleToggleActions}
               />
@@ -1582,24 +1461,6 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                   <span className="inline-block w-1.5 h-4 bg-gray-400 ml-0.5 animate-pulse align-middle" />
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* Polishing indicator (Writer→Reviewer transition) */}
-        {polishing && (
-          <div className="flex items-start gap-2 px-3 py-2 animate-fade-in">
-            <div className="w-9 h-9 rounded-md bg-gray-700 flex items-center justify-center flex-shrink-0 text-xs text-gray-400">
-              ✦
-            </div>
-            <div className="flex flex-col gap-1 pt-1">
-              <div className="flex items-center gap-2">
-                <PolishingDots />
-                <span className="text-xs text-gray-500">正在润色中</span>
-              </div>
-              <div className="text-[11px] text-gray-600 mt-0.5">
-                Reviewer 正在强化情绪张力与心理层…
-              </div>
             </div>
           </div>
         )}
