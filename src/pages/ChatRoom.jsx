@@ -11,8 +11,13 @@ import {
   clearChatHistory,
   saveCharacter,
 } from '../utils/storage'
-import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
+import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, estimateTokens, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
+import { enforceBudget } from '../runtime/tokenBudget'
+import { shouldTriggerAffectionJudge } from '../runtime/affectionTrigger'
+import { createEpisodeMessage } from '../memory/episodeSummarizer'
+import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordinator'
+import { validatePersona } from '../runtime/antiSmoothing'
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -724,6 +729,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [diceResult, setDiceResult] = useState(null)
   const [affectionFlash, setAffectionFlash] = useState(null) // { name?: string, delta: number } | null
   const [affectionNoChange, setAffectionNoChange] = useState(false)
+  const [affectionRoundCounter, setAffectionRoundCounter] = useState(0)
   const revealTimerRef = useRef(null)
   const activeCheckTimerRef = useRef(null)
   const activeDisplayRef = useRef(null)
@@ -1015,6 +1021,64 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
 
     // Story mode: streaming with affections object
+
+    // v2 Token budget enforcement — replaces ad-hoc 8000-token threshold
+    // with structured limits (6000 input tokens, 8 working turns, 12 episodes)
+    try {
+      const budgetResult = await enforceBudget(newMessages, '', apiKey)
+      if (budgetResult.actions.length > 0 && !budgetResult.actions.includes('预算内，无需修剪')) {
+        console.log('[Budget] 预算检查:', budgetResult.actions.join(' | '))
+        newMessages.length = 0
+        newMessages.push(...budgetResult.messages)
+        setMessages([...newMessages])
+      }
+    } catch (e) {
+      console.error('[Budget] 预算检查失败，继续正常流程:', e)
+    }
+
+    // ── v3 Agent Coordinator (feature-flagged) ──
+    const USE_V3 = false  // Set to true to enable multi-agent RPG mode
+
+    if (USE_V3) {
+      try {
+        const v3Result = await runAgentTurn(
+          userText, character, affections, newMessages, apiKey,
+          (token, fullText, reset) => {
+            if (reset) { setStreamingText(''); setRetrying(true); return }
+            setRetrying(false)
+            setStreamingText(fullText)
+          }
+        )
+
+        setLoading(false)
+        setStreamingText('')
+
+        if (v3Result.error || !v3Result.reply) {
+          const retryMsg = { role: 'system', content: 'RETRY:' + (v3Result.error?.message || '请求失败'), timestamp: Date.now(), isRetry: true }
+          setMessages([...newMessages, retryMsg])
+          return false
+        }
+
+        // Apply v3 affection deltas
+        if (v3Result.updatedAffections) {
+          setAffections(v3Result.updatedAffections)
+        }
+
+        const finalReplyV3 = v3Result.reply.replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim() || v3Result.reply
+        const assistantMsgV3 = {
+          role: 'assistant', content: finalReplyV3,
+          reasoningContent: v3Result.reasoningContent, usage: v3Result.usage,
+          timestamp: Date.now()
+        }
+        setMessages([...newMessages, assistantMsgV3])
+        return true
+      } catch (e) {
+        console.error('[V3] Agent coordinator error:', e)
+        // Fall through to v2 path on error
+      }
+    }
+
+    // ── v2 path (default) ──
     const { reply, reasoningContent, usage, error: apiError } = await sendStoryStageMessage(
       character,
       newMessages,
@@ -1067,37 +1131,58 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       // Clean any residual <affection> tags from reply (backwards compat)
       finalReply = reply.replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim() || reply
 
-      const { changes, error: judgeError } = await judgeAffectionDelta(
-        character,
-        affections,
-        userText,
-        reply,
-        apiKey
-      )
+      // v2 Affection trigger: keyword heuristic + 3-turn backstop
+      const newCounter = affectionRoundCounter + 1
+      setAffectionRoundCounter(newCounter)
 
-      if (judgeError) {
-        console.error('[好感度裁判] 调用失败，跳过本轮:', judgeError)
-        setAffectionNoChange(true)
-      } else {
-        const meaningfulChanges = changes.filter(c => c.delta !== 0)
-        if (meaningfulChanges.length > 0) {
-          const flashMap = {}
-          setAffections(prev => {
-            const updated = { ...prev }
-            meaningfulChanges.forEach(({ name, delta }) => {
-              const rc = character.romanceCharacters?.find(c => c.name === name)
-              const curVal = updated[name] != null ? updated[name] : (rc?.affectionInitial ?? 50)
-              const newVal = clampAffection(curVal + delta, rc)
-              updated[name] = newVal
-              flashMap[name] = delta
-            })
-            return updated
-          })
-          setAffectionFlash(flashMap)
-          setTimeout(() => setAffectionFlash(null), 1500)
-        } else {
+      const triggerResult = shouldTriggerAffectionJudge(userText, reply, newCounter, 3)
+      if (triggerResult.trigger) {
+        console.log('[AffectionTrigger] 触发:', triggerResult.reason)
+        const { changes, error: judgeError } = await judgeAffectionDelta(
+          character,
+          affections,
+          userText,
+          reply,
+          apiKey
+        )
+
+        if (judgeError) {
+          console.error('[好感度裁判] 调用失败，跳过本轮:', judgeError)
           setAffectionNoChange(true)
+        } else {
+          const meaningfulChanges = changes.filter(c => c.delta !== 0)
+          if (meaningfulChanges.length > 0) {
+            const flashMap = {}
+            setAffections(prev => {
+              const updated = { ...prev }
+              meaningfulChanges.forEach(({ name, delta }) => {
+                const rc = character.romanceCharacters?.find(c => c.name === name)
+                const curVal = updated[name] != null ? updated[name] : (rc?.affectionInitial ?? 50)
+                const newVal = clampAffection(curVal + delta, rc)
+                updated[name] = newVal
+                flashMap[name] = delta
+              })
+              return updated
+            })
+            setAffectionFlash(flashMap)
+            setTimeout(() => setAffectionFlash(null), 1500)
+          } else {
+            setAffectionNoChange(true)
+          }
         }
+      } else {
+        setAffectionNoChange(true)
+      }
+    }
+
+    // ── Anti-Smoothing: post-generation persona validation ──
+    if (character.chatStyle === 'story') {
+      const personaResult = validatePersona(finalReply)
+      if (!personaResult.passed) {
+        console.warn('[AntiSmoothing] 检测到人设漂移! violations:', personaResult.violations,
+          '| score:', personaResult.score, '| action:', personaResult.action)
+        // In v3 mode (USE_V3=true), could trigger REGENERATE_WITH_HIGHER_TENSION
+        // For now: log warning so developer can monitor drift frequency
       }
     }
 
@@ -1184,6 +1269,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       } else if (character?.affectionEnabled) {
         setAffection(character.affectionInitial)
       }
+      setAffectionRoundCounter(0)
+      resetAgentTurn()
       setError('')
     }
   }
