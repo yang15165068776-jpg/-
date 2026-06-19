@@ -507,6 +507,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
   const sectionStyle = { background:'var(--bg2)', borderRadius:'12px', padding:'16px', marginBottom:'12px' }
   const labelStyle = { fontSize:'13px', color:'var(--text2)', display:'block', marginBottom:'6px' }
   const groupTitle = { fontSize:'12px', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'8px', marginTop:'24px' }
+  // Legacy aliases for unconverted className references
+  const inputClass = ''
+  const labelClass = ''
+  const sectionClass = ''
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)' }}>
@@ -518,10 +522,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       <form onSubmit={handleSubmit} style={{ flex:1, overflowY:'auto', padding:'20px 16px', paddingBottom:'40px' }}>
       {/* Story name */}
       <div>
-        <label className={labelClass}>故事名称 *</label>
+        <label style={labelStyle}>故事名称 *</label>
         <input
           type="text"
-          className={inputClass}
+          style={inputStyle}
           value={form.name}
           onChange={e => update('name', e.target.value)}
           placeholder="给你的故事起个名字"
@@ -531,7 +535,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       {/* Avatar + AI Extract */}
       <div className="flex gap-3 items-end">
         <div>
-          <label className={labelClass}>故事封面（可选）</label>
+          <label style={labelStyle}>故事封面（可选）</label>
           <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
           <div
             onClick={() => avatarInputRef.current?.click()}
@@ -557,25 +561,25 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* ========== Protagonist ========== */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <h3 className="text-sm font-medium text-gray-200 mb-3">👤 主角设定（你）</h3>
         <p className="text-xs text-gray-500 mb-3">设定你在故事中扮演的角色，AI会根据这些信息来推进剧情。</p>
         <div className="space-y-3">
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className={labelClass}>主角名字</label>
+              <label style={labelStyle}>主角名字</label>
               <input
                 type="text"
-                className={inputClass}
+                style={inputStyle}
                 value={form.protagonistName}
                 onChange={e => update('protagonistName', e.target.value)}
                 placeholder="你在故事中的角色名"
               />
             </div>
             <div>
-              <label className={labelClass}>性别</label>
+              <label style={labelStyle}>性别</label>
               <select
-                className={inputClass}
+                style={inputStyle}
                 value={form.protagonistGender}
                 onChange={e => update('protagonistGender', e.target.value)}
               >
@@ -587,7 +591,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
             </div>
           </div>
           <div>
-            <label className={labelClass}>主角背景简介</label>
+            <label style={labelStyle}>主角背景简介</label>
             <textarea
               className={inputClass + " h-20 resize-none"}
               value={form.protagonistBackground}
@@ -596,7 +600,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
             />
           </div>
           <div>
-            <label className={labelClass}>主角性格特点</label>
+            <label style={labelStyle}>主角性格特点</label>
             <textarea
               className={inputClass + " h-16 resize-none"}
               value={form.protagonistPersonality}
@@ -608,12 +612,12 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* ========== BLOCK 1: World & Plot ========== */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <h3 className="text-sm font-medium text-gray-200 mb-3">📖 世界观与剧情设定</h3>
 
         <div className="space-y-3">
           <div>
-            <label className={labelClass}>世界观描述</label>
+            <label style={labelStyle}>世界观描述</label>
             <textarea
               className={inputClass + " h-28 resize-none"}
               value={form.worldSetting}
@@ -623,7 +627,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           </div>
 
           <div>
-            <label className={labelClass}>开场剧情</label>
+            <label style={labelStyle}>开场剧情</label>
             <p className="text-[10px] text-gray-500 mb-2">AI第一条消息使用的开场内容，不计入对话历史</p>
             <textarea
               className={inputClass + " h-24 resize-none"}
@@ -634,7 +638,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
           </div>
 
           <div>
-            <label className={labelClass}>故事基调</label>
+            <label style={labelStyle}>故事基调</label>
             <div className="flex gap-2">
               {['甜虐', '纯爱', '悬疑', '其他'].map(tone => (
                 <button
@@ -656,7 +660,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* ========== BLOCK 2: Romance Characters ========== */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm font-medium text-gray-200">💕 可攻略角色</h3>
@@ -737,10 +741,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                       </label>
                     </div>
                     <div className="flex-1">
-                      <label className={labelClass}>姓名</label>
+                      <label style={labelStyle}>姓名</label>
                       <input
                         type="text"
-                        className={inputClass}
+                        style={inputStyle}
                         value={rc.name}
                         onChange={e => updateRC(i, 'name', e.target.value)}
                         placeholder="角色姓名"
@@ -750,7 +754,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
 
                   {/* Background */}
                   <div>
-                    <label className={labelClass}>详细背景设定</label>
+                    <label style={labelStyle}>详细背景设定</label>
                     <textarea
                       className={inputClass + " h-24 resize-none"}
                       value={rc.background}
@@ -761,7 +765,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
 
                   {/* Personality */}
                   <div>
-                    <label className={labelClass}>性格核心</label>
+                    <label style={labelStyle}>性格核心</label>
                     <textarea
                       className={inputClass + " h-20 resize-none"}
                       value={rc.personality}
@@ -772,7 +776,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
 
                   {/* Style rules */}
                   <div>
-                    <label className={labelClass}>文风规则（每行一条）</label>
+                    <label style={labelStyle}>文风规则（每行一条）</label>
                     <textarea
                       className={inputClass + " h-20 resize-none"}
                       value={rc.styleRules}
@@ -783,7 +787,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
 
                   {/* Forbidden words */}
                   <div>
-                    <label className={labelClass}>禁止行为（每行一条）</label>
+                    <label style={labelStyle}>禁止行为（每行一条）</label>
                     <textarea
                       className={inputClass + " h-20 resize-none"}
                       value={rc.forbiddenWords}
@@ -794,10 +798,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
 
                   {/* Speaking style */}
                   <div>
-                    <label className={labelClass}>说话风格描述</label>
+                    <label style={labelStyle}>说话风格描述</label>
                     <input
                       type="text"
-                      className={inputClass}
+                      style={inputStyle}
                       value={rc.speakingStyle}
                       onChange={e => updateRC(i, 'speakingStyle', e.target.value)}
                       placeholder="例如：温柔体贴、爱用古诗词、说话带刺、沉默寡言"
@@ -846,10 +850,10 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                                     <button type="button" onClick={() => removeRCStage(i, si)} className="text-[10px] text-red-400 hover:text-red-300">删除</button>
                                   )}
                                 </div>
-                                <input type="text" className={inputClass} value={stage.name} onChange={e => updateRCStage(i, si, 'name', e.target.value)} placeholder="阶段标题（如：冷漠期）" />
+                                <input type="text" style={inputStyle} value={stage.name} onChange={e => updateRCStage(i, si, 'name', e.target.value)} placeholder="阶段标题（如：冷漠期）" />
                                 <div className="flex gap-2">
-                                  <input type="number" min="0" max="100" className={inputClass} value={stage.min} onChange={e => updateRCStage(i, si, 'min', parseInt(e.target.value) || 0)} placeholder="下限" />
-                                  <input type="number" min="0" max="100" className={inputClass} value={stage.max} onChange={e => updateRCStage(i, si, 'max', parseInt(e.target.value) || 0)} placeholder="上限" />
+                                  <input type="number" min="0" max="100" style={inputStyle} value={stage.min} onChange={e => updateRCStage(i, si, 'min', parseInt(e.target.value) || 0)} placeholder="下限" />
+                                  <input type="number" min="0" max="100" style={inputStyle} value={stage.max} onChange={e => updateRCStage(i, si, 'max', parseInt(e.target.value) || 0)} placeholder="上限" />
                                 </div>
                                 <textarea className={inputClass + " h-12 resize-none"} value={stage.coreState} onChange={e => updateRCStage(i, si, 'coreState', e.target.value)} placeholder="角色状态描述" />
                                 <textarea className={inputClass + " h-12 resize-none"} value={stage.playerStrategy} onChange={e => updateRCStage(i, si, 'playerStrategy', e.target.value)} placeholder="对玩家的核心策略" />
@@ -869,7 +873,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                                       <div className="flex-1 space-y-1">
                                         <input
                                           type="text"
-                                          className={inputClass}
+                                          style={inputStyle}
                                           value={beh.description}
                                           onChange={e => updateRCStageBehavior(i, si, bi, 'description', e.target.value)}
                                           placeholder="行为描述（角色会做什么）"
@@ -954,7 +958,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* ========== BLOCK 3: Major NPCs ========== */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="text-sm font-medium text-gray-200">👥 主要NPC</h3>
@@ -1007,7 +1011,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* ========== BLOCK 4: Minor NPCs ========== */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <h3 className="text-sm font-medium text-gray-200 mb-3">🎭 次要NPC设置</h3>
         <div className="flex items-center justify-between mb-3">
           <div>
@@ -1028,7 +1032,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
         </div>
         {form.autoGenerateNpcs && (
           <div>
-            <label className={labelClass}>次要NPC风格限制</label>
+            <label style={labelStyle}>次要NPC风格限制</label>
             <textarea
               className={inputClass + " h-20 resize-none"}
               value={form.npcStyleLimit}
@@ -1040,7 +1044,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* ========== Advanced Parameters ========== */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -1073,7 +1077,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">上下文窗口</label>
-              <select className={inputClass} value={form.contextWindow} onChange={e => update('contextWindow', parseInt(e.target.value))}>
+              <select style={inputStyle} value={form.contextWindow} onChange={e => update('contextWindow', parseInt(e.target.value))}>
                 <option value={20}>20 条消息</option>
                 <option value={40}>40 条消息（默认）</option>
                 <option value={60}>60 条消息</option>

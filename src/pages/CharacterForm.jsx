@@ -394,6 +394,10 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
   const sectionStyle = { background:'var(--bg2)', borderRadius:'12px', padding:'16px', marginBottom:'12px' }
   const labelStyle = { fontSize:'13px', color:'var(--text2)', display:'block', marginBottom:'6px' }
   const groupTitle = { fontSize:'12px', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'8px', marginTop:'24px' }
+  // Legacy aliases for unconverted className references
+  const inputClass = ''
+  const labelClass = ''
+  const sectionClass = ''
 
   // Collapsible stage cards
   const [expandedStages, setExpandedStages] = useState(() => {
@@ -454,10 +458,10 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
       {/* Basic info */}
       <div>
-        <label className={labelClass}>角色名 *</label>
+        <label style={labelStyle}>角色名 *</label>
         <input
           type="text"
-          className={inputClass}
+          style={inputStyle}
           value={form.name}
           onChange={e => update('name', e.target.value)}
           placeholder="给角色起个名字"
@@ -466,7 +470,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
       {/* Avatar */}
       <div>
-        <label className={labelClass}>头像</label>
+        <label style={labelStyle}>头像</label>
         <input
           ref={avatarInputRef}
           type="file"
@@ -499,25 +503,25 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       </div>
 
       {/* Protagonist settings */}
-      <div className={sectionClass}>
+      <div style={sectionStyle}>
         <h3 className="text-sm font-medium text-gray-200 mb-3">👤 主角设定（你）</h3>
         <p className="text-xs text-gray-500 mb-3">设定你自己的角色，AI会根据这些信息与你互动。</p>
         <div className="space-y-3">
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className={labelClass}>主角名字</label>
+              <label style={labelStyle}>主角名字</label>
               <input
                 type="text"
-                className={inputClass}
+                style={inputStyle}
                 value={form.protagonistName}
                 onChange={e => update('protagonistName', e.target.value)}
                 placeholder="你的角色名"
               />
             </div>
             <div>
-              <label className={labelClass}>性别</label>
+              <label style={labelStyle}>性别</label>
               <select
-                className={inputClass}
+                style={inputStyle}
                 value={form.protagonistGender}
                 onChange={e => update('protagonistGender', e.target.value)}
               >
@@ -529,7 +533,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
             </div>
           </div>
           <div>
-            <label className={labelClass}>主角背景简介</label>
+            <label style={labelStyle}>主角背景简介</label>
             <textarea
               className={inputClass + " h-20 resize-none"}
               value={form.protagonistBackground}
@@ -538,7 +542,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
             />
           </div>
           <div>
-            <label className={labelClass}>主角性格特点</label>
+            <label style={labelStyle}>主角性格特点</label>
             <textarea
               className={inputClass + " h-16 resize-none"}
               value={form.protagonistPersonality}
@@ -550,10 +554,10 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       </div>
 
       <div>
-        <label className={labelClass}>角色对你的称呼</label>
+        <label style={labelStyle}>角色对你的称呼</label>
         <input
           type="text"
-          className={inputClass}
+          style={inputStyle}
           value={form.nickname}
           onChange={e => update('nickname', e.target.value)}
           placeholder="例如：主人、亲爱的、训练师"
@@ -561,7 +565,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       </div>
 
       <div>
-        <label className={labelClass}>背景设定</label>
+        <label style={labelStyle}>背景设定</label>
         <textarea
           className={inputClass + " h-28 resize-none"}
           value={form.background}
@@ -628,14 +632,14 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
                     <div className="flex-1 space-y-2">
                       <input
                         type="text"
-                        className={inputClass}
+                        style={inputStyle}
                         value={char.name}
                         onChange={e => updateSubChar(i, 'name', e.target.value)}
                         placeholder="角色名称"
                       />
                       <input
                         type="text"
-                        className={inputClass}
+                        style={inputStyle}
                         value={char.personality}
                         onChange={e => updateSubChar(i, 'personality', e.target.value)}
                         placeholder="性格简介"
@@ -645,7 +649,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
                   <input
                     type="text"
-                    className={inputClass}
+                    style={inputStyle}
                     value={char.relationship}
                     onChange={e => updateSubChar(i, 'relationship', e.target.value)}
                     placeholder="与主角的关系，如：主角的挚友、宿敌、导师"
@@ -653,7 +657,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
                   <input
                     type="text"
-                    className={inputClass}
+                    style={inputStyle}
                     value={char.speakingStyle}
                     onChange={e => updateSubChar(i, 'speakingStyle', e.target.value)}
                     placeholder="该角色的说话风格，如：温柔体贴、爱用古诗词、说话带刺"
@@ -680,7 +684,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       </div>
 
       <div>
-        <label className={labelClass}>文风规则（每行一条）</label>
+        <label style={labelStyle}>文风规则（每行一条）</label>
         <textarea
           className={inputClass + " h-24 resize-none"}
           value={form.styleRules}
@@ -690,7 +694,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
       </div>
 
       <div>
-        <label className={labelClass}>禁止行为词（每行一条，用于拦截检测）</label>
+        <label style={labelStyle}>禁止行为词（每行一条，用于拦截检测）</label>
         <textarea
           className={inputClass + " h-24 resize-none"}
           value={form.forbiddenWords}
@@ -762,19 +766,19 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
         {form.affectionEnabled && (
           <div className="mt-4 space-y-3">
             <div>
-              <label className={labelClass}>初始好感度 (0-100)</label>
+              <label style={labelStyle}>初始好感度 (0-100)</label>
               <input
                 type="number"
                 min="0"
                 max="100"
-                className={inputClass}
+                style={inputStyle}
                 value={form.affectionInitial}
                 onChange={e => update('affectionInitial', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
               />
             </div>
 
             <div>
-              <label className={labelClass}>好感度阶段</label>
+              <label style={labelStyle}>好感度阶段</label>
               <div className="space-y-3">
                 {form.affectionStages.map((stage, i) => {
                   const expanded = expandedStages[i] ?? (i === form.affectionStages.length - 1)
@@ -822,7 +826,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
             </div>
 
             <div>
-              <label className={labelClass}>好感度增加条件（每行一条）</label>
+              <label style={labelStyle}>好感度增加条件（每行一条）</label>
               <textarea
                 className={inputClass + " h-20 resize-none"}
                 value={form.affectionUpRules}
@@ -832,7 +836,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
             </div>
 
             <div>
-              <label className={labelClass}>好感度减少条件（每行一条）</label>
+              <label style={labelStyle}>好感度减少条件（每行一条）</label>
               <textarea
                 className={inputClass + " h-20 resize-none"}
                 value={form.affectionDownRules}
@@ -867,7 +871,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
         {form.thinkingEnabled && (
           <div className="mt-4">
             <div className="flex items-center justify-between mb-1">
-              <label className={labelClass}>思考指令</label>
+              <label style={labelStyle}>思考指令</label>
               <button
                 type="button"
                 onClick={handleGenerateThinking}
@@ -909,7 +913,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
         {form.activeMessageEnabled && (
           <div className="mt-4">
-            <label className={labelClass}>主动消息指令</label>
+            <label style={labelStyle}>主动消息指令</label>
             <p className="text-[10px] text-gray-500 mt-0.5 mb-2">
               AI会根据系统时间、对话间隔和角色设定，自主判断是否主动发消息给用户
             </p>
@@ -945,7 +949,7 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
 
         {form.autoMessageEnabled && (
           <div className="mt-4">
-            <label className={labelClass}>自主消息指令</label>
+            <label style={labelStyle}>自主消息指令</label>
             <textarea
               className={inputClass + " h-24 resize-none"}
               value={form.autoMessagePrompt}
