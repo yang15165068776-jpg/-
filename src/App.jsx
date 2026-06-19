@@ -22,9 +22,9 @@ import StatusBar from './components/StatusBar'
 // ═══════════════════════════════════════
 
 const V6_ROUTES = new Set([
-  'entry', 'profile', 'createFolder', 'folder', 'dramaPage', 'dailyPage', 'characterEditor',
+  'entry', 'profile', 'createFolder', 'folder', 'dramaPage', 'dailyPage', 'characterEditor', 'settings',
 ])
-const LEGACY_REDIRECT = new Set(['list', 'form', 'settings'])
+const LEGACY_REDIRECT = new Set(['list', 'form'])
 const LEGACY_BLOCKED = new Set(['character', 'direct'])
 const LEGACY_ENABLED = false
 
@@ -177,7 +177,7 @@ export default function App() {
             onEnterFolder={handleEnterFolder}
             onCreateFolder={handleCreateFolder}
             onProfile={handleProfile}
-            onSettings={() => nav.entry()}
+            onSettings={() => NavigationEngine.push('settings')}
             onLegacyList={() => nav.entry()}
           />
         )}
@@ -213,6 +213,9 @@ export default function App() {
             onBack={nav.back}
           />
         )}
+        {isSettings && (
+          <Settings onBack={nav.back} showToast={showToast} />
+        )}
 
         {/* 🔴 Dead zone — blocked routes fall back to Entry */}
         {isBlocked && (
@@ -220,7 +223,7 @@ export default function App() {
             onEnterFolder={handleEnterFolder}
             onCreateFolder={handleCreateFolder}
             onProfile={handleProfile}
-            onSettings={() => nav.entry()}
+            onSettings={() => NavigationEngine.push('settings')}
             onLegacyList={() => nav.entry()}
           />
         )}

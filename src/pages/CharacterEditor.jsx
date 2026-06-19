@@ -2,6 +2,17 @@ import { useState, useEffect } from 'react'
 import { getFolder, updateFolder } from '../state/folderStore'
 import { generateId } from '../utils/storage'
 
+function safeInt(val, fallback = 50) {
+  if (val === '' || val === '-') return 0
+  const n = parseInt(val, 10)
+  return isNaN(n) ? fallback : n
+}
+function safeFloat(val, fallback = 0.9) {
+  if (val === '' || val === '-') return 0
+  const n = parseFloat(val)
+  return isNaN(n) ? fallback : n
+}
+
 const sectionCard = {
   padding: '14px',
   borderRadius: '12px',
@@ -98,9 +109,9 @@ function StageEditor({ stages, onChange }) {
         <div key={i} style={{ padding: '10px', borderRadius: '8px', border: '0.5px solid var(--border)', marginBottom: '8px', background: 'var(--bg2)' }}>
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
             <input style={{ ...inputStyle, flex: 1 }} placeholder="阶段名" value={s.name || ''} onChange={e => update(i, 'name', e.target.value)} />
-            <input style={{ ...inputStyle, width: '50px' }} placeholder="min" type="number" value={s.min ?? ''} onChange={e => update(i, 'min', parseInt(e.target.value) || 0)} />
+            <input style={{ ...inputStyle, width: '50px' }} placeholder="min" type="number" value={s.min ?? ''} onChange={e => update(i, 'min', safeInt(e.target.value, 0))} />
             <span style={{ color: 'var(--text3)', fontSize: '12px' }}>~</span>
-            <input style={{ ...inputStyle, width: '50px' }} placeholder="max" type="number" value={s.max ?? ''} onChange={e => update(i, 'max', parseInt(e.target.value) || 100)} />
+            <input style={{ ...inputStyle, width: '50px' }} placeholder="max" type="number" value={s.max ?? ''} onChange={e => update(i, 'max', safeInt(e.target.value, 100))} />
             {stages.length > 1 && <button style={btnDanger} onClick={() => remove(i)}>✕</button>}
           </div>
           <textarea style={{ ...textareaStyle, minHeight: '40px', marginBottom: '4px' }} placeholder="行为描述" value={s.behavior || ''} onChange={e => update(i, 'behavior', e.target.value)} />
@@ -293,7 +304,7 @@ export default function CharacterEditor({ folderId, charIndex, onBack }) {
             <>
               <div style={{ marginBottom: '10px' }}>
                 <label style={labelStyle}>初始好感度</label>
-                <input style={{ ...inputStyle, width: '80px' }} type="number" min={0} max={100} value={char.affectionInitial ?? 50} onChange={e => update('affectionInitial', parseInt(e.target.value) || 50)} />
+                <input style={{ ...inputStyle, width: '80px' }} type="number" min={0} max={100} value={char.affectionInitial ?? 50} onChange={e => update('affectionInitial', safeInt(e.target.value, 50))} />
               </div>
               <div style={{ marginBottom: '10px' }}>
                 <label style={labelStyle}>好感度阶段</label>
@@ -348,7 +359,7 @@ export default function CharacterEditor({ folderId, charIndex, onBack }) {
 
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>上下文窗口（条数）</label>
-            <input style={{ ...inputStyle, width: '80px' }} type="number" min={10} max={100} value={char.contextWindow || 40} onChange={e => update('contextWindow', parseInt(e.target.value) || 40)} />
+            <input style={{ ...inputStyle, width: '80px' }} type="number" min={10} max={100} value={char.contextWindow || 40} onChange={e => update('contextWindow', safeInt(e.target.value, 40))} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
@@ -359,11 +370,11 @@ export default function CharacterEditor({ folderId, charIndex, onBack }) {
           <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Temperature</label>
-              <input style={inputStyle} type="number" min={0} max={2} step={0.05} value={char.temperature ?? 0.9} onChange={e => update('temperature', parseFloat(e.target.value) || 0.9)} />
+              <input style={inputStyle} type="number" min={0} max={2} step={0.05} value={char.temperature ?? 0.9} onChange={e => update('temperature', safeFloat(e.target.value, 0.9))} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Top P</label>
-              <input style={inputStyle} type="number" min={0} max={1} step={0.05} value={char.topP ?? 0.95} onChange={e => update('topP', parseFloat(e.target.value) || 0.95)} />
+              <input style={inputStyle} type="number" min={0} max={1} step={0.05} value={char.topP ?? 0.95} onChange={e => update('topP', safeFloat(e.target.value, 0.95))} />
             </div>
           </div>
         </CollapseSection>

@@ -1,4 +1,15 @@
 import { useState } from 'react'
+
+function safeInt(val, fallback = 50) {
+  if (val === '' || val === '-') return 0
+  const n = parseInt(val, 10)
+  return isNaN(n) ? fallback : n
+}
+function safeFloat(val, fallback = 0.9) {
+  if (val === '' || val === '-') return 0
+  const n = parseFloat(val)
+  return isNaN(n) ? fallback : n
+}
 import { createFolder, addInlineCharacter, generateId } from '../state/folderStore'
 import { createFolderUSK, saveFolderUSK } from '../state/unifiedStateKernel'
 import { getApiKey } from '../utils/storage'
@@ -38,9 +49,9 @@ function StageEditor({ stages, onChange }) {
         <div key={i} style={{ padding: '8px', borderRadius: '8px', border: '0.5px solid var(--border)', marginBottom: '6px', background: 'var(--bg2)' }}>
           <div style={{ display: 'flex', gap: '4px', marginBottom: '4px', alignItems: 'center' }}>
             <input style={{ ...inp, flex: 1 }} placeholder="阶段名" value={s.name || ''} onChange={e => update(i, 'name', e.target.value)} />
-            <input style={{ ...inp, width: '46px' }} placeholder="min" type="number" value={s.min ?? ''} onChange={e => update(i, 'min', parseInt(e.target.value) || 0)} />
+            <input style={{ ...inp, width: '46px' }} placeholder="min" type="number" value={s.min ?? ''} onChange={e => update(i, 'min', safeInt(e.target.value, 0))} />
             <span style={{ color: 'var(--text3)', fontSize: '11px' }}>~</span>
-            <input style={{ ...inp, width: '46px' }} placeholder="max" type="number" value={s.max ?? ''} onChange={e => update(i, 'max', parseInt(e.target.value) || 100)} />
+            <input style={{ ...inp, width: '46px' }} placeholder="max" type="number" value={s.max ?? ''} onChange={e => update(i, 'max', safeInt(e.target.value, 100))} />
             {stages.length > 1 && <button style={{ padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'var(--coral-l)', color: 'var(--coral)', fontSize: '11px', cursor: 'pointer' }} onClick={() => remove(i)}>✕</button>}
           </div>
           <textarea style={ta} placeholder="行为描述" value={s.behavior || ''} onChange={e => update(i, 'behavior', e.target.value)} />
@@ -234,7 +245,7 @@ export default function CreateFolder({ onBack, onCreated }) {
             {char.affectionEnabled !== false && (
               <>
                 <div style={S.row}>
-                  <div style={S.col}><label style={S.label}>初始好感</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={100} value={char.affectionInitial ?? 50} onChange={e => updateChar(i, 'affectionInitial', parseInt(e.target.value) || 50)} /></div>
+                  <div style={S.col}><label style={S.label}>初始好感</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={100} value={char.affectionInitial ?? 50} onChange={e => updateChar(i, 'affectionInitial', safeInt(e.target.value, 50))} /></div>
                 </div>
                 <label style={S.label}>好感度阶段</label>
                 <StageEditor stages={char.affectionStages || []} onChange={v => updateChar(i, 'affectionStages', v)} />
@@ -264,9 +275,9 @@ export default function CreateFolder({ onBack, onCreated }) {
               <textarea style={{ ...S.textarea, minHeight: '40px', marginTop: '4px' }} value={char.thinkingPrompt || ''} onChange={e => updateChar(i, 'thinkingPrompt', e.target.value)} placeholder="思考层指令…" />
             )}
             <div style={{ ...S.row, marginTop: '6px' }}>
-              <div style={S.col}><label style={S.label}>上下文窗口</label><input style={{ ...S.input, width: '60px' }} type="number" min={10} max={100} value={char.contextWindow || 40} onChange={e => updateChar(i, 'contextWindow', parseInt(e.target.value) || 40)} /></div>
-              <div style={S.col}><label style={S.label}>Temperature</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={2} step={0.05} value={char.temperature ?? 0.9} onChange={e => updateChar(i, 'temperature', parseFloat(e.target.value) || 0.9)} /></div>
-              <div style={S.col}><label style={S.label}>Top P</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={1} step={0.05} value={char.topP ?? 0.95} onChange={e => updateChar(i, 'topP', parseFloat(e.target.value) || 0.95)} /></div>
+              <div style={S.col}><label style={S.label}>上下文窗口</label><input style={{ ...S.input, width: '60px' }} type="number" min={10} max={100} value={char.contextWindow || 40} onChange={e => updateChar(i, 'contextWindow', safeInt(e.target.value, 40))} /></div>
+              <div style={S.col}><label style={S.label}>Temperature</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={2} step={0.05} value={char.temperature ?? 0.9} onChange={e => updateChar(i, 'temperature', safeFloat(e.target.value, 0.9))} /></div>
+              <div style={S.col}><label style={S.label}>Top P</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={1} step={0.05} value={char.topP ?? 0.95} onChange={e => updateChar(i, 'topP', safeFloat(e.target.value, 0.95))} /></div>
             </div>
           </div>
         </div>

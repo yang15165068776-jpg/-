@@ -5,7 +5,7 @@ import { shouldTriggerAffectionJudge } from '../runtime/affectionTrigger'
 import { runAgentTurn } from '../agents/coordinator'
 import { validatePersona } from '../runtime/antiSmoothing'
 import { initBridgeForFolder, getFolderUIState, getRawFolderUSK, dramaTurnStart, dramaTurnEnd } from '../state/stateBridge'
-import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages } from '../state/folderStore'
+import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, getFolder } from '../state/folderStore'
 import { HydrationEngine } from '../engine/hydrationEngine'
 import ProgressBar from '../components/ProgressBar'
 import EventActionPanel from '../components/EventActionPanel'
@@ -109,12 +109,18 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     setInput('')
     setStreamingText('')
 
-    // Build a minimal character object for the engine
+    // Merge folder-level worldview into character for LLM prompt
+    const folder = getFolder(folderId)
+    const mergedWorldSetting = mainChar.worldSetting || (folder ? folder.worldview : '') || ''
+    const mergedOpening = mainChar.openingScenario || (folder ? folder.story_intro : '') || ''
+
+    // Build a character object for the engine
     const char = {
       id: mainChar.id || folderId,
       name: mainChar.name,
       chatStyle: 'story',
-      worldSetting: mainChar.worldSetting || '',
+      worldSetting: mergedWorldSetting,
+      openingScenario: mergedOpening,
       romanceCharacters: mainChar.romanceCharacters || [{
         id: mainChar.id, name: mainChar.name,
         background: mainChar.background || '',

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { sendDailyChatMessage } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { initBridgeForFolder, getFolderUIState, dailyTurnStart, dailyTurnEnd } from '../state/stateBridge'
-import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages } from '../state/folderStore'
+import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, getFolder } from '../state/folderStore'
 import { HydrationEngine } from '../engine/hydrationEngine'
 import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
@@ -116,11 +116,15 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     setMessages(newMsgs)
     setInput('')
 
+    // Merge folder-level worldview into character for LLM prompt
+    const folder = getFolder(folderId)
+    const mergedBackground = mainChar.background || (folder ? folder.worldview : '') || ''
+
     const char = {
       id: mainChar.id || folderId,
       name: mainChar.name,
       chatStyle: 'casual',
-      background: mainChar.background || '',
+      background: mergedBackground,
       personality: mainChar.personality || '',
       speakingStyle: mainChar.speakingStyle || '',
       styleRules: mainChar.styleRules || [],
