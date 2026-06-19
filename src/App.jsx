@@ -1,58 +1,36 @@
 import { useState, useCallback, useEffect } from 'react'
+import { NavigationEngine, NAV_EVENT } from './engine/navigationEngine'
 import Entry from './pages/Entry'
 import PlayerProfile from './pages/PlayerProfile'
 import CreateFolder from './pages/CreateFolder'
 import FolderInterior from './pages/FolderInterior'
+import DramaPage from './pages/DramaPage'
+import DailyPage from './pages/DailyPage'
 import StoryCharacterList from './pages/story/CharacterList'
 import StoryCharacterForm from './pages/story/CharacterForm'
 import DailyCharacterList from './pages/daily/CharacterList'
 import DailyCharacterForm from './pages/daily/CharacterForm'
 import CharacterHome from './pages/CharacterHome'
-import DramaPage from './pages/DramaPage'
-import DailyPage from './pages/DailyPage'
 import Settings from './pages/Settings'
 import DirectChat from './pages/DirectChat'
 import Toast from './components/Toast'
 import StatusBar from './components/StatusBar'
 
 // ═══════════════════════════════════════
-// 🔴 KILL SWITCH v2 — Legacy Lockdown
+// 🔴 KILL SWITCH v2
 // ═══════════════════════════════════════
 
-/** Only these routes are allowed to execute. Everything else is dead. */
 const V6_ROUTES = new Set([
-  'entry',
-  'profile',
-  'createFolder',
-  'folder',
-  'dramaPage',
-  'dailyPage',
+  'entry', 'profile', 'createFolder', 'folder', 'dramaPage', 'dailyPage',
 ])
-
-/**
- * Legacy redirect: these routes silently bounce to entry.
- * They exist in the codebase but cannot be navigated to.
- */
-const LEGACY_REDIRECT = new Set([
-  'list',
-  'form',
-  'settings',
-])
-
-/**
- * Legacy block: these routes are forcibly replaced with <Entry />.
- * If they somehow render, the user sees entry instead.
- */
-const LEGACY_BLOCKED = new Set([
-  'character',
-  'direct',
-])
-
-/** Master kill flag — set false to physically unmount all legacy. */
+const LEGACY_REDIRECT = new Set(['list', 'form', 'settings'])
+const LEGACY_BLOCKED = new Set(['character', 'direct'])
 const LEGACY_ENABLED = false
 
 export default function App() {
-  const [page, setPage] = useState('entry')
+  // React listens to NavigationEngine events, not raw setPage
+  const [page, setPage] = useState(NavigationEngine.current)
+  const [pageParams, setPageParams] = useState(NavigationEngine.currentParams)
   const [mode, setMode] = useState('story')
   const [characterId, setCharacterId] = useState(null)
   const [selectedCharacter, setSelectedCharacter] = useState(null)
@@ -67,77 +45,96 @@ export default function App() {
   // ═══════════════════════════════════════
   useEffect(() => {
     window.__LEGACY_LOCK__ = true
-    console.log('[KILL SWITCH] v6 UI ACTIVE — legacy locked down')
   }, [])
 
   // ═══════════════════════════════════════
-  // 🔴 Kill Switch: safeSetPage
+  // 🧠 NavigationEngine: listen to events
   // ═══════════════════════════════════════
-  const safeSetPage = useCallback((nextPage) => {
-    // Legacy redirect: silently bounce to entry
-    if (LEGACY_REDIRECT.has(nextPage)) {
-      console.warn('[KILL SWITCH] Legacy route redirected to entry:', nextPage)
-      setPage('entry')
-      return
-    }
+  useEffect(() => {
+    const handler = (e) => {
+      const nextPage = e.detail?.page || NavigationEngine.current
+      const params = e.detail?.params || NavigationEngine.currentParams
 
-    // Legacy blocked: bounce to entry with warning
-    if (LEGACY_BLOCKED.has(nextPage)) {
-      console.warn('[KILL SWITCH] Blocked legacy route:', nextPage)
-      setPage('entry')
-      return
-    }
+      // Kill switch: intercept legacy routes
+      if (LEGACY_REDIRECT.has(nextPage) || LEGACY_BLOCKED.has(nextPage)) {
+        NavigationEngine.replace('entry')
+        setPage('entry')
+        setPageParams({})
+        return
+      }
+      if (!V6_ROUTES.has(nextPage)) {
+        NavigationEngine.replace('entry')
+        setPage('entry')
+        setPageParams({})
+        return
+      }
 
-    // Unknown route: bounce to entry
-    if (!V6_ROUTES.has(nextPage)) {
-      console.warn('[KILL SWITCH] Unknown route blocked:', nextPage)
-      setPage('entry')
-      return
-    }
+      setPage(nextPage)
+      setPageParams(params)
 
-    setPage(nextPage)
+      // Sync folder state from params
+      if (params.folder) {
+        setSelectedFolder(params.folder)
+      }
+    }
+    window.addEventListener(NAV_EVENT, handler)
+    return () => window.removeEventListener(NAV_EVENT, handler)
   }, [])
 
-  // ── v6: Folder navigation (all through safeSetPage) ──
-  const handleEnterFolder = useCallback((folder) => {
-    setSelectedFolder(folder)
-    safeSetPage('folder')
-  }, [safeSetPage])
+  // ═══════════════════════════════════════
+  // 🧠 Navigation helpers (through engine)
+  // ═══════════════════════════════════════
+  const nav = {
+    entry: () => NavigationEngine.push('entry'),
+    profile: () => NavigationEngine.push('profile'),
+    createFolder: () => NavigationEngine.push('createFolder'),
+    folder: (f) => {
+      setSelectedFolder(f)
+      NavigationEngine.push('folder', { folder: f })
+    },
+    dramaPage: (f, chars) => {
+      const folderWithChars = { ...f, _chars: chars }
+      setSelectedFolder(folderWithChars)
+      NavigationEngine.push('dramaPage', { folder: folderWithChars })
+    },
+    dailyPage: (f, chars) => {
+      const folderWithChars = { ...f, _chars: chars }
+      setSelectedFolder(folderWithChars)
+      NavigationEngine.push('dailyPage', { folder: folderWithChars })
+    },
+    back: () => {
+      // Peek to restore folder context
+      const prev = NavigationEngine.peekBack()
+      if (prev?.params?.folder) {
+        setSelectedFolder(prev.params.folder)
+      } else if (prev?.page === 'entry') {
+        setSelectedFolder(null)
+      }
+      NavigationEngine.back()
+    },
+  }
 
-  const handleCreateFolder = useCallback(() => {
-    safeSetPage('createFolder')
-  }, [safeSetPage])
-
-  const handleFolderCreated = useCallback((folder) => {
-    setSelectedFolder(folder)
-    safeSetPage('folder')
+  // ── v6: Folder navigation callbacks ──
+  const handleEnterFolder = useCallback((f) => nav.folder(f), [])
+  const handleCreateFolder = useCallback(() => nav.createFolder(), [])
+  const handleFolderCreated = useCallback((f) => {
+    setSelectedFolder(f)
+    NavigationEngine.replace('folder', { folder: f })
     showToast('世界创建成功！', 'success')
-  }, [showToast, safeSetPage])
+  }, [showToast])
+  const handleProfile = useCallback(() => nav.profile(), [])
 
-  const handleProfile = useCallback(() => {
-    safeSetPage('profile')
-  }, [safeSetPage])
+  const handleEnterDrama = useCallback((f) => {
+    const chars = (f.characterData || []).filter(c => !c.type || c.type !== 'npc')
+    if (chars.length === 0) { showToast('请先在文件夹中添加角色', 'error'); return }
+    nav.dramaPage(f, chars)
+  }, [showToast])
 
-  // ── v6: Drama/Daily entry ──
-  const handleEnterDrama = useCallback((folder) => {
-    const chars = (folder.characterData || []).filter(c => !c.type || c.type !== 'npc')
-    if (chars.length === 0) {
-      showToast('请先在文件夹中添加角色', 'error')
-      return
-    }
-    setSelectedFolder({ ...folder, _chars: chars })
-    safeSetPage('dramaPage')
-  }, [showToast, safeSetPage])
-
-  const handleEnterDaily = useCallback((folder) => {
-    const chars = (folder.characterData || []).filter(c => !c.type || c.type !== 'npc')
-    if (chars.length === 0) {
-      showToast('请先在文件夹中添加角色', 'error')
-      return
-    }
-    setSelectedFolder({ ...folder, _chars: chars })
-    safeSetPage('dailyPage')
-  }, [showToast, safeSetPage])
+  const handleEnterDaily = useCallback((f) => {
+    const chars = (f.characterData || []).filter(c => !c.type || c.type !== 'npc')
+    if (chars.length === 0) { showToast('请先在文件夹中添加角色', 'error'); return }
+    nav.dailyPage(f, chars)
+  }, [showToast])
 
   // ── Page state checks ──
   const isEntry = page === 'entry'
@@ -146,18 +143,14 @@ export default function App() {
   const isFolder = page === 'folder'
   const isDramaPage = page === 'dramaPage'
   const isDailyPage = page === 'dailyPage'
-  const isV6Page = V6_ROUTES.has(page)
   const isBlocked = LEGACY_BLOCKED.has(page) || (!V6_ROUTES.has(page) && !LEGACY_REDIRECT.has(page))
-
-  // Pages with their own header (no legacy nav bar)
   const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isBlocked
 
   return (
     <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
-      {/* ── Phone Shell: Status Bar ── */}
       <StatusBar />
 
-      {/* ── Legacy nav header (dead zone — only renders if legacy somehow active) ── */}
+      {/* Legacy nav header — dead unless LEGACY_ENABLED */}
       {!hasOwnHeader && LEGACY_ENABLED && (
         <header style={{ background: 'var(--bg)', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
           <div style={{ padding: '0 16px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -165,38 +158,29 @@ export default function App() {
               {page === 'list' ? '角色列表' : page === 'form' ? (characterId ? '编辑角色' : '新建角色') : ''}
             </span>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button onClick={() => safeSetPage('entry')} style={{ background: 'var(--bg2)', border: 'none', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', color: 'var(--text2)', cursor: 'pointer' }}>🏠</button>
+              <button onClick={nav.entry} style={{ background: 'var(--bg2)', border: 'none', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', color: 'var(--text2)', cursor: 'pointer' }}>🏠</button>
             </div>
           </div>
         </header>
       )}
 
       <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* ═══════════════════════════════════════
-            v6 ROUTES — the only code that runs
-            ═══════════════════════════════════════ */}
+        {/* ═══ v6 ROUTES ═══ */}
         {isEntry && (
           <Entry
             onEnterFolder={handleEnterFolder}
             onCreateFolder={handleCreateFolder}
             onProfile={handleProfile}
-            onSettings={() => safeSetPage('settings')}
-            onLegacyList={() => safeSetPage('list')}
+            onSettings={() => nav.entry()}
+            onLegacyList={() => nav.entry()}
           />
         )}
-        {isProfile && (
-          <PlayerProfile onBack={() => safeSetPage('entry')} />
-        )}
-        {isCreateFolder && (
-          <CreateFolder
-            onBack={() => safeSetPage('entry')}
-            onCreated={handleFolderCreated}
-          />
-        )}
+        {isProfile && <PlayerProfile onBack={nav.back} />}
+        {isCreateFolder && <CreateFolder onBack={nav.back} onCreated={handleFolderCreated} />}
         {isFolder && selectedFolder && (
           <FolderInterior
             folderId={selectedFolder.id}
-            onBack={() => { setSelectedFolder(null); safeSetPage('entry') }}
+            onBack={nav.back}
             onEnterDrama={handleEnterDrama}
             onEnterDaily={handleEnterDaily}
           />
@@ -205,59 +189,42 @@ export default function App() {
           <DramaPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
-            onBack={() => { setSelectedFolder(null); safeSetPage('folder') }}
+            onBack={nav.back}
           />
         )}
         {isDailyPage && selectedFolder && (
           <DailyPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
-            onBack={() => { setSelectedFolder(null); safeSetPage('folder') }}
+            onBack={nav.back}
           />
         )}
 
-        {/* ═══════════════════════════════════════
-            🔴 DEAD ZONE — blocked routes
-            ═══════════════════════════════════════ */}
+        {/* 🔴 Dead zone — blocked routes fall back to Entry */}
         {isBlocked && (
           <Entry
             onEnterFolder={handleEnterFolder}
             onCreateFolder={handleCreateFolder}
             onProfile={handleProfile}
-            onSettings={() => safeSetPage('settings')}
-            onLegacyList={() => safeSetPage('list')}
+            onSettings={() => nav.entry()}
+            onLegacyList={() => nav.entry()}
           />
         )}
 
-        {/* ═══════════════════════════════════════
-            ☠️ LEGACY — only if LEGACY_ENABLED=true
-            ═══════════════════════════════════════ */}
+        {/* ☠️ LEGACY — only if LEGACY_ENABLED=true */}
         {LEGACY_ENABLED && page === 'list' && mode === 'story' && (
           <StoryCharacterList onCreate={handleCreateFolder} onEdit={() => {}} onArchives={() => {}} />
         )}
         {LEGACY_ENABLED && page === 'list' && mode === 'daily' && (
           <DailyCharacterList onCreate={handleCreateFolder} onEdit={() => {}} onArchives={() => {}} />
         )}
-        {LEGACY_ENABLED && page === 'form' && mode === 'story' && (
-          <StoryCharacterForm characterId={characterId} onSave={() => safeSetPage('entry')} onCancel={() => safeSetPage('entry')} />
-        )}
-        {LEGACY_ENABLED && page === 'form' && mode === 'daily' && (
-          <DailyCharacterForm characterId={characterId} onSave={() => safeSetPage('entry')} onCancel={() => safeSetPage('entry')} />
-        )}
         {LEGACY_ENABLED && page === 'character' && selectedCharacter && (
-          <CharacterHome character={selectedCharacter} onBack={() => { setSelectedCharacter(null); safeSetPage('entry') }} />
+          <CharacterHome character={selectedCharacter} onBack={nav.back} />
         )}
       </main>
 
       <Toast message={toast.message} type={toast.type} visible={toast.visible} onHide={() => setToast(t => ({ ...t, visible: false }))} />
-
-      {/* ── Phone Shell: Bottom Safe Area ── */}
-      <div style={{
-        height: 'env(safe-area-inset-bottom, 8px)',
-        minHeight: '4px',
-        flexShrink: 0,
-        background: 'var(--bg)',
-      }} />
+      <div style={{ height: 'env(safe-area-inset-bottom, 8px)', minHeight: '4px', flexShrink: 0, background: 'var(--bg)' }} />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { getFolder, getSaves, createSave, deleteSave, renameSave, getFolderCharacters, getSaveMessageCount } from '../state/folderStore'
 import { getPlayerProfile } from '../utils/storage'
+import { HydrationEngine } from '../engine/hydrationEngine'
 
 export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnterDaily }) {
   const [folder, setFolder] = useState(null)
@@ -35,6 +36,13 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
       setFabOpen(false)
       refresh()
     }
+  }
+
+  const handleSaveClick = (saveId) => {
+    // Hydrate the save → cache messages + USK
+    HydrationEngine.hydrate(folderId, saveId, 'all')
+    // Navigate to drama (default mode for save restore)
+    if (onEnterDrama) onEnterDrama(folder)
   }
 
   const handleRenameSave = (saveId, currentName) => {
@@ -175,6 +183,7 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
                 alignItems: 'center',
                 gap: '12px',
               }}
+              onClick={() => { if (deleteTarget !== s.id) handleSaveClick(s.id) }}
               onMouseEnter={e => e.currentTarget.style.background = deleteTarget === s.id ? 'var(--coral-l)' : 'var(--bg3)'}
               onMouseLeave={e => e.currentTarget.style.background = deleteTarget === s.id ? 'var(--coral-l)' : 'var(--bg)'}
             >

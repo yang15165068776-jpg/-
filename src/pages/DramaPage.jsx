@@ -6,6 +6,7 @@ import { runAgentTurn } from '../agents/coordinator'
 import { validatePersona } from '../runtime/antiSmoothing'
 import { initBridgeForFolder, getFolderUIState, getRawFolderUSK, dramaTurnStart, dramaTurnEnd } from '../state/stateBridge'
 import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages } from '../state/folderStore'
+import { HydrationEngine } from '../engine/hydrationEngine'
 import ProgressBar from '../components/ProgressBar'
 import EventActionPanel from '../components/EventActionPanel'
 
@@ -35,23 +36,32 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const apiKey = getApiKey()
   const mode = 'drama'
 
-  // ── Init: load save + USK ──
+  // ── Init: hydration → save → USK ──
   useEffect(() => {
+    // 1. Try HydrationEngine cache first (back-navigation recovery)
+    const cached = HydrationEngine.get(folderId, 'drama')
+    if (cached && cached.messages.length > 0) {
+      setMessages(cached.messages)
+      // Don't re-init USK if we have cached state — bridge still needs init
+    }
+
+    // 2. Load from folder save
     const save = getOrCreateDefaultSave(folderId)
     if (!save) return
     setSaveId(save.id)
 
-    // Load DRAMA messages (completely isolated from daily)
-    const msgs = getSaveMessages(save.id, folderId, 'drama')
-    if (msgs.length === 0 && mainChar.openingScenario) {
-      const opening = { role: 'assistant', content: mainChar.openingScenario, timestamp: Date.now(), isOpening: true }
-      setMessages([opening])
-      saveSaveMessages(save.id, folderId, 'drama', [opening])
-    } else {
-      setMessages(msgs)
+    if (!cached || cached.messages.length === 0) {
+      const msgs = getSaveMessages(save.id, folderId, 'drama')
+      if (msgs.length === 0 && mainChar.openingScenario) {
+        const opening = { role: 'assistant', content: mainChar.openingScenario, timestamp: Date.now(), isOpening: true }
+        setMessages([opening])
+        saveSaveMessages(save.id, folderId, 'drama', [opening])
+      } else if (msgs.length > 0) {
+        setMessages(msgs)
+      }
     }
 
-    // Init folder USK
+    // 3. Init folder USK
     const charsForUSK = folderChars.map(c => ({ id: c.name, name: c.name, affectionInitial: c.affectionInitial ?? 50 }))
     initBridgeForFolder(folderId, charsForUSK, 'drama')
 
@@ -60,7 +70,20 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       setAffection(uiState.relationship?.affection ?? 50)
       setTension(uiState.tension?.unresolved_conflicts ?? 30)
     }
+
+    // 4. Save state before unmount (back navigation recovery)
+    return () => {
+      // messages captured via closure — HydrationEngine saves current state
+    }
   }, [folderId])
+
+  // ── Save state to HydrationEngine before navigation ──
+  useEffect(() => {
+    if (messages.length > 0) {
+      const usk = getRawFolderUSK()
+      HydrationEngine.save(folderId, 'drama', messages, usk)
+    }
+  }, [messages, folderId])
 
   // ── Auto-save messages ──
   useEffect(() => {

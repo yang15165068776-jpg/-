@@ -3,6 +3,8 @@ import { sendDailyChatMessage } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { initBridgeForFolder, getFolderUIState, dailyTurnStart, dailyTurnEnd } from '../state/stateBridge'
 import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages } from '../state/folderStore'
+import { HydrationEngine } from '../engine/hydrationEngine'
+import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
 import StatusPanel from '../components/StatusPanel'
 
@@ -54,21 +56,37 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     }
   }, [mainChar.name])
 
-  // ── Init ──
+  // ── Init: hydration → save → USK ──
   useEffect(() => {
+    // 1. Try HydrationEngine cache first (back-navigation recovery)
+    const cached = HydrationEngine.get(folderId, 'daily')
+    if (cached && cached.messages.length > 0) {
+      setMessages(cached.messages)
+    }
+
+    // 2. Load from folder save
     const save = getOrCreateDefaultSave(folderId)
     if (!save) return
     setSaveId(save.id)
 
-    // Load DAILY messages (completely isolated from drama)
-    const msgs = getSaveMessages(save.id, folderId, 'daily')
-    setMessages(msgs)
+    if (!cached || cached.messages.length === 0) {
+      const msgs = getSaveMessages(save.id, folderId, 'daily')
+      setMessages(msgs)
+    }
 
-    // Init folder USK
+    // 3. Init folder USK
     const charsForUSK = folderChars.map(c => ({ id: c.name, name: c.name, affectionInitial: c.affectionInitial ?? 50 }))
     initBridgeForFolder(folderId, charsForUSK, 'daily')
     refreshUSK()
   }, [folderId])
+
+  // ── Save state to HydrationEngine on each message change ──
+  useEffect(() => {
+    if (messages.length > 0) {
+      const usk = getRawFolderUSK()
+      HydrationEngine.save(folderId, 'daily', messages, usk)
+    }
+  }, [messages, folderId])
 
   // ── Auto-save ──
   useEffect(() => {
