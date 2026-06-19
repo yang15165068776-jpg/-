@@ -73,10 +73,13 @@ export function createUSK(persona, options = {}) {
       // Layer 4: Life state
       life: {
         busy: 20,
+        busyness: 20,          // v1.0 spec alias
         tired: 15,
         lonely: 40,
+        loneliness: 40,        // v1.0 spec alias
         social_need: 30,
         mood: 60,
+        initiative_score: 50,   // v1.0 spec: computed, stored in life
       },
     }
   }
@@ -87,6 +90,12 @@ export function createUSK(persona, options = {}) {
     characterName: persona?.name || 'unknown',
     createdAt: now,
     updatedAt: now,
+
+    // ── v1.0 spec: meta ──
+    meta: {
+      last_update: new Date().toISOString(),
+      active_mode: options.sourceMode === 'daily' ? 'DAILY' : 'DRAMA',
+    },
 
     // ── Per-character state ──
     characters,
@@ -301,17 +310,25 @@ export function computeInitiativeScore(usk, charName) {
   const emo = usk.characters[charName].emotion || {}
   const life = usk.characters[charName].life || {}
 
-  const raw =
-    (life.lonely || 0) * 0.25 +
-    (rel.affection || 50) * 0.20 +
-    (rel.dependency || 30) * 0.15 +
-    (emo.curiosity || 30) * 0.15 +
-    (life.social_need || 30) * 0.15 +
-    (rel.possessiveness || 30) * 0.10 -
-    (life.busy || 20) * 0.20 -
-    (life.tired || 15) * 0.10
+  // USK v1.0 spec formula
+  const loneliness = life.loneliness || life.lonely || 40
+  const busyness = life.busyness || life.busy || 20
 
-  return clamp(Math.round(raw), 0, 100)
+  const raw =
+    loneliness * 0.4 +
+    (rel.affection || 50) * 0.3 +
+    (emo.curiosity || 30) * 0.2 +
+    (rel.dependency || 30) * 0.1 -
+    busyness
+
+  const score = clamp(Math.round(raw), 0, 100)
+
+  // Sync to life object
+  if (usk.characters?.[charName]?.life) {
+    usk.characters[charName].life.initiative_score = score
+  }
+
+  return score
 }
 
 /**
@@ -500,6 +517,8 @@ export function applyModeTransition(usk, fromMode, toMode) {
 
   usk.global.currentMode = toMode
   usk.global.lastModeSwitch = Date.now()
+  usk.meta.active_mode = toMode === 'drama' ? 'DRAMA' : 'DAILY'
+  usk.meta.last_update = new Date().toISOString()
 
   for (const [charName, charState] of Object.entries(usk.characters || {})) {
     // Drama → Daily: carry emotional baggage into daily behavior
@@ -530,6 +549,98 @@ export function applyModeTransition(usk, fromMode, toMode) {
   })
 
   usk.updatedAt = Date.now()
+  return usk
+}
+
+// ═══════════════════════════════════════════════════════════
+// USK v1.0: Event-driven state update (spec)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * The canonical event-driven state updater.
+ * All modes (DRAMA / DAILY) must route state changes through this function.
+ *
+ * Event types and their impacts:
+ *   conflict  → tension↑, trust↓
+ *   intimacy  → affection↑, dependency↑
+ *   rejection → trust↓, anger↑, power_imbalance↑
+ *   absence   → loneliness↑, initiative_score↑
+ *   rupture   → trust↓↓, unresolved_conflict↑↑, fear↑
+ *   daily_chat → affection↑ (light), curiosity↓ (satisfied)
+ */
+export function updateUSK(event, usk, charName) {
+  if (!usk || !charName) return usk
+
+  const target = usk.characters?.[charName]
+  if (!target) return usk
+
+  const rel = target.relationship || {}
+  const emo = target.emotion || {}
+  const ten = target.tension || {}
+  const lif = target.life || {}
+
+  switch (event.type) {
+    case 'conflict':
+      ten.unresolved_conflict = clamp((ten.unresolved_conflict || 0) + 10, 0, 100)
+      rel.trust = clamp((rel.trust || 30) - 5, 0, 100)
+      emo.anger = clamp((emo.anger || 5) + 15, 0, 100)
+      ten.emotional_pressure = clamp((ten.emotional_pressure || 20) + 8, 0, 100)
+      break
+
+    case 'intimacy':
+      rel.affection = clamp((rel.affection || 50) + 8, 0, 100)
+      rel.dependency = clamp((rel.dependency || 30) + 5, 0, 100)
+      emo.excitement = clamp((emo.excitement || 20) + 10, 0, 100)
+      ten.attraction_tension = clamp((ten.attraction_tension || 40) + 5, 0, 100)
+      break
+
+    case 'rejection':
+      rel.trust = clamp((rel.trust || 30) - 10, 0, 100)
+      emo.anger = clamp((emo.anger || 5) + 15, 0, 100)
+      emo.sadness = clamp((emo.sadness || 5) + 10, 0, 100)
+      ten.power_imbalance = clamp((ten.power_imbalance || 50) + 10, 0, 100)
+      break
+
+    case 'absence':
+      lif.loneliness = clamp((lif.loneliness || lif.lonely || 40) + 10, 0, 100)
+      lif.lonely = lif.loneliness  // sync alias
+      lif.initiative_score = clamp((lif.initiative_score || 50) + 5, 0, 100)
+      emo.anxiety = clamp((emo.anxiety || 10) + 8, 0, 100)
+      break
+
+    case 'rupture':
+      rel.trust = clamp((rel.trust || 30) - 20, 0, 100)
+      ten.unresolved_conflict = clamp((ten.unresolved_conflict || 0) + 20, 0, 100)
+      rel.fear = clamp((rel.fear || 30) + 15, 0, 100)
+      emo.anger = clamp((emo.anger || 5) + 25, 0, 100)
+      emo.sadness = clamp((emo.sadness || 5) + 20, 0, 100)
+      break
+
+    case 'daily_chat':
+      // Light touch: chatting builds connection gently
+      rel.affection = clamp((rel.affection || 50) + 2, 0, 100)
+      emo.curiosity = clamp((emo.curiosity || 30) - 5, 0, 100) // curiosity satisfied
+      lif.loneliness = clamp((lif.loneliness || lif.lonely || 40) - 3, 0, 100)
+      lif.lonely = lif.loneliness  // sync alias
+      break
+
+    default:
+      // Unknown event type — apply impact if provided
+      if (event.impact) {
+        applyEventImpact(usk, event.impact, charName)
+      }
+      break
+  }
+
+  // Update meta
+  usk.meta.last_update = new Date().toISOString()
+  usk.updatedAt = Date.now()
+
+  // Recompute initiative
+  const score = computeInitiativeScore(usk, charName)
+  if (target.life) target.life.initiative_score = score
+  if (usk.initiative) usk.initiative.score = score  // backward compat
+
   return usk
 }
 
@@ -666,7 +777,7 @@ function createCharacterState(char) {
     relationship: { affection: char.affectionInitial ?? 50, trust: 30, dependency: 30, respect: 40, fear: 30, possessiveness: 30 },
     emotion: { anger: 5, sadness: 5, jealousy: 5, anxiety: 10, curiosity: 30, excitement: 20 },
     tension: { unresolved_conflicts: 0, emotional_pressure: 20, attraction_tension: 40, power_imbalance: 50 },
-    life: { busy: 20, tired: 15, lonely: 40, social_need: 30, mood: 60 },
+    life: { busy: 20, busyness: 20, tired: 15, lonely: 40, loneliness: 40, social_need: 30, mood: 60, initiative_score: 50 },
   }
 }
 
