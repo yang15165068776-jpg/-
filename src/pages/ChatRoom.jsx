@@ -20,6 +20,8 @@ import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordin
 import { validatePersona } from '../runtime/antiSmoothing'
 import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
 import { initBridge, getUIState, dramaTurnStart, dramaTurnEnd, dailyTurnStart, dailyTurnEnd, switchMode, getPromptState, getRawUSK } from '../state/stateBridge'
+import { useAutoMessage } from '../hooks/useAutoMessage'
+import TypingIndicator from '../hooks/TypingIndicator'
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -725,6 +727,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [currentMode, setCurrentMode] = useState(      // 'drama' | 'daily'
     mode === 'daily' ? 'daily' : 'drama'
   )
+  const [autoMessageEnabled, setAutoMessageEnabled] = useState(
+    () => localStorage.getItem('jsjg_auto_msg') !== 'false' // default ON
+  )
+  const [idleSince, setIdleSince] = useState(Date.now())
   const [userAvatar, setUserAvatarState] = useState('')
   const [activeMenuIdx, setActiveMenuIdx] = useState(null)
   const [showCompress, setShowCompress] = useState(false)
@@ -911,6 +917,28 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       if (activeDisplayRef.current) clearTimeout(activeDisplayRef.current)
     }
   }, [])
+
+  // ── USK-driven auto message (replaces LLM-based triggerActiveCheck) ──
+  const { pendingMessage, dismissMessage } = useAutoMessage({
+    persona,
+    currentMode,
+    enabled: autoMessageEnabled,
+    idleMs: Date.now() - idleSince,
+    checkInterval: 30000,
+  })
+
+  // Handle pending auto message: inject into chat
+  useEffect(() => {
+    if (!pendingMessage || loading) return
+    const messages = [{ text: pendingMessage, action: null, thought: null }]
+    displayActiveMessages(messages, archiveId)
+    dismissMessage()
+  }, [pendingMessage])
+
+  // Save auto message preference
+  useEffect(() => {
+    localStorage.setItem('jsjg_auto_msg', autoMessageEnabled ? 'true' : 'false')
+  }, [autoMessageEnabled])
 
   const clampAffection = useCallback((value, charOrRc) => {
     const stages = charOrRc?.affectionStages
@@ -1393,6 +1421,17 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         >
           {currentMode === 'drama' ? '📖 剧情' : '💬 日常'}
         </button>
+        <button
+          onClick={() => setAutoMessageEnabled(a => !a)}
+          className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+            autoMessageEnabled
+              ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30'
+              : 'bg-gray-700/50 text-gray-500 border border-gray-600/30'
+          }`}
+          title={autoMessageEnabled ? '自动消息：开' : '自动消息：关'}
+        >
+          {autoMessageEnabled ? '🔔' : '🔕'}
+        </button>
         <span className="text-[8px] text-gray-700 ml-auto">
           {persona ? '同一角色 · 状态共享' : ''}
         </span>
@@ -1728,6 +1767,13 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
           </div>
         )}
 
+        {/* Typing indicator — DAILY mode only */}
+        {currentMode === 'daily' && (
+          <TypingIndicator
+            visible={loading && !streamingText}
+            characterName={persona?.characters?.find(c => c.type === 'romance')?.name}
+          />
+        )}
         <div ref={messagesEndRef} />
       </div>
 
