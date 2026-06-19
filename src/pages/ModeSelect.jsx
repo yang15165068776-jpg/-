@@ -1,45 +1,125 @@
 export default function ModeSelect({ onSelectStory, onSelectDaily, onSelectDirect, onSettings }) {
   return (
-    <div className="flex flex-col items-center justify-center px-4 py-20">
-      <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flex: 1,
+      padding: '32px 24px',
+      gap: '24px',
+    }}>
+      <h1 style={{
+        fontSize: '22px',
+        fontWeight: 700,
+        color: 'var(--text)',
+        textAlign: 'center',
+        margin: 0,
+      }}>
         角色扮演对话
       </h1>
-      <p className="text-gray-500 text-sm mb-10">选择一个模式开始</p>
+      <p style={{
+        fontSize: '13px',
+        color: 'var(--text3)',
+        textAlign: 'center',
+        margin: 0,
+      }}>
+        选择一个模式开始
+      </p>
 
-      <div className="grid gap-4 w-full max-w-sm">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', maxWidth: '320px' }}>
         <button
           onClick={onSelectStory}
-          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-700 p-6 text-left hover:from-indigo-500 hover:to-purple-600 transition-all active:scale-[0.98] shadow-lg shadow-purple-900/30"
+          className="press-scale"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            padding: '20px',
+            borderRadius: '16px',
+            border: 'none',
+            borderLeft: '3px solid var(--coral)',
+            background: 'var(--bg2)',
+            cursor: 'pointer',
+            textAlign: 'left',
+            transition: 'transform 0.1s, box-shadow 0.2s',
+          }}
         >
-          <div className="text-3xl mb-3">📖</div>
-          <h2 className="text-xl font-bold text-white mb-1">剧情模式</h2>
-          <p className="text-sm text-purple-200/80">
-            沉浸式角色扮演，丰富的叙述描写、动作环境和心理活动
-          </p>
+          <span style={{ fontSize: '32px' }}>📖</span>
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text)', margin: '0 0 4px 0' }}>剧情模式</h2>
+            <p style={{ fontSize: '12px', color: 'var(--text3)', margin: 0 }}>
+              沉浸式角色扮演，丰富的叙述描写与心理活动
+            </p>
+          </div>
         </button>
 
         <button
           onClick={onSelectDaily}
-          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-700 p-6 text-left hover:from-emerald-500 hover:to-teal-600 transition-all active:scale-[0.98] shadow-lg shadow-teal-900/30"
+          className="press-scale"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            padding: '20px',
+            borderRadius: '16px',
+            border: 'none',
+            borderLeft: '3px solid var(--teal)',
+            background: 'var(--bg2)',
+            cursor: 'pointer',
+            textAlign: 'left',
+            transition: 'transform 0.1s, box-shadow 0.2s',
+          }}
         >
-          <div className="text-3xl mb-3">💬</div>
-          <h2 className="text-xl font-bold text-white mb-1">日常模式</h2>
-          <p className="text-sm text-teal-200/80">
-            微信风格聊天，短气泡快速对话，像和真人发消息一样自然
-          </p>
+          <span style={{ fontSize: '32px' }}>💬</span>
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text)', margin: '0 0 4px 0' }}>日常模式</h2>
+            <p style={{ fontSize: '12px', color: 'var(--text3)', margin: 0 }}>
+              微信风格聊天，短气泡快速对话，像真人发消息
+            </p>
+          </div>
         </button>
 
         <button
           onClick={onSelectDirect}
-          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-gray-600 to-gray-700 p-6 text-left hover:from-gray-500 hover:to-gray-600 transition-all active:scale-[0.98] shadow-lg shadow-gray-900/30"
+          className="press-scale"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            padding: '20px',
+            borderRadius: '16px',
+            border: 'none',
+            borderLeft: '3px solid var(--border)',
+            background: 'var(--bg2)',
+            cursor: 'pointer',
+            textAlign: 'left',
+            transition: 'transform 0.1s, box-shadow 0.2s',
+          }}
         >
-          <div className="text-3xl mb-3">🤖</div>
-          <h2 className="text-xl font-bold text-white mb-1">直接对话</h2>
-          <p className="text-sm text-gray-300/80">
-            无角色设定，直接与AI对话，简洁高效
-          </p>
+          <span style={{ fontSize: '32px' }}>🤖</span>
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text)', margin: '0 0 4px 0' }}>直接对话</h2>
+            <p style={{ fontSize: '12px', color: 'var(--text3)', margin: 0 }}>
+              无角色设定，直接与AI对话，简洁高效
+            </p>
+          </div>
         </button>
       </div>
+
+      <button
+        onClick={onSettings}
+        style={{
+          background: 'none',
+          border: 'none',
+          color: 'var(--text3)',
+          fontSize: '13px',
+          cursor: 'pointer',
+          padding: '8px',
+        }}
+      >
+        ⚙️ 设置
+      </button>
     </div>
   )
 }

@@ -101,32 +101,98 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100">
-      <header className="sticky top-0 z-40 bg-gray-800/95 backdrop-blur border-b border-gray-700">
-        <div className="max-w-lg mx-auto px-4 h-12 flex items-center justify-between">
-          {showBack ? (
-            <>
-              <button onClick={handleBack} className="text-gray-400 hover:text-white transition-colors">
-                ← 返回
-              </button>
-              <h1 className="text-lg font-bold truncate max-w-[200px]">{title}</h1>
-              <div className="w-12" />
-            </>
-          ) : (
-            <>
-              <h1 className="text-lg font-bold">{title}</h1>
-              <button onClick={navigateToSettings} className="w-9 h-9 rounded-full bg-gray-800/80 hover:bg-gray-700 flex items-center justify-center text-gray-400 hover:text-white transition-colors" title="设置">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+    <div style={{
+      maxWidth: '430px',
+      height: '100dvh',
+      margin: '0 auto',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+      background: 'var(--bg)',
+      position: 'relative',
+    }}>
+      {/* Header — only for non-chat pages (ChatRoom has its own header) */}
+      {page !== 'chat' && (
+        <header style={{
+          background: 'var(--bg)',
+          borderBottom: '1px solid var(--border2)',
+          flexShrink: 0,
+        }}>
+          <div style={{
+            maxWidth: '100%',
+            padding: '0 16px',
+            height: '48px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            {showBack ? (
+              <>
+                <button
+                  onClick={handleBack}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text2)',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    padding: '8px 0',
+                  }}
+                >
+                  ← 返回
+                </button>
+                <span style={{
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  maxWidth: '200px',
+                }}>{title}</span>
+                <div style={{ width: '48px' }} />
+              </>
+            ) : (
+              <>
+                <span style={{
+                  fontSize: '16px',
+                  fontWeight: 600,
+                  color: 'var(--text)',
+                }}>{title}</span>
+                <button
+                  onClick={navigateToSettings}
+                  style={{
+                    background: 'var(--bg2)',
+                    border: 'none',
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: 'var(--text2)',
+                  }}
+                  title="设置"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
+              </>
+            )}
+          </div>
+        </header>
+      )}
 
-      <main className="max-w-lg mx-auto">
+      {/* Main content — flex:1 fills remaining space */}
+      <main style={{
+        flex: 1,
+        overflow: page === 'chat' ? 'hidden' : 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
         {isModeSelect && (
           <ModeSelect
             onSelectStory={navigateToStoryList}

@@ -21,7 +21,10 @@ import { validatePersona } from '../runtime/antiSmoothing'
 import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
 import { initBridge, getUIState, dramaTurnStart, dramaTurnEnd, dailyTurnStart, dailyTurnEnd, switchMode, getPromptState, getRawUSK } from '../state/stateBridge'
 import { useAutoMessage } from '../hooks/useAutoMessage'
-import TypingIndicator from '../hooks/TypingIndicator'
+import TypingIndicator from '../components/TypingIndicator'
+import ChatHeader from '../components/ChatHeader'
+import DailyRenderer from '../components/DailyRenderer'
+import ChatInput from '../components/ChatInput'
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -749,6 +752,10 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const activeDisplayRef = useRef(null)
   const autoMsgTimerRef = useRef(null)
   const messagesEndRef = useRef(null)
+  const scrollRef = useRef(null)
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight }, [messages, streamingText])
+  const handleSwitchMode = (m) => { setCurrentMode(m); const n = getRomanceCharacters(persona)[0]?.name; if (n) switchMode(m, n) }
+  const mainCharName = persona?.characters?.find(c => c.type === 'romance')?.name || character?.name
   const inputRef = useRef(null)
   const activeTimerRef = useRef(null)
   const lastActivityRef = useRef(Date.now())
@@ -1400,42 +1407,11 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     : null
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)]">
-      {/* ── Mode Toggle (Dual-Mode Single Persona) ── */}
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/60 border-b border-gray-700/40">
-        <span className="text-[9px] text-gray-600">模式:</span>
-        <button
-          onClick={() => {
-            const newMode = currentMode === 'drama' ? 'daily' : 'drama'
-            setCurrentMode(newMode)
-            if (persona) {
-              const mainName = getRomanceCharacters(persona)[0]?.name
-              switchMode(newMode, mainName)
-            }
-          }}
-          className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
-            currentMode === 'drama'
-              ? 'bg-purple-600/25 text-purple-300 border border-purple-500/30'
-              : 'bg-emerald-600/25 text-emerald-300 border border-emerald-500/30'
-          }`}
-        >
-          {currentMode === 'drama' ? '📖 剧情' : '💬 日常'}
-        </button>
-        <button
-          onClick={() => setAutoMessageEnabled(a => !a)}
-          className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
-            autoMessageEnabled
-              ? 'bg-blue-600/25 text-blue-300 border border-blue-500/30'
-              : 'bg-gray-700/50 text-gray-500 border border-gray-600/30'
-          }`}
-          title={autoMessageEnabled ? '自动消息：开' : '自动消息：关'}
-        >
-          {autoMessageEnabled ? '🔔' : '🔕'}
-        </button>
-        <span className="text-[8px] text-gray-700 ml-auto">
-          {persona ? '同一角色 · 状态共享' : ''}
-        </span>
-      </div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+      <ChatHeader persona={persona} character={character} currentMode={currentMode}
+        onSwitchMode={handleSwitchMode} affection={affection} affections={affections}
+        onBack={onBack} archiveName={archiveName}
+        autoMessageEnabled={autoMessageEnabled} onToggleAutoMessage={() => setAutoMessageEnabled(a => !a)} />
 
       {/* Affection bar - GM story mode: multi-character */}
       {(currentMode === 'drama' || character.chatStyle === 'story') && character.romanceCharacters?.length > 0 && (
