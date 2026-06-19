@@ -19,7 +19,7 @@ import { createEpisodeMessage } from '../memory/episodeSummarizer'
 import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordinator'
 import { validatePersona } from '../runtime/antiSmoothing'
 import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
-import { loadOrCreateUSK, saveUSK, getRelationship, setRelationship, adjustRelationship, advanceLifeState, updateInitiative, recordEvent, buildStateSnapshot, syncToMemoryGraph } from '../state/unifiedStateKernel'
+import { initBridge, getUIState, dramaTurnStart, dramaTurnEnd, dailyTurnStart, dailyTurnEnd, switchMode, getPromptState, getRawUSK } from '../state/stateBridge'
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -770,21 +770,22 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
     setUserAvatarState(getUserAvatar())
 
-    // ── Dual-Mode: normalize persona + load USK ──
+    // ── Dual-Mode: normalize persona + init StateBridge ──
     const normalized = normalizeCharacter(char, mode)
     setPersona(normalized)
 
-    const uskState = loadOrCreateUSK(char?.id || char?.name, normalized, { mode })
-    setUsk(uskState)
+    const { state } = initBridge(normalized, mode === 'daily' ? 'daily' : 'drama')
+    setUsk(state) // state is a snapshot from USK_API
 
-    // Populate legacy affection/affections from USK (backward compat UI)
+    // Populate legacy affection/affections from bridge (backward compat UI)
     if (normalized) {
       const romances = getRomanceCharacters(normalized)
       if (romances.length > 0) {
         const affMap = {}
         romances.forEach(rc => {
           if (rc.affectionEnabled) {
-            affMap[rc.name] = getRelationship(uskState, rc.name, 'affection')
+            const uiState = getUIState(rc.name)
+            affMap[rc.name] = uiState?.relationship?.affection ?? rc.affectionInitial ?? 50
           }
         })
         if (Object.keys(affMap).length > 0) {
@@ -793,7 +794,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       }
       const mainName = romances[0]?.name
       if (mainName) {
-        setAffection(getRelationship(uskState, mainName, 'affection'))
+        const uiState = getUIState(mainName)
+        setAffection(uiState?.relationship?.affection ?? 50)
       }
     }
   }, [archiveId])
@@ -810,35 +812,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
 
   useEffect(() => {
     if (character?.affectionEnabled && affection !== null) {
-      saveAffection(archiveId, affection, mode)
+      saveAffection(archiveId, affection, mode) // backward compat
     }
-    // Dual-Mode: also persist to shared state
-    if (usk && persona && affection !== null) {
-      const mainName = getRomanceCharacters(persona)[0]?.name
-      if (mainName) {
-        setRelationship(usk, mainName, 'affection', affection)
-        saveUSK(persona.id || persona.name, usk)
-      }
-    }
+    // Bridge handles USK persistence automatically on write()
   }, [affection, archiveId, character, mode])
 
   useEffect(() => {
     if (character?.chatStyle === 'story' && affections !== null) {
-      saveAffections(archiveId, affections, mode)
+      saveAffections(archiveId, affections, mode) // backward compat
     }
-    // Dual-Mode: also persist to shared state
-    if (usk && persona && affections) {
-      let changed = false
-      for (const [name, value] of Object.entries(affections)) {
-        if (value != null) {
-          setRelationship(usk, name, 'affection', value)
-          changed = true
-        }
-      }
-      if (changed) {
-        saveUSK(persona.id || persona.name, usk)
-      }
-    }
+    // Bridge handles USK persistence automatically on write()
   }, [affections, archiveId, character, mode])
 
 
@@ -1032,33 +1015,20 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       const msgIndex = finalMessages.length - 1
       setMessages(finalMessages)
 
-      // ── USK: update state after daily turn ──
-      if (usk && persona) {
+      // ── Bridge: update state after daily turn ──
+      if (persona) {
         const mainChar = persona.characters?.find(c => c.type === 'romance')
         if (mainChar?.affectionEnabled) {
-          // Affection delta from USK curiosity + mood (not random!)
-          const curiosity = usk.characters?.[mainChar.name]?.emotion?.curiosity ?? 30
-          const mood = usk.characters?.[mainChar.name]?.life?.mood ?? 60
-          const delta = Math.round((curiosity / 100) * 3 + (mood / 100) * 2) || 1
-          const newVal = (getRelationship(usk, mainChar.name, 'affection') || 50) + delta
-          setRelationship(usk, mainChar.name, 'affection', Math.min(100, newVal))
-          setAffection(newVal)
-          setAffectionFlash({ '': delta })
-          setTimeout(() => setAffectionFlash(null), 1500)
-
-          // Record event
-          recordEvent(usk, {
-            type: 'daily_chat',
-            summary: '日常对话：' + userText.slice(0, 30),
-            impact: { affection: delta, curiosity: -5 },
-            mode: 'daily',
-            actor: mainChar.name,
-          })
+          // Bridge handles state update + persistence atomically
+          const updated = dailyTurnEnd(mainChar.name, { reply, delta: 0 })
+          if (updated) {
+            setUsk(updated)
+            setAffection(updated.relationship?.affection ?? 50)
+            const delta = 1 // Bridge already applied the state change
+            setAffectionFlash({ '': delta })
+            setTimeout(() => setAffectionFlash(null), 1500)
+          }
         }
-        // Advance life state + update initiative
-        advanceLifeState(usk, mainChar?.name, 5)
-        updateInitiative(usk, mainChar?.name)
-        saveUSK(persona.id || persona.name, usk)
       } else if (character.affectionEnabled) {
         // Fallback: legacy random delta (no USK loaded)
         const delta = Math.floor(Math.random() * 5) + 1
@@ -1407,7 +1377,14 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/60 border-b border-gray-700/40">
         <span className="text-[9px] text-gray-600">模式:</span>
         <button
-          onClick={() => setCurrentMode(m => m === 'drama' ? 'daily' : 'drama')}
+          onClick={() => {
+            const newMode = currentMode === 'drama' ? 'daily' : 'drama'
+            setCurrentMode(newMode)
+            if (persona) {
+              const mainName = getRomanceCharacters(persona)[0]?.name
+              switchMode(newMode, mainName)
+            }
+          }}
           className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
             currentMode === 'drama'
               ? 'bg-purple-600/25 text-purple-300 border border-purple-500/30'
