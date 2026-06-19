@@ -3,7 +3,7 @@ import { getFolder, getSaves, createSave, deleteSave, renameSave, getFolderChara
 import { getPlayerProfile } from '../utils/storage'
 import { HydrationEngine } from '../engine/hydrationEngine'
 
-export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnterDaily }) {
+export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnterDaily, onEditCharacter }) {
   const [folder, setFolder] = useState(null)
   const [saves, setSaves] = useState([])
   const [chars, setChars] = useState([])
@@ -142,6 +142,18 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
             {chars.length} 位角色 · {folder.worldview ? folder.worldview.slice(0, 40) + '…' : '暂无世界观'}
           </div>
         </div>
+        {chars.length > 0 && onEditCharacter && (
+          <button
+            onClick={() => onEditCharacter(0)}
+            style={{
+              padding: '6px 12px', borderRadius: '8px', border: '0.5px solid var(--border)',
+              background: 'var(--bg)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            ✎ 编辑
+          </button>
+        )}
       </div>
 
       {/* ── Save Slots List ── */}

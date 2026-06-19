@@ -6,6 +6,7 @@ import CreateFolder from './pages/CreateFolder'
 import FolderInterior from './pages/FolderInterior'
 import DramaPage from './pages/DramaPage'
 import DailyPage from './pages/DailyPage'
+import CharacterEditor from './pages/CharacterEditor'
 import StoryCharacterList from './pages/story/CharacterList'
 import StoryCharacterForm from './pages/story/CharacterForm'
 import DailyCharacterList from './pages/daily/CharacterList'
@@ -21,7 +22,7 @@ import StatusBar from './components/StatusBar'
 // ═══════════════════════════════════════
 
 const V6_ROUTES = new Set([
-  'entry', 'profile', 'createFolder', 'folder', 'dramaPage', 'dailyPage',
+  'entry', 'profile', 'createFolder', 'folder', 'dramaPage', 'dailyPage', 'characterEditor',
 ])
 const LEGACY_REDIRECT = new Set(['list', 'form', 'settings'])
 const LEGACY_BLOCKED = new Set(['character', 'direct'])
@@ -136,6 +137,10 @@ export default function App() {
     nav.dailyPage(f, chars)
   }, [showToast])
 
+  const handleEditCharacter = useCallback((charIndex) => {
+    NavigationEngine.push('characterEditor', { folder: selectedFolder, charIndex })
+  }, [selectedFolder])
+
   // ── Page state checks ──
   const isEntry = page === 'entry'
   const isProfile = page === 'profile'
@@ -143,8 +148,9 @@ export default function App() {
   const isFolder = page === 'folder'
   const isDramaPage = page === 'dramaPage'
   const isDailyPage = page === 'dailyPage'
+  const isCharacterEditor = page === 'characterEditor'
   const isBlocked = LEGACY_BLOCKED.has(page) || (!V6_ROUTES.has(page) && !LEGACY_REDIRECT.has(page))
-  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isBlocked
+  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isCharacterEditor || isBlocked
 
   return (
     <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
@@ -183,6 +189,7 @@ export default function App() {
             onBack={nav.back}
             onEnterDrama={handleEnterDrama}
             onEnterDaily={handleEnterDaily}
+            onEditCharacter={handleEditCharacter}
           />
         )}
         {isDramaPage && selectedFolder && (
@@ -196,6 +203,13 @@ export default function App() {
           <DailyPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
+            onBack={nav.back}
+          />
+        )}
+        {isCharacterEditor && selectedFolder && pageParams.charIndex != null && (
+          <CharacterEditor
+            folderId={selectedFolder.id}
+            charIndex={pageParams.charIndex}
             onBack={nav.back}
           />
         )}
