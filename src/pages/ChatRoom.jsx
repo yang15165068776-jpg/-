@@ -1037,7 +1037,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
 
     // ── v3 Agent Coordinator (feature-flagged) ──
-    const USE_V3 = false  // Set to true to enable multi-agent RPG mode
+    const USE_V3 = true  // Set to true to enable multi-agent RPG mode
 
     if (USE_V3) {
       try {
@@ -1053,24 +1053,69 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         setLoading(false)
         setStreamingText('')
 
+        // Handle stream error with partial content
+        if (v3Result.error?.partial && v3Result.reply) {
+          const partialMsg = {
+            role: 'assistant',
+            content: v3Result.reply,
+            reasoningContent: v3Result.reasoningContent,
+            usage: v3Result.usage,
+            timestamp: Date.now(),
+            isPartial: true,
+          }
+          setMessages([...newMessages, partialMsg])
+          setError('（回复可能不完整）')
+          return false
+        }
+
+        // Handle complete failure
         if (v3Result.error || !v3Result.reply) {
           const retryMsg = { role: 'system', content: 'RETRY:' + (v3Result.error?.message || '请求失败'), timestamp: Date.now(), isRetry: true }
           setMessages([...newMessages, retryMsg])
           return false
         }
 
-        // Apply v3 affection deltas
+        // Apply v3 affection deltas with flash animation
         if (v3Result.updatedAffections) {
+          const flashMap = {}
+          const deltas = v3Result.turnReport?.affectionDeltas || {}
+          for (const [name, delta] of Object.entries(deltas)) {
+            if (delta !== 0) flashMap[name] = delta
+          }
           setAffections(v3Result.updatedAffections)
+          if (Object.keys(flashMap).length > 0) {
+            setAffectionFlash(flashMap)
+            setTimeout(() => setAffectionFlash(null), 1500)
+          } else {
+            setAffectionNoChange(true)
+          }
         }
 
         const finalReplyV3 = v3Result.reply.replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim() || v3Result.reply
+
+        // ── ASL: post-generation alignment leak detection ──
+        if (v3Result.aslValidation && !v3Result.aslValidation.passed) {
+          console.warn('[ASL] 对齐泄露!', v3Result.aslValidation.violations.length, 'violations:',
+            v3Result.aslValidation.violations.map(v => v.pattern).join(', '))
+        }
+
+        // ── Anti-Smoothing: post-generation persona validation ──
+        if (character.chatStyle === 'story') {
+          const personaResult = validatePersona(finalReplyV3)
+          if (!personaResult.passed) {
+            console.warn('[AntiSmoothing] 检测到人设漂移! violations:', personaResult.violations,
+              '| score:', personaResult.score, '| action:', personaResult.action)
+          }
+        }
+
         const assistantMsgV3 = {
           role: 'assistant', content: finalReplyV3,
           reasoningContent: v3Result.reasoningContent, usage: v3Result.usage,
           timestamp: Date.now()
         }
         setMessages([...newMessages, assistantMsgV3])
+
+        triggerActiveCheck()
         return true
       } catch (e) {
         console.error('[V3] Agent coordinator error:', e)

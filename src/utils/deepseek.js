@@ -254,7 +254,7 @@ export function shouldActivateWarmLowAffection(character, affections) {
 }
 
 
-function findForbiddenWord(text, words) {
+export function findForbiddenWord(text, words) {
   if (!words || words.length === 0) return null
   const lower = text.toLowerCase()
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
@@ -1215,7 +1215,7 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
   }
 }
 
-async function* streamCompletion(messages, apiKey, model, temperature, topP, thinkingEnabled) {
+export async function* streamCompletion(messages, apiKey, model, temperature, topP, thinkingEnabled) {
   const controller = new AbortController()
   const timeout = setTimeout(() => {
     controller.abort()
