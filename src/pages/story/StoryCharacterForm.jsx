@@ -502,12 +502,19 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     setGeneratingBehaviors(false)
   }
 
-  const inputClass = "w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
-  const labelClass = "block text-sm font-medium text-gray-300 mb-1"
-  const sectionClass = "bg-gray-800 rounded-xl p-4 border border-gray-700/50"
+  const inputStyle = { width:'100%', padding:'10px 14px', borderRadius:'10px', border:'0.5px solid var(--border)', background:'var(--bg2)', fontSize:'14px', color:'var(--text)', fontFamily:'inherit', outline:'none' }
+  const sectionStyle = { background:'var(--bg2)', borderRadius:'12px', padding:'16px', marginBottom:'12px' }
+  const labelStyle = { fontSize:'13px', color:'var(--text2)', display:'block', marginBottom:'6px' }
+  const groupTitle = { fontSize:'12px', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'8px', marginTop:'24px' }
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 pb-24 space-y-4">
+    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)' }}>
+      <div style={{ height:'56px', display:'flex', alignItems:'center', padding:'0 16px', gap:'12px', borderBottom:'0.5px solid var(--border2)', flexShrink:0 }}>
+        <button type="button" onClick={onCancel} style={{ width:'32px', height:'32px', borderRadius:'50%', background:'var(--bg2)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px', color:'var(--text2)' }}>←</button>
+        <span style={{ flex:1, fontSize:'16px', fontWeight:500, color:'var(--text)' }}>{characterId?'编辑':'新建'}剧情角色</span>
+        <button type="submit" style={{ padding:'8px 16px', borderRadius:'8px', border:'none', background:'var(--purple)', color:'#fff', fontSize:'13px', fontWeight:500, cursor:'pointer' }}>{characterId?'保存':'创建'}</button>
+      </div>
+      <form onSubmit={handleSubmit} style={{ flex:1, overflowY:'auto', padding:'20px 16px', paddingBottom:'40px' }}>
       {/* Story name */}
       <div>
         <label className={labelClass}>故事名称 *</label>
@@ -1150,16 +1157,11 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       </div>
 
       {/* Submit */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-700 p-4 max-w-lg mx-auto">
-        <div className="flex gap-3">
-          <button type="button" onClick={onCancel} className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-medium transition-colors">
-            取消
-          </button>
-          <button type="submit" className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium transition-all active:scale-[0.98]">
-            {isEdit ? '保存修改' : '创建故事'}
-          </button>
-        </div>
+      <div style={{ padding:'16px 0', display:'flex', gap:'10px' }}>
+        <button type="button" onClick={onCancel} style={{ flex:1, padding:'12px', borderRadius:'12px', border:'none', background:'var(--bg2)', color:'var(--text)', fontSize:'15px', cursor:'pointer' }}>取消</button>
+        <button type="submit" style={{ flex:2, padding:'12px', borderRadius:'12px', border:'none', background:'var(--purple)', color:'#fff', fontSize:'15px', fontWeight:500, cursor:'pointer' }}>{isEdit ? '保存修改' : '创建故事'}</button>
       </div>
     </form>
+    </div>
   )
 }

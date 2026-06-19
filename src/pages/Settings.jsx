@@ -113,193 +113,109 @@ export default function Settings({ onBack }) {
   }
 
   return (
-    <div className="p-4 space-y-6">
-      {/* API Key */}
-      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
-        <h3 className="text-sm font-medium text-gray-200 mb-3">DeepSeek API Key</h3>
-
-        <div className="relative">
-          <input
-            type={showKey ? 'text' : 'password'}
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 pr-16 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
-            value={apiKey}
-            onChange={e => { setApiKey(e.target.value); setSaved(false) }}
-            placeholder="sk-..."
-          />
-          <button
-            type="button"
-            onClick={() => setShowKey(!showKey)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs px-2 py-1 rounded transition-colors"
-          >
-            {showKey ? '隐藏' : '显示'}
-          </button>
-        </div>
-
-        <p className="text-xs text-gray-500 mt-2">
-          API Key 仅保存在浏览器本地存储中，不会上传到任何第三方服务器。
-        </p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
+      {/* Header */}
+      <div style={{ height: '56px', display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
+        <button onClick={onBack} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: 'var(--text2)' }}>←</button>
+        <span style={{ flex: 1, fontSize: '16px', fontWeight: 500, color: 'var(--text)' }}>设置</span>
       </div>
 
-      {/* User Avatar */}
-      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
-        <h3 className="text-sm font-medium text-gray-200 mb-3">我的头像</h3>
-        <input
-          ref={avatarInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleAvatarChange}
-        />
-        <div
-          onClick={() => avatarInputRef.current?.click()}
-          className="w-20 h-20 rounded-full border-2 border-dashed border-gray-500 hover:border-blue-400 flex items-center justify-center overflow-hidden cursor-pointer transition-colors bg-gray-700"
-        >
-          {userAvatar ? (
-            <img src={userAvatar} alt="头像" className="w-full h-full object-cover" />
-          ) : (
-            <div className="text-center text-gray-500">
-              <div className="text-2xl leading-none">+</div>
-              <div className="text-[10px]">上传</div>
-            </div>
-          )}
-        </div>
-        {userAvatar && (
-          <button
-            onClick={() => { setUserAvatar(''); saveUserAvatar(''); }}
-            className="mt-1 text-xs text-red-400 hover:text-red-300 block"
-          >
-            移除头像
-          </button>
-        )}
-      </div>
-
-      {/* Model Selection */}
-      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
-        <h3 className="text-sm font-medium text-gray-200 mb-3">模型选择</h3>
-
-        <div className="flex gap-2 mb-3">
-          <button
-            onClick={handleFetchModels}
-            disabled={loadingModels}
-            className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm transition-colors"
-          >
-            {loadingModels ? '获取中...' : '获取模型列表'}
-          </button>
-        </div>
-
-        {modelError && (
-          <p className="text-xs text-red-400 mb-3">{modelError}</p>
-        )}
-
-        {modelList.length > 0 && (
-          <select
-            value={model}
-            onChange={e => handleModelChange(e.target.value)}
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none transition-colors"
-          >
-            {modelList.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        )}
-
-        {modelList.length === 0 && !loadingModels && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">当前模型：</span>
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 16px', paddingBottom: '100px' }}>
+        {/* API Key */}
+        <div style={{ fontSize: '12px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>API 设置</div>
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--text2)', display: 'block', marginBottom: '6px' }}>DeepSeek API Key</label>
+          <div style={{ position: 'relative' }}>
             <input
-              type="text"
-              value={model}
-              onChange={e => handleModelChange(e.target.value)}
-              className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="deepseek-chat"
+              type={showKey ? 'text' : 'password'}
+              style={{ width: '100%', padding: '10px 50px 10px 14px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '14px', color: 'var(--text)', fontFamily: 'inherit', outline: 'none' }}
+              value={apiKey}
+              onChange={e => { setApiKey(e.target.value); setSaved(false) }}
+              placeholder="sk-..."
             />
+            <button type="button" onClick={() => setShowKey(!showKey)} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'var(--bg2)', border: 'none', borderRadius: '6px', padding: '4px 8px', fontSize: '11px', color: 'var(--text2)', cursor: 'pointer' }}>
+              {showKey ? '隐藏' : '显示'}
+            </button>
           </div>
-        )}
-      </div>
+          <p style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '8px' }}>API Key 仅保存在浏览器本地存储中</p>
+        </div>
 
-      {/* How to get key */}
-      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
-        <h3 className="text-sm font-medium text-gray-200 mb-2">如何获取 API Key？</h3>
-        <ol className="text-xs text-gray-400 space-y-1 list-decimal list-inside">
-          <li>访问 platform.deepseek.com 并注册账号</li>
-          <li>进入 API Keys 页面创建新的 Key</li>
-          <li>复制 Key 并粘贴到上方输入框</li>
-          <li>DeepSeek API 按使用量计费，价格低廉</li>
-        </ol>
-      </div>
+        {/* Model */}
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--text2)', display: 'block', marginBottom: '6px' }}>模型选择</label>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+            <button onClick={handleFetchModels} disabled={loadingModels} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '13px', cursor: 'pointer', opacity: loadingModels ? 0.5 : 1 }}>
+              {loadingModels ? '获取中...' : '获取模型列表'}
+            </button>
+          </div>
+          {modelError && <p style={{ fontSize: '11px', color: 'var(--coral)', marginBottom: '8px' }}>{modelError}</p>}
+          {modelList.length > 0 ? (
+            <select value={model} onChange={e => handleModelChange(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '14px', color: 'var(--text)', fontFamily: 'inherit', outline: 'none', appearance: 'none' }}>
+              {modelList.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          ) : !loadingModels ? (
+            <input type="text" value={model} onChange={e => handleModelChange(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '14px', color: 'var(--text)', fontFamily: 'inherit', outline: 'none' }} placeholder="deepseek-chat" />
+          ) : null}
+        </div>
 
-      {/* Data info */}
-      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
-        <h3 className="text-sm font-medium text-gray-200 mb-2">数据说明</h3>
-        <ul className="text-xs text-gray-400 space-y-1">
-          <li>· 所有角色和对话数据存储在浏览器 localStorage 中</li>
-          <li>· 清除浏览器数据会导致角色和对话丢失</li>
-          <li>· 对话内容会发送至 DeepSeek 服务器以生成回复</li>
-          <li>· 请勿在对话中分享敏感个人信息</li>
-        </ul>
-      </div>
+        {/* Avatar */}
+        <div style={{ fontSize: '12px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', marginTop: '24px' }}>外观</div>
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--text2)', display: 'block', marginBottom: '6px' }}>我的头像</label>
+          <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
+          <div onClick={() => avatarInputRef.current?.click()} style={{ width: '72px', height: '72px', borderRadius: '50%', border: '2px dashed var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', cursor: 'pointer', background: 'var(--bg)' }}>
+            {userAvatar ? <img src={userAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '24px', color: 'var(--text3)' }}>+</span>}
+          </div>
+          {userAvatar && <button onClick={() => { setUserAvatar(''); saveUserAvatar('') }} style={{ marginTop: '8px', fontSize: '12px', color: 'var(--coral)', background: 'none', border: 'none', cursor: 'pointer' }}>移除头像</button>}
+        </div>
 
-      {/* System Prompt Preview */}
-      <div className="bg-gray-800 rounded-xl p-4 border border-gray-700/50">
-        <h3 className="text-sm font-medium text-gray-200 mb-3">System Prompt 预览</h3>
-        <button
-          onClick={() => {
+        {/* Info sections */}
+        <div style={{ fontSize: '12px', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', marginTop: '24px' }}>帮助</div>
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', marginBottom: '8px' }}>如何获取 API Key？</div>
+          <ol style={{ fontSize: '12px', color: 'var(--text2)', margin: 0, paddingLeft: '18px' }}>
+            <li>访问 platform.deepseek.com 并注册账号</li>
+            <li>进入 API Keys 页面创建新的 Key</li>
+            <li>复制 Key 并粘贴到上方输入框</li>
+            <li>DeepSeek API 按使用量计费，价格低廉</li>
+          </ol>
+        </div>
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', marginBottom: '8px' }}>数据说明</div>
+          <ul style={{ fontSize: '12px', color: 'var(--text2)', margin: 0, paddingLeft: '16px' }}>
+            <li>· 所有角色和对话数据存储在浏览器 localStorage 中</li>
+            <li>· 清除浏览器数据会导致角色和对话丢失</li>
+            <li>· 对话内容会发送至 DeepSeek 服务器以生成回复</li>
+          </ul>
+        </div>
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text)', marginBottom: '8px' }}>System Prompt 预览</div>
+          <button onClick={() => {
             const chars = [...getCharacters('story'), ...getCharacters('daily')]
-            if (chars.length === 0) {
-              alert('暂无角色数据')
-              return
-            }
-            const lines = []
-            lines.push('=== System Prompt 字符数统计 ===\n')
-            let grandTotal = 0
-            const modes = [
-              { label: '剧情模式', mode: 'story' },
-              { label: '日常模式', mode: 'daily' },
-            ]
-            for (const { label, mode } of modes) {
-              const modeChars = getCharacters(mode)
-              if (modeChars.length === 0) continue
+            if (chars.length === 0) { alert('暂无角色数据'); return }
+            const lines = ['=== System Prompt 字符数统计 ===\n']; let grandTotal = 0
+            for (const { label, mode } of [{ label: '剧情模式', mode: 'story' }, { label: '日常模式', mode: 'daily' }]) {
+              const modeChars = getCharacters(mode); if (modeChars.length === 0) continue
               lines.push('【' + label + '】')
               for (const char of modeChars) {
-                const affData = char.chatStyle === 'story' && char.romanceCharacters
-                  ? Object.fromEntries(char.romanceCharacters.filter(rc => rc.affectionEnabled).map(rc => [rc.name, rc.affectionInitial ?? 50]))
-                  : char.affectionInitial ?? 50
-                const prompt = buildSystemPrompt(char, affData)
-                const len = prompt.length
-                const estTokens = Math.round(len / 2.5)
-                lines.push('  ' + char.name + ': ' + len.toLocaleString() + ' 字符 ≈ ' + estTokens.toLocaleString() + ' tokens')
-                grandTotal += len
+                const affData = char.chatStyle === 'story' && char.romanceCharacters ? Object.fromEntries(char.romanceCharacters.filter(rc => rc.affectionEnabled).map(rc => [rc.name, rc.affectionInitial ?? 50])) : char.affectionInitial ?? 50
+                const prompt = buildSystemPrompt(char, affData); const len = prompt.length; const estTokens = Math.round(len / 2.5)
+                lines.push('  ' + char.name + ': ' + len.toLocaleString() + ' 字符 ≈ ' + estTokens.toLocaleString() + ' tokens'); grandTotal += len
               }
             }
-            lines.push('\n总计（所有角色prompt字符和）: ' + grandTotal.toLocaleString() + ' 字符')
-            lines.push('注：实际发送时只包含当前角色')
+            lines.push('\n总计: ' + grandTotal.toLocaleString() + ' 字符'); lines.push('注：实际发送时只包含当前角色')
             alert(lines.join('\n'))
-          }}
-          className="w-full py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
-        >
-          计算 System Prompt 大小
-        </button>
-        <p className="text-xs text-gray-500 mt-2">
-          点击查看每个角色的 system prompt 字符数及估算 token 消耗（1 token ≈ 2.5 中文字符）
-        </p>
-      </div>
-
-      {/* Save button */}
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur border-t border-gray-700 p-4 max-w-lg mx-auto">
-        <div className="flex gap-3">
-          <button
-            onClick={onBack}
-            className="flex-1 py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white font-medium transition-colors"
-          >
-            返回
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-[2] py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium transition-all active:scale-[0.98]"
-          >
-            {saved ? '已保存 ✓' : '保存设置'}
+          }} style={{ width: '100%', padding: '10px', borderRadius: '10px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '13px', cursor: 'pointer' }}>
+            计算 System Prompt 大小
           </button>
         </div>
+      </div>
+
+      {/* Fixed bottom bar */}
+      <div style={{ padding: '12px 16px', paddingBottom: 'max(20px, env(safe-area-inset-bottom, 20px))', borderTop: '0.5px solid var(--border2)', background: 'var(--bg)', display: 'flex', gap: '10px', flexShrink: 0 }}>
+        <button onClick={onBack} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: 'var(--bg2)', color: 'var(--text)', fontSize: '15px', cursor: 'pointer' }}>返回</button>
+        <button onClick={handleSave} style={{ flex: 2, padding: '12px', borderRadius: '12px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '15px', fontWeight: 500, cursor: 'pointer' }}>{saved ? '已保存 ✓' : '保存设置'}</button>
       </div>
     </div>
   )

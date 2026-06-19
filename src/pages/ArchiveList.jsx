@@ -55,112 +55,79 @@ export default function ArchiveList({ mode, character, onBack, onChat }) {
   }
 
   return (
-    <div className="p-4">
-      {/* Create button */}
-      <button
-        onClick={handleCreate}
-        className="w-full mb-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium transition-all active:scale-[0.98]"
-      >
-        + 新建对话
-      </button>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
+      {/* Header */}
+      <div style={{ height: '56px', display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
+        <button onClick={onBack} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: 'var(--text2)' }}>←</button>
+        <span style={{ flex: 1, fontSize: '16px', fontWeight: 500, color: 'var(--text)' }}>{character?.name || ''} 的对话</span>
+      </div>
 
-      {/* Archive list */}
-      {archives.length === 0 ? (
-        <div className="text-center text-gray-500 mt-16">
-          <div className="text-5xl mb-4">💬</div>
-          <p className="text-lg">还没有对话存档</p>
-          <p className="text-sm mt-1">点击上方按钮开始与 {character.name} 对话</p>
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          {archives.map(archive => {
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+        <button onClick={handleCreate} style={{ width: '100%', padding: '14px', borderRadius: '14px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '15px', fontWeight: 500, cursor: 'pointer', marginBottom: '16px' }}>
+          + 新建对话
+        </button>
+
+        {archives.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text3)', fontSize: '14px' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>💬</div>
+            <div>还没有对话存档</div>
+            <div style={{ fontSize: '12px', marginTop: '4px' }}>点击上方按钮开始与 {character?.name} 对话</div>
+          </div>
+        ) : (
+          archives.map(archive => {
             const msgCount = archive.messages?.filter(m => m.role !== 'system')?.length || 0
             const isRenaming = renameId === archive.id
+            const avatarChar = (character?.name || '?')[0]
+            const dateStr = new Date(archive.createdAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
             return (
-              <div
-                key={archive.id}
-                className="bg-gray-800 rounded-xl p-4 border border-gray-700/50 hover:border-gray-600 transition-colors cursor-pointer"
-                onClick={() => { if (!isRenaming) onChat(archive.id) }}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    {isRenaming ? (
-                      <input
-                        className="bg-gray-700 border border-blue-500 rounded px-2 py-1 text-sm text-white w-full focus:outline-none"
-                        value={renameText}
-                        onChange={e => setRenameText(e.target.value)}
-                        onBlur={() => handleRenameConfirm(archive.id)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleRenameConfirm(archive.id)
-                          if (e.key === 'Escape') { setRenameId(null); setRenameText('') }
-                        }}
-                        autoFocus
-                        onClick={e => e.stopPropagation()}
-                      />
-                    ) : (
-                      <>
-                        <h3 className="font-bold text-base truncate">{archive.name}</h3>
-                        <p className="text-[10px] text-gray-500 mt-0.5">
-                          创建于 {new Date(archive.createdAt).toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      </>
-                    )}
-                    <p className="text-xs text-gray-500 mt-2 line-clamp-2">
-                      {getPreview(archive.messages)}
-                    </p>
-                  </div>
+              <div key={archive.id} style={{ padding: '14px 16px', borderRadius: '12px', background: 'var(--bg2)', border: '0.5px solid var(--border2)', marginBottom: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }} onClick={() => { if (!isRenaming) onChat(archive.id) }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: character?.avatar ? 'transparent' : 'var(--purple)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', color: '#fff', fontWeight: 500, flexShrink: 0, overflow: 'hidden' }}>
+                  {character?.avatar ? <img src={character.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : avatarChar}
                 </div>
-
-                {/* Meta + actions */}
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">
-                    {msgCount} 条消息
-                  </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {isRenaming ? (
+                    <input
+                      style={{ width: '100%', padding: '6px 10px', borderRadius: '8px', border: '0.5px solid var(--purple)', background: 'var(--bg)', fontSize: '14px', color: 'var(--text)', fontFamily: 'inherit', outline: 'none' }}
+                      value={renameText}
+                      onChange={e => setRenameText(e.target.value)}
+                      onBlur={() => handleRenameConfirm(archive.id)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleRenameConfirm(archive.id); if (e.key === 'Escape') { setRenameId(null); setRenameText('') } }}
+                      autoFocus
+                      onClick={e => e.stopPropagation()}
+                    />
+                  ) : (
+                    <>
+                      <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text)', marginBottom: '3px' }}>{archive.name}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{getPreview(archive.messages)}</div>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text3)' }}>{dateStr} · {msgCount}条</span>
                   {!isRenaming && (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={e => { e.stopPropagation(); handleRenameStart(archive) }}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
-                      >
-                        重命名
-                      </button>
-                      <button
-                        onClick={e => { e.stopPropagation(); setDeleteConfirm(archive.id) }}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white transition-colors"
-                      >
-                        删除
-                      </button>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button onClick={e => { e.stopPropagation(); handleRenameStart(archive) }} style={{ fontSize: '11px', color: 'var(--text2)', background: 'none', border: 'none', cursor: 'pointer' }}>重命名</button>
+                      <button onClick={e => { e.stopPropagation(); setDeleteConfirm(archive.id) }} style={{ fontSize: '11px', color: 'var(--coral)', background: 'none', border: 'none', cursor: 'pointer' }}>删除</button>
                     </div>
                   )}
                 </div>
               </div>
             )
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
 
       {/* Delete confirm dialog */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDeleteConfirm(null)}>
-          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm border border-gray-700" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold mb-2">确认删除</h3>
-            <p className="text-gray-400 text-sm mb-4">
-              删除后将清除该存档的所有对话记录，此操作不可撤销。
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
-              >
-                确认删除
-              </button>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '16px' }} onClick={() => setDeleteConfirm(null)}>
+          <div style={{ background: 'var(--bg)', borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '320px', border: '0.5px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>确认删除</div>
+            <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '20px' }}>删除后将清除该存档的所有对话记录，此操作不可撤销。</div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: 'var(--bg2)', color: 'var(--text)', fontSize: '14px', cursor: 'pointer' }}>取消</button>
+              <button onClick={() => handleDelete(deleteConfirm)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: 'var(--coral)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>确认删除</button>
             </div>
           </div>
         </div>
