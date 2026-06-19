@@ -18,6 +18,8 @@ import { shouldTriggerAffectionJudge } from '../runtime/affectionTrigger'
 import { createEpisodeMessage } from '../memory/episodeSummarizer'
 import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordinator'
 import { validatePersona } from '../runtime/antiSmoothing'
+import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
+import { loadSharedState, saveSharedState, getAffection as getSharedAffection, setAffection as setSharedAffection, adjustAffection, getAllRelationships, getArchiveAffectionSnapshot } from '../state/sharedState'
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -717,6 +719,12 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [error, setError] = useState('')
   const [streamingText, setStreamingText] = useState('')
   const [retrying, setRetrying] = useState(false)
+  // Dual-Mode Single Persona: unified state
+  const [persona, setPersona] = useState(null)        // UnifiedPersona (computed on load)
+  const [sharedState, setSharedState] = useState(null) // Shared relationship state
+  const [currentMode, setCurrentMode] = useState(      // 'drama' | 'daily'
+    mode === 'daily' ? 'daily' : 'drama'
+  )
   const [userAvatar, setUserAvatarState] = useState('')
   const [activeMenuIdx, setActiveMenuIdx] = useState(null)
   const [showCompress, setShowCompress] = useState(false)
@@ -762,22 +770,32 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
     setUserAvatarState(getUserAvatar())
 
-    if (char?.chatStyle === 'story' && char?.romanceCharacters?.length > 0) {
-      const savedAffs = getAffections(archiveId, mode)
-      if (savedAffs && Object.keys(savedAffs).length > 0) {
-        setAffections(savedAffs)
-      } else {
-        const initial = {}
-        char.romanceCharacters.forEach(rc => {
+    // ── Dual-Mode: normalize persona + load shared state ──
+    const normalized = normalizeCharacter(char, mode)
+    setPersona(normalized)
+
+    const state = loadSharedState(char?.id || char?.name, normalized, { archiveId, mode })
+    setSharedState(state)
+
+    // Populate legacy affection/affections from shared state (backward compat UI)
+    if (normalized) {
+      const romances = getRomanceCharacters(normalized)
+      if (romances.length > 0) {
+        const affMap = {}
+        romances.forEach(rc => {
           if (rc.affectionEnabled) {
-            initial[rc.name] = rc.affectionInitial ?? 50
+            affMap[rc.name] = getSharedAffection(state, rc.name)
           }
         })
-        setAffections(initial)
+        if (Object.keys(affMap).length > 0) {
+          setAffections(affMap)
+        }
       }
-    } else if (char?.affectionEnabled) {
-      const saved = archive.affection
-      setAffection(saved !== null ? saved : char.affectionInitial)
+      // Also set single affection for daily backward compat
+      const mainName = romances[0]?.name
+      if (mainName) {
+        setAffection(getSharedAffection(state, mainName))
+      }
     }
   }, [archiveId])
 
@@ -795,11 +813,32 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     if (character?.affectionEnabled && affection !== null) {
       saveAffection(archiveId, affection, mode)
     }
+    // Dual-Mode: also persist to shared state
+    if (sharedState && persona && affection !== null) {
+      const mainName = getRomanceCharacters(persona)[0]?.name
+      if (mainName) {
+        setSharedAffection(sharedState, mainName, affection)
+        saveSharedState(persona.id || persona.name, sharedState)
+      }
+    }
   }, [affection, archiveId, character, mode])
 
   useEffect(() => {
     if (character?.chatStyle === 'story' && affections !== null) {
       saveAffections(archiveId, affections, mode)
+    }
+    // Dual-Mode: also persist to shared state
+    if (sharedState && persona && affections) {
+      let changed = false
+      for (const [name, value] of Object.entries(affections)) {
+        if (value != null) {
+          setSharedAffection(sharedState, name, value)
+          changed = true
+        }
+      }
+      if (changed) {
+        saveSharedState(persona.id || persona.name, sharedState)
+      }
     }
   }, [affections, archiveId, character, mode])
 
@@ -964,7 +1003,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     setStreamingText('')
     setLoading(true)
 
-    if (character.chatStyle === 'casual') {
+    if (currentMode === 'daily') {
       const { reply, reasoningContent, usage, error: apiError } = await sendDailyChatMessage(
         character,
         newMessages,
@@ -1100,7 +1139,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         }
 
         // ── Anti-Smoothing: post-generation persona validation ──
-        if (character.chatStyle === 'story') {
+        if (currentMode === 'drama' || character.chatStyle === 'story') {
           const personaResult = validatePersona(finalReplyV3)
           if (!personaResult.passed) {
             console.warn('[AntiSmoothing] 检测到人设漂移! violations:', personaResult.violations,
@@ -1334,8 +1373,26 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3rem)]">
+      {/* ── Mode Toggle (Dual-Mode Single Persona) ── */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/60 border-b border-gray-700/40">
+        <span className="text-[9px] text-gray-600">模式:</span>
+        <button
+          onClick={() => setCurrentMode(m => m === 'drama' ? 'daily' : 'drama')}
+          className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+            currentMode === 'drama'
+              ? 'bg-purple-600/25 text-purple-300 border border-purple-500/30'
+              : 'bg-emerald-600/25 text-emerald-300 border border-emerald-500/30'
+          }`}
+        >
+          {currentMode === 'drama' ? '📖 剧情' : '💬 日常'}
+        </button>
+        <span className="text-[8px] text-gray-700 ml-auto">
+          {persona ? '同一角色 · 状态共享' : ''}
+        </span>
+      </div>
+
       {/* Affection bar - GM story mode: multi-character */}
-      {character.chatStyle === 'story' && character.romanceCharacters?.length > 0 && (
+      {(currentMode === 'drama' || character.chatStyle === 'story') && character.romanceCharacters?.length > 0 && (
         <div className="px-3 py-2 bg-gray-800/50 border-b border-gray-700/50">
           <div className="flex items-center gap-3 overflow-x-auto">
             {character.romanceCharacters.map(rc => {
@@ -1524,7 +1581,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
           }
           const isUser = msg.role === 'user'
           if (!isUser) {
-            if (character.chatStyle === 'casual') {
+            if (currentMode === 'daily') {
               return (
                 <StoryBubble
                   key={i}
@@ -1566,7 +1623,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
               onRegenerate={handleRegenerateMessage}
               showActions={activeMenuIdx === i}
               onToggleActions={handleToggleActions}
-              showTimestamp={character.chatStyle === 'casual' && character.showTimestamp}
+              showTimestamp={currentMode === 'daily' && character.showTimestamp}
             />
           )
         })}
@@ -1583,7 +1640,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
                 <span className="inline-block w-1 h-1 rounded-full bg-blue-500/50 animate-pulse" />
                 初稿生成中
               </div>
-              {character.chatStyle === 'story' ? (
+              {currentMode === 'drama' || character.chatStyle === 'story' ? (
                 <div className="relative pl-4 border-l-2 border-gray-700/60">
                   <div className="text-[15px] leading-[1.8] text-gray-200 whitespace-pre-wrap break-words">
                     {streamingText}
@@ -1607,7 +1664,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
             <div className="flex flex-col max-w-[75%]">
               <span className="text-[10px] text-gray-500 mb-0.5 px-1">{character.name}</span>
               <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-gray-700">
-                {character.chatStyle === 'casual' ? (
+                {currentMode === 'daily' ? (
                   <div className="flex items-center gap-1">
                     <span className="text-sm text-purple-400">正在构思</span>
                     <span className="inline-flex gap-0.5">
