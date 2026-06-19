@@ -64,84 +64,65 @@ export default function CharacterList({ mode, onCreate, onEdit, onArchives }) {
       {/* Create button */}
       <button
         onClick={() => { refresh(); onCreate() }}
-        className="w-full mb-4 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-medium transition-all active:scale-[0.98]"
+        style={{
+          width: '100%', padding: '13px', borderRadius: '14px',
+          border: 'none', background: 'var(--purple)', color: '#fff',
+          fontSize: '15px', fontWeight: 500, cursor: 'pointer',
+          marginBottom: '16px',
+        }}
       >
         + 创建新角色
       </button>
 
       {/* Character grid */}
       {characters.length === 0 ? (
-        <div className="text-center text-gray-500 mt-16">
-          <div className="text-5xl mb-4">🎭</div>
-          <p className="text-lg">还没有角色</p>
-          <p className="text-sm mt-1">点击上方按钮创建你的第一个角色</p>
+        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text3)', fontSize: '14px' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎭</div>
+          <div>还没有角色</div>
+          <div style={{ fontSize: '12px', marginTop: '4px' }}>点击上方按钮创建你的第一个角色</div>
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {characters.map(char => {
             const archives = getArchives(char.id)
             const msgCount = archives.reduce((sum, a) => sum + (a.messages?.length || 0), 0)
             return (
               <div
                 key={char.id}
-                className="bg-gray-800 rounded-xl p-4 border border-gray-700/50 hover:border-gray-600 transition-colors"
+                style={{
+                  background: 'var(--bg2)', borderRadius: '16px', padding: '16px',
+                  border: '0.5px solid var(--border)', color: 'var(--text)',
+                }}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-base truncate">{char.name}</h3>
-                    {char.nickname && (
-                      <p className="text-xs text-purple-400 mt-0.5">
-                        称呼你：{char.nickname}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-500 mt-2 line-clamp-2">
-                      {getPreview(char)}
-                    </p>
-                  </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)', margin: '0 0 2px 0' }}>{char.name}</h3>
+                  {char.nickname && (
+                    <p style={{ fontSize: '12px', color: 'var(--purple)', margin: '0 0 4px 0' }}>称呼你：{char.nickname}</p>
+                  )}
+                  <p style={{ fontSize: '12px', color: 'var(--text2)', margin: '8px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getPreview(char)}
+                  </p>
                 </div>
 
                 {/* Meta tags */}
-                <div className="flex gap-2 mt-2">
+                <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
                   {char.affectionEnabled && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/20 text-pink-400">
-                      好感度
-                    </span>
+                    <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--coral-l)', color: 'var(--coral)' }}>好感度</span>
                   )}
                   {char.thinkingEnabled && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
-                      思考层
-                    </span>
+                    <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: '#3a2f0a', color: '#d4a017' }}>思考层</span>
                   )}
                   {char.activeMessageEnabled && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">
-                      主动消息
-                    </span>
+                    <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--teal-l)', color: 'var(--teal)' }}>主动消息</span>
                   )}
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">
-                    {msgCount} 条消息
-                  </span>
+                  <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: 'var(--bg3)', color: 'var(--text3)' }}>{msgCount} 条消息</span>
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => onArchives(char)}
-                    className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors active:scale-[0.98]"
-                  >
-                    对话
-                  </button>
-                  <button
-                    onClick={() => onEdit(char.id)}
-                    className="py-2 px-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm transition-colors active:scale-[0.98]"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => setDeleteConfirm(char.id)}
-                    className="py-2 px-3 rounded-lg bg-gray-700 hover:bg-red-600 text-gray-300 hover:text-white text-sm transition-colors active:scale-[0.98]"
-                  >
-                    删除
-                  </button>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                  <button onClick={() => onArchives(char)} style={{ flex: 1, padding: '9px', borderRadius: '10px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>对话</button>
+                  <button onClick={() => onEdit(char.id)} style={{ padding: '9px 12px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg3)', color: 'var(--text2)', fontSize: '13px', cursor: 'pointer' }}>编辑</button>
+                  <button onClick={() => setDeleteConfirm(char.id)} style={{ padding: '9px 12px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg3)', color: 'var(--text2)', fontSize: '13px', cursor: 'pointer' }}>删除</button>
                 </div>
               </div>
             )
@@ -151,25 +132,13 @@ export default function CharacterList({ mode, onCreate, onEdit, onArchives }) {
 
       {/* Delete confirm dialog */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm border border-gray-700">
-            <h3 className="text-lg font-bold mb-2">确认删除</h3>
-            <p className="text-gray-400 text-sm mb-4">
-              删除后将同时清除该角色的所有对话记录，此操作不可撤销。
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
-              >
-                确认删除
-              </button>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '16px' }}>
+          <div style={{ background: 'var(--bg)', borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '320px', border: '0.5px solid var(--border)' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text)', margin: '0 0 8px 0' }}>确认删除</h3>
+            <p style={{ fontSize: '13px', color: 'var(--text2)', margin: '0 0 20px 0' }}>删除后将同时清除该角色的所有对话记录，此操作不可撤销。</p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: 'var(--bg2)', color: 'var(--text)', fontSize: '14px', cursor: 'pointer' }}>取消</button>
+              <button onClick={() => handleDelete(deleteConfirm)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: 'none', background: 'var(--coral)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>确认删除</button>
             </div>
           </div>
         </div>
