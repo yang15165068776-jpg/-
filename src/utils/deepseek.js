@@ -28,6 +28,7 @@ import { getModel } from './storage'
 import writingSamplesRaw from './writing-samples.txt?raw'
 import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
 import { buildPersonaShield } from '../runtime/personaIntegrity'
+import { buildStateSnapshot, getRelationship } from '../state/unifiedStateKernel'
 import { extractEvents, extractEventsDeterministic } from '../memory/eventExtractor'
 import { initGraphFromCharacter, loadGraph, saveGraph, updateGraph } from '../memory/memoryGraph'
 import { buildContext } from '../memory/contextBuilder'
@@ -1441,7 +1442,7 @@ export async function sendStoryStageMessage(character, messages, affections, api
  * System Prompt 极其纯粹：角色基础人设 + 微信即时聊天格式规则。
  * 非流式输出（便于 ||| 分隔符解析）。
  */
-export async function sendDailyChatMessage(character, messages, affectionData, apiKey) {
+export async function sendDailyChatMessage(character, messages, affectionData, apiKey, usk, persona) {
   const model = getModel()
 
   // Separate memory messages
@@ -1459,6 +1460,17 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
   }))
 
   let systemPrompt = buildDailySystemPrompt(character)
+
+  // ── USK: inject current state snapshot (replaces flat affection) ──
+  if (usk && persona) {
+    const mainChar = persona.characters?.find(c => c.type === 'romance')
+    if (mainChar) {
+      const stateSnapshot = buildStateSnapshot(usk, mainChar.name, 'daily')
+      if (stateSnapshot) {
+        systemPrompt += '\n\n' + stateSnapshot
+      }
+    }
+  }
 
   // Inject memory content
   if (memoryMessages.length > 0) {

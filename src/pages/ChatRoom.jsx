@@ -1008,6 +1008,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         newMessages,
         affection,
         apiKey,
+        usk,
+        persona,  // USK + Persona: replaces archive.affection dependency
       )
 
       setLoading(false)
@@ -1030,7 +1032,35 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       const msgIndex = finalMessages.length - 1
       setMessages(finalMessages)
 
-      if (character.affectionEnabled) {
+      // ── USK: update state after daily turn ──
+      if (usk && persona) {
+        const mainChar = persona.characters?.find(c => c.type === 'romance')
+        if (mainChar?.affectionEnabled) {
+          // Affection delta from USK curiosity + mood (not random!)
+          const curiosity = usk.characters?.[mainChar.name]?.emotion?.curiosity ?? 30
+          const mood = usk.characters?.[mainChar.name]?.life?.mood ?? 60
+          const delta = Math.round((curiosity / 100) * 3 + (mood / 100) * 2) || 1
+          const newVal = (getRelationship(usk, mainChar.name, 'affection') || 50) + delta
+          setRelationship(usk, mainChar.name, 'affection', Math.min(100, newVal))
+          setAffection(newVal)
+          setAffectionFlash({ '': delta })
+          setTimeout(() => setAffectionFlash(null), 1500)
+
+          // Record event
+          recordEvent(usk, {
+            type: 'daily_chat',
+            summary: '日常对话：' + userText.slice(0, 30),
+            impact: { affection: delta, curiosity: -5 },
+            mode: 'daily',
+            actor: mainChar.name,
+          })
+        }
+        // Advance life state + update initiative
+        advanceLifeState(usk, mainChar?.name, 5)
+        updateInitiative(usk, mainChar?.name)
+        saveUSK(persona.id || persona.name, usk)
+      } else if (character.affectionEnabled) {
+        // Fallback: legacy random delta (no USK loaded)
         const delta = Math.floor(Math.random() * 5) + 1
         adjustAffection(delta)
         setAffectionFlash({ '': delta })
