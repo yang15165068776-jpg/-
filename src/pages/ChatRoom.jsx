@@ -19,7 +19,7 @@ import { createEpisodeMessage } from '../memory/episodeSummarizer'
 import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordinator'
 import { validatePersona } from '../runtime/antiSmoothing'
 import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
-import { loadSharedState, saveSharedState, getAffection as getSharedAffection, setAffection as setSharedAffection, adjustAffection, getAllRelationships, getArchiveAffectionSnapshot } from '../state/sharedState'
+import { loadOrCreateUSK, saveUSK, getRelationship, setRelationship, adjustRelationship, advanceLifeState, updateInitiative, recordEvent, buildStateSnapshot, syncToMemoryGraph } from '../state/unifiedStateKernel'
 
 function Avatar({ src, name, className }) {
   const initial = (name || '?')[0]
@@ -721,7 +721,7 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
   const [retrying, setRetrying] = useState(false)
   // Dual-Mode Single Persona: unified state
   const [persona, setPersona] = useState(null)        // UnifiedPersona (computed on load)
-  const [sharedState, setSharedState] = useState(null) // Shared relationship state
+  const [usk, setUsk] = useState(null)                // USK: Unified State Kernel
   const [currentMode, setCurrentMode] = useState(      // 'drama' | 'daily'
     mode === 'daily' ? 'daily' : 'drama'
   )
@@ -770,31 +770,30 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
     }
     setUserAvatarState(getUserAvatar())
 
-    // ── Dual-Mode: normalize persona + load shared state ──
+    // ── Dual-Mode: normalize persona + load USK ──
     const normalized = normalizeCharacter(char, mode)
     setPersona(normalized)
 
-    const state = loadSharedState(char?.id || char?.name, normalized, { archiveId, mode })
-    setSharedState(state)
+    const uskState = loadOrCreateUSK(char?.id || char?.name, normalized, { mode })
+    setUsk(uskState)
 
-    // Populate legacy affection/affections from shared state (backward compat UI)
+    // Populate legacy affection/affections from USK (backward compat UI)
     if (normalized) {
       const romances = getRomanceCharacters(normalized)
       if (romances.length > 0) {
         const affMap = {}
         romances.forEach(rc => {
           if (rc.affectionEnabled) {
-            affMap[rc.name] = getSharedAffection(state, rc.name)
+            affMap[rc.name] = getRelationship(uskState, rc.name, 'affection')
           }
         })
         if (Object.keys(affMap).length > 0) {
           setAffections(affMap)
         }
       }
-      // Also set single affection for daily backward compat
       const mainName = romances[0]?.name
       if (mainName) {
-        setAffection(getSharedAffection(state, mainName))
+        setAffection(getRelationship(uskState, mainName, 'affection'))
       }
     }
   }, [archiveId])
@@ -814,11 +813,11 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       saveAffection(archiveId, affection, mode)
     }
     // Dual-Mode: also persist to shared state
-    if (sharedState && persona && affection !== null) {
+    if (usk && persona && affection !== null) {
       const mainName = getRomanceCharacters(persona)[0]?.name
       if (mainName) {
-        setSharedAffection(sharedState, mainName, affection)
-        saveSharedState(persona.id || persona.name, sharedState)
+        setRelationship(usk, mainName, 'affection', affection)
+        saveUSK(persona.id || persona.name, usk)
       }
     }
   }, [affection, archiveId, character, mode])
@@ -828,16 +827,16 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
       saveAffections(archiveId, affections, mode)
     }
     // Dual-Mode: also persist to shared state
-    if (sharedState && persona && affections) {
+    if (usk && persona && affections) {
       let changed = false
       for (const [name, value] of Object.entries(affections)) {
         if (value != null) {
-          setSharedAffection(sharedState, name, value)
+          setRelationship(usk, name, 'affection', value)
           changed = true
         }
       }
       if (changed) {
-        saveSharedState(persona.id || persona.name, sharedState)
+        saveUSK(persona.id || persona.name, usk)
       }
     }
   }, [affections, archiveId, character, mode])
@@ -1086,7 +1085,8 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
             if (reset) { setStreamingText(''); setRetrying(true); return }
             setRetrying(false)
             setStreamingText(fullText)
-          }
+          },
+          usk  // USK: unified state kernel for cross-mode sync
         )
 
         setLoading(false)

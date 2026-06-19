@@ -29,6 +29,7 @@ import { loadGraph, initGraphFromCharacter, saveGraph } from '../memory/memoryGr
 import { buildContext } from '../memory/contextBuilder'
 import { createPowerGraph, applyPowerShift, buildPowerStateContext, savePowerGraph, loadPowerGraph } from '../runtime/powerDynamics'
 import { buildASLReinforcement, validateASL } from '../runtime/alignmentSuppression'
+import { syncToMemoryGraph } from '../state/unifiedStateKernel'
 
 // Global state (persists across turns within a session)
 let _worldState = null
@@ -111,10 +112,18 @@ export function resetAgentTurn() {
  * @param {function} onToken — streaming token callback
  * @returns {{ reply, reasoningContent, usage, error, worldState, turnReport }}
  */
-export async function runAgentTurn(userInput, character, affections, messages, apiKey, onToken) {
+export async function runAgentTurn(userInput, character, affections, messages, apiKey, onToken, usk) {
   // Initialize if first turn of session
   if (!_worldState || !_eventBus) {
     initAgentSystem(character, affections, messages)
+  }
+
+  // ── USK Sync: pull relationship state into MemoryGraph edges ──
+  if (usk && _memoryGraph) {
+    const syncedEdges = syncToMemoryGraph(usk)
+    for (const [key, edge] of Object.entries(syncedEdges)) {
+      _memoryGraph.edges[key] = { ...(_memoryGraph.edges[key] || {}), ...edge }
+    }
   }
 
   const world = _worldState
