@@ -54,6 +54,7 @@ export function getAllEpisodes(messages) {
 /**
  * Format episodes for prompt injection.
  * Most recent episodes first, limited to maxEpisodes.
+ * Output is pure narrative — no JSON, no schema, no debug markers.
  * @returns {string} formatted episode text
  */
 export function formatEpisodesForPrompt(episodes, maxEpisodes = 12) {
@@ -61,45 +62,102 @@ export function formatEpisodesForPrompt(episodes, maxEpisodes = 12) {
 
   const recent = episodes.slice(-maxEpisodes)
 
-  // Group: episodes with structured data get compact formatting
+  // Group: episodes with structured data get compact narrative formatting
   const parts = recent.map((ep, i) => {
     const meta = ep.episodeMetadata || {}
-    const range = meta.turnStart != null
-      ? ` [第${meta.turnStart}-${meta.turnEnd}轮]`
-      : ''
+    const label = meta.turnStart != null
+      ? `第${meta.turnStart}-${meta.turnEnd}轮`
+      : `片段 ${i + 1}`
 
-    // If structured data is available, use compact format
+    // If structured data is available, use clean narrative format
     if (ep.structured) {
-      return formatStructuredEpisode(ep.structured, i + 1, range)
+      return '【' + label + '】\n' + formatStructuredEpisode(ep.structured, i + 1, '')
     }
 
-    // Fallback: raw content
-    return `--- Episode ${i + 1}${range} ---\n${ep.content}`
+    // Fallback: raw content (already a formatted summary string)
+    return '【' + label + '】\n' + ep.content
   })
 
-  return '【剧情摘要——已压缩的历史】\n' + parts.join('\n\n')
+  return '【已压缩的历史剧情】\n' + parts.join('\n\n')
 }
 
 /**
- * Format a single episode from structured data (compact).
+ * Format a single episode from structured data (compact, narrative-only).
+ *
+ * THREE-LAYER OUTPUT (no JSON, no schema, no debug fields):
+ *   [STATE]  — relationship tension + dominance levels
+ *   [EVENTS] — clean event descriptions
+ *   [NARRATIVE] — pure text summary of the scene
+ *
+ * CRITICAL: This output is injected directly into the LLM context.
+ * It must NOT contain: JSON, field names, code structures, debug markers.
  */
 function formatStructuredEpisode(s, index, range) {
-  const lines = [`--- Episode ${index}${range} ---`]
+  const lines = []
 
+  // ── Layer 1: STATE ──
+  const stateLines = []
   if (s.skeleton?.current_state) {
-    lines.push('状态: ' + s.skeleton.current_state)
+    stateLines.push(s.skeleton.current_state)
   }
-  if (s.skeleton?.key_events?.length) {
-    lines.push('事件: ' + s.skeleton.key_events.join(' | '))
+  if (s.relationships) {
+    const relParts = Object.entries(s.relationships).map(([name, r]) => {
+      const parts = []
+      if (r.stage_hint) parts.push(r.stage_hint)
+      if (r.dominance != null) parts.push('主导' + Math.round(r.dominance * 100) + '%')
+      return name + '：' + parts.join('，')
+    })
+    if (relParts.length) stateLines.push(relParts.join(' | '))
   }
+  if (stateLines.length) {
+    lines.push('【状态】' + stateLines.join('。'))
+  }
+
+  // ── Layer 2: EVENTS ──
   if (s.events?.length) {
-    const evtSummary = s.events.slice(-3).map(e =>
-      `[${e.event}] ${e.actor}→${e.target} ${e.affection_delta != null ? (e.affection_delta > 0 ? '+' : '') + e.affection_delta : ''}`
-    ).join(' ')
-    lines.push('最近: ' + evtSummary)
+    const eventDescs = s.events.slice(-5).map(e => {
+      const actor = e.actor || '某人'
+      const target = e.target === 'user' ? '玩家' : (e.target || '对方')
+      const summary = e.summary || ''
+      const mood = e.emotion || ''
+      // Clean narrative: "林晚对玩家发怒——「你骗我」"
+      let desc = actor + '对' + target
+      if (mood) desc += mood === 'anger' ? '发怒' : mood === 'hurt' ? '受伤' : mood === 'cold' ? '冷漠' : mood === 'jealousy' ? '吃醋' : mood === 'fear' ? '恐惧' : mood === 'longing' ? '想念' : mood === 'warmth' ? '示好' : mood === 'despair' ? '绝望' : mood === 'hope' ? '期待' : mood === 'guilt' ? '内疚' : ''
+      if (summary) desc += '——' + summary
+      return desc
+    })
+    lines.push('【事件】' + eventDescs.join('。'))
   }
+
+  if (s.skeleton?.key_events?.length) {
+    lines.push('【关键】' + s.skeleton.key_events.join(' | '))
+  }
+
+  // ── Layer 3: NARRATIVE ──
   if (s.last_scene?.location) {
-    lines.push('场景: ' + s.last_scene.location)
+    const scene = s.last_scene
+    const present = (scene.present || []).filter(p => p !== 'user').join('、')
+    const parts = ['地点：' + scene.location]
+    if (present) parts.push('在场：' + present)
+    if (scene.mood) parts.push('氛围：' + scene.mood)
+    lines.push('【场景】' + parts.join(' | '))
+  }
+
+  if (s.last_reply_verbatim) {
+    // Keep last reply for continuity, but sanitized
+    const clean = s.last_reply_verbatim
+      .replace(/```[\s\S]*?```/g, '') // remove code blocks
+      .replace(/\{[\s\S]*?\}/g, '')    // remove JSON objects
+      .trim()
+      .slice(0, 300)
+    if (clean) {
+      lines.push('【最后一幕】' + clean)
+    }
+  }
+
+  // ── Conflict tracking (compact) ──
+  if (s.skeleton?.active_conflicts?.length) {
+    lines.push('【未解决】' + s.skeleton.active_conflicts.join(' | '))
   }
 
   return lines.join('\n')

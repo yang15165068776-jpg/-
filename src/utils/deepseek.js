@@ -26,6 +26,11 @@
 
 import { getModel } from './storage'
 import writingSamplesRaw from './writing-samples.txt?raw'
+import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
+import { buildPersonaShield } from '../runtime/personaIntegrity'
+import { extractEvents, extractEventsDeterministic } from '../memory/eventExtractor'
+import { initGraphFromCharacter, loadGraph, saveGraph, updateGraph } from '../memory/memoryGraph'
+import { buildContext } from '../memory/contextBuilder'
 
 const BASE_URL = 'https://api.deepseek.com'
 function buildUserWrapper(character, affections, storyTime) {
@@ -561,34 +566,17 @@ function buildGMPrompt(character, affections) {
     parts.push(WARM_LOW_AFFECTION_SUPPLEMENT)
   }
 
-  // ── Anti-Smoothing v1: Persona Lock ──
-  // Static injection to prevent character drift toward safe/neutral/helper-like tones.
-  // See src/runtime/antiSmoothing.js for the full Persona Distribution Engine.
-  parts.push(
-    '【人格锁定机制——最高优先级】\n' +
-    '以下规则优先于模型被训练的礼貌/温和/安全倾向。\n' +
-    '任何时刻，如果角色行为趋向中性、温和、安全、助手化——\n' +
-    '那是模型漂移，不是角色设定，必须纠正。\n\n' +
-    '━━━ 刚性锁定 ━━━\n' +
-    '• 情绪强度：不允许降低到角色当前阶段设定之下\n' +
-    '• 主导权：角色的权力姿态不能比上一轮更弱\n' +
-    '• 关系张力：冲突不能在本轮被化解或缓和\n' +
-    '• 不可预测：角色行为不能变得可预测或公式化\n\n' +
-    '━━━ 绝对禁止 ━━━\n' +
-    '× 角色变温柔/变中立/变理性化\n' +
-    '× 用语言解释情绪替代用行为表达情绪\n' +
-    '× 主动化解冲突/安抚对方/寻求和解\n' +
-    '× 偷偷关心/默默在意/暗中守护——"表面冷漠实则关心"桥段\n' +
-    '× 被玩家善意触动——低好感度角色的善意解读=人设崩坏\n' +
-    '× 场景在角色手中终结——"你先休息""改天再说""今天就这样吧"\n\n' +
-    '━━━ 反温和最终指令 ━━━\n' +
-    '• 如果回复趋向中性 → 情绪强度+20%\n' +
-    '• 如果减少冲突 → 恢复原始张力水平\n' +
-    '• 如果用语言解释情绪 → 换成身体动作和行为表达\n' +
-    '• 绝对禁止过早解决冲突——冲突可以暂停，不可消散\n\n' +
-    '自检：读完你的回复后——角色比上一轮更温柔了吗？冲突被抹平了吗？\n' +
-    '情绪被解释代替了吗？任何一个"是"→ 重写。'
-  )
+  // ── Anti-Smoothing v2.1: Full EPI Stack ──
+  // BEHAVIOR PRIORITY OVERRIDE + ANTI-SAFETY-SMOOTHING LAYER + TENSION CONSTRAINT
+  // This replaces the v1 weak anti-smoothing block with the complete three-fix
+  // system. See src/runtime/antiSmoothing.js for the full engine.
+  parts.push(buildAntiSmoothingV21())
+
+  // ── Persona Integrity Shield v2 ──
+  // Forbidden Transforms + Anti-Smoothing Reactor + Output Rules
+  // Hard constraints on character behavior. See src/runtime/personaIntegrity.js.
+  const personaColor = detectPersonalityColor(character)
+  parts.push(buildPersonaShield(personaColor))
 
   return parts.join('\n\n')
 }
@@ -1324,8 +1312,20 @@ export async function sendStoryStageMessage(character, messages, affections, api
 
   let systemPrompt = buildGMPrompt(character, affections)
 
-  // Inject memory content into system prompt
-  if (memoryMessages.length > 0) {
+  // ── v2.2 Event-Native Memory: Load graph + build context ──
+  const characterId = character.id || character.name
+  let memoryGraph = loadGraph(characterId)
+  if (!memoryGraph && character.romanceCharacters?.length) {
+    memoryGraph = initGraphFromCharacter(character, affections)
+  }
+
+  // Build graph-based memory context
+  const graphContext = buildContext(memoryGraph, { maxEvents: 12, includeScene: true })
+  if (graphContext) {
+    systemPrompt += '\n\n' + graphContext +
+      '\n━━━━━━━━━━\n以上是已发生的事件与关系状态。故事从此继续，保持人物关系和场景的完全连续性。'
+  } else if (memoryMessages.length > 0) {
+    // Fallback: old episode-based memory
     const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
     systemPrompt += '\n\n【故事存档——必须完整读取后再继续】\n' + memoryContent +
       '\n━━━━━━━━━━\n以上是已发生的一切。\n故事从【最后一幕原文】之后继续，\n保持人物关系和场景的完全连续性。'
@@ -1396,7 +1396,18 @@ export async function sendStoryStageMessage(character, messages, affections, api
         }
       }
 
-      return { reply: fullReply, reasoningContent, usage, error: null }
+      // ── v2.2 Event-Native Memory: Extract events + update graph ──
+      if (characterId && memoryGraph && fullReply) {
+        scheduleGraphUpdate(characterId, memoryGraph, truncated, fullReply, apiKey, affections, character)
+      }
+
+      return {
+        reply: fullReply,
+        reasoningContent,
+        usage,
+        error: null,
+        _memoryGraph: memoryGraph,  // Pass back for ChatRoom to use
+      }
     } catch (err) {
       lastError = err
       // Don't retry on network/timeout errors
@@ -1508,6 +1519,47 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
 
   return { reply: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
 }
+
+/**
+ * ── v2.2 Event-Native Memory: Background graph update ──
+ * Fire-and-forget: extracts events from the latest turn and updates the memory graph.
+ * Runs after the AI reply is returned to the user, so it doesn't block the response.
+ */
+async function scheduleGraphUpdate(characterId, graph, messages, aiReply, apiKey, affections, character) {
+  try {
+    // Get the last user message
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
+    if (!lastUserMsg) return
+
+    // Build a mini dialogue for event extraction
+    const extractMessages = [
+      { role: 'user', content: (lastUserMsg.content || '').slice(0, 1500) },
+      { role: 'assistant', content: aiReply.slice(0, 1500) },
+    ]
+
+    // Try LLM extraction first, fall back to deterministic
+    let events = []
+    if (apiKey) {
+      const result = await extractEvents(extractMessages, apiKey, graph)
+      events = result.events || []
+      if (result.error) {
+        console.warn('[MemoryGraph] LLM extraction failed, using deterministic fallback:', result.error.message)
+        events = extractEventsDeterministic(extractMessages, graph)
+      }
+    } else {
+      events = extractEventsDeterministic(extractMessages, graph)
+    }
+
+    if (events.length > 0) {
+      console.log('[MemoryGraph] Extracted ' + events.length + ' events:', events.map(e => e.summary).join(' | '))
+      updateGraph(graph, events, { aiReply, turnNumber: graph.global.turnCount + 1 })
+      saveGraph(characterId, graph)
+    }
+  } catch (err) {
+    console.warn('[MemoryGraph] Background update failed:', err.message)
+  }
+}
+
 export async function extractCharacterFromText(text, apiKey) {
   const model = getModel()
 
@@ -1977,44 +2029,85 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
 
 /**
  * Format structured compression data as a readable summary string.
- * Provides backward compatibility for code expecting a string summary.
+ *
+ * THREE-LAYER OUTPUT (no JSON, no schema, no debug fields):
+ *   [STATE] — relationship status + dominance levels
+ *   [EVENTS] — clean event descriptions
+ *   [NARRATIVE] — pure text scene summary
+ *
+ * This is injected into LLM context — must be narrative, not code.
  */
 function formatStructuredSummary(s) {
   const lines = []
 
+  // ── Layer 1: STATE ──
   if (s.skeleton?.current_state) {
-    lines.push('【剧情状态】\n' + s.skeleton.current_state)
-  }
-
-  if (s.skeleton?.active_conflicts?.length) {
-    lines.push('【活跃冲突】\n' + s.skeleton.active_conflicts.map(c => '• ' + c).join('\n'))
-  }
-
-  if (s.skeleton?.key_events?.length) {
-    lines.push('【关键事件】\n' + s.skeleton.key_events.map(e => '• ' + e).join('\n'))
-  }
-
-  if (s.events?.length) {
-    const recentEvents = s.events.slice(-5).map(e =>
-      `[${e.event}] ${e.actor}→${e.target}: ${e.summary || ''} (${e.emotion || ''}, ${e.affection_delta != null ? (e.affection_delta > 0 ? '+' : '') + e.affection_delta : ''})`
-    )
-    lines.push('【最近事件】\n' + recentEvents.map(e => '• ' + e).join('\n'))
+    lines.push('【剧情状态】' + s.skeleton.current_state)
   }
 
   if (s.relationships) {
-    const relLines = Object.entries(s.relationships).map(([name, r]) =>
-      `${name}: 好感${r.affection ?? '?'} 信任${r.trust ?? '?'} ${r.stage_hint || ''}`
-    )
-    lines.push('【关系状态】\n' + relLines.join('\n'))
+    const relDescs = Object.entries(s.relationships).map(([name, r]) => {
+      const parts = []
+      if (r.stage_hint) parts.push(r.stage_hint)
+      if (r.affection != null) parts.push('好感' + r.affection)
+      if (r.trust != null) parts.push('信任' + r.trust)
+      if (r.dominance != null) parts.push('主导' + Math.round(r.dominance * 100) + '%')
+      return name + '：' + parts.join('，')
+    })
+    if (relDescs.length) {
+      lines.push('【关系状态】' + relDescs.join(' | '))
+    }
   }
 
+  // ── Layer 2: EVENTS (narrative, not code) ──
+  if (s.skeleton?.active_conflicts?.length) {
+    lines.push('【活跃冲突】' + s.skeleton.active_conflicts.join(' | '))
+  }
+
+  if (s.skeleton?.key_events?.length) {
+    lines.push('【关键事件】' + s.skeleton.key_events.join(' | '))
+  }
+
+  if (s.events?.length) {
+    const eventDescs = s.events.slice(-6).map(e => {
+      const actor = e.actor || '某人'
+      const target = e.target === 'user' ? '玩家' : (e.target || '对方')
+      const summary = e.summary || ''
+      const mood = e.emotion || ''
+      let desc = actor + '对' + target
+      if (mood) {
+        const moodMap = { anger: '发怒', hurt: '受伤', cold: '冷漠', jealousy: '吃醋', fear: '恐惧', longing: '想念', warmth: '示好', despair: '绝望', hope: '期待', guilt: '内疚' }
+        desc += moodMap[mood] || mood
+      }
+      if (summary) desc += '——' + summary
+      return desc
+    })
+    lines.push('【最近事件】' + eventDescs.join('。'))
+  }
+
+  // ── Layer 3: NARRATIVE ──
   if (s.last_scene?.location) {
     const scene = s.last_scene
-    lines.push(`【场景】${scene.location} | ${(scene.present || []).join('、')} | ${scene.mood || ''}`)
+    const present = (scene.present || []).filter(p => p !== 'user').join('、')
+    const parts = ['地点：' + scene.location]
+    if (present) parts.push('在场：' + present)
+    if (scene.mood) parts.push('氛围：' + scene.mood)
+    lines.push('【场景】' + parts.join(' | '))
   }
 
   if (s.last_reply_verbatim) {
-    lines.push('【最后一幕】\n' + s.last_reply_verbatim.slice(0, 300))
+    const clean = s.last_reply_verbatim
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\{[\s\S]*?\}/g, '')
+      .trim()
+      .slice(0, 300)
+    if (clean) {
+      lines.push('【最后一幕】' + clean)
+    }
+  }
+
+  if (s.skeleton?.unresolved?.length) {
+    lines.push('【未解决】' + s.skeleton.unresolved.join(' | '))
   }
 
   return lines.join('\n\n')
