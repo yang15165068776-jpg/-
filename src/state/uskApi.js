@@ -20,6 +20,7 @@
 import {
   loadOrCreateUSK,
   saveUSK,
+  saveFolderUSK,
   getRelationship,
   getEmotion,
   getTension,
@@ -39,6 +40,7 @@ import {
 
 let _usk = null       // Internal USK instance — NEVER expose directly
 let _persona = null    // Cached persona reference
+let _folderId = null   // v6: folder ID when in folder mode
 
 /**
  * Initialize the API with a persona. Loads or creates USK.
@@ -259,6 +261,16 @@ export function _unsafe_getRawUSK() {
   return _usk
 }
 
+/**
+ * v6: Set folder-scoped USK from StateBridge.
+ * USE ONLY FROM StateBridge. Do NOT call from UI code.
+ */
+export function _unsafe_setFolderUSK(usk, folderId) {
+  _usk = usk
+  _folderId = folderId
+  _persona = null
+}
+
 // ═══════════════════════════════════════════════════════════
 // Prompt helpers
 // ═══════════════════════════════════════════════════════════
@@ -284,7 +296,16 @@ export function getPromptEvents(maxEvents = 10) {
 // ═══════════════════════════════════════════════════════════
 
 function persist() {
-  if (!_usk || !_persona) return
+  if (!_usk) return
+
+  // v6: folder-scoped USK persistence
+  if (_folderId) {
+    saveFolderUSK(_folderId, _usk)
+    return
+  }
+
+  // Legacy: per-character USK persistence
+  if (!_persona) return
   const id = _persona.id || _persona.name || 'unknown'
   saveUSK(id, _usk)
 }

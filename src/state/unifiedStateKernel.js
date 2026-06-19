@@ -18,10 +18,12 @@
  *   · Initiative score (computed from layers, drives active messaging)
  *   · Cross-mode sync (drama events update daily state, and vice versa)
  *
- * Storage: localStorage key = jsjg_usk_<characterId>
+ * Storage: localStorage key = jsjg_usk_<characterId>  (legacy)
+ *          localStorage key = jsjg_folder_usk_<folderId>  (v6 folder-scoped)
  */
 
 const STORAGE_PREFIX = 'jsjg_usk_'
+const FOLDER_USK_PREFIX = 'jsjg_folder_usk_'
 
 // ═══════════════════════════════════════════════════════════
 // State Schema
@@ -100,12 +102,18 @@ export function createUSK(persona, options = {}) {
     // ── Per-character state ──
     characters,
 
-    // ── Global state ──
+    // ── Global mode state ──
     global: {
       currentMode: options.sourceMode === 'daily' ? 'daily' : 'drama',
       lastModeSwitch: null,
       turnCount: 0,
       lastInteractionAt: now,
+    },
+
+    // ── Global state (v6 folder-level) ──
+    global_state: {
+      world_tension: 30,       // 世界整体张力 0-100
+      folder_mood: 50,         // 世界整体情绪氛围 0-100
     },
 
     // ── Event memory (append-only, structured) ──
@@ -286,6 +294,53 @@ export function advanceLifeState(usk, charName, minutesSinceLastInteraction) {
 
   usk.updatedAt = Date.now()
   return usk
+}
+
+// ═══════════════════════════════════════════════════════════
+// Global State (v6 — Folder-level / World-level)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Get a global_state field value.
+ * @param {object} usk
+ * @param {string} field — 'world_tension' | 'folder_mood'
+ * @returns {number} 0-100
+ */
+export function getGlobalState(usk, field) {
+  return usk?.global_state?.[field] ?? (field === 'folder_mood' ? 50 : 30)
+}
+
+/**
+ * Set a global_state field value. Clamped 0-100.
+ * @returns {object} usk
+ */
+export function setGlobalState(usk, field, value) {
+  if (!usk) return usk
+  if (!usk.global_state) {
+    usk.global_state = { world_tension: 30, folder_mood: 50 }
+  }
+  usk.global_state[field] = clamp(value, 0, 100)
+  usk.updatedAt = Date.now()
+  return usk
+}
+
+/**
+ * Adjust a global_state field by delta.
+ */
+export function adjustGlobalState(usk, field, delta) {
+  const current = getGlobalState(usk, field)
+  return setGlobalState(usk, field, current + delta)
+}
+
+/**
+ * Get the full global_state object.
+ * @returns {{ world_tension: number, folder_mood: number }}
+ */
+export function getFullGlobalState(usk) {
+  if (!usk?.global_state) {
+    return { world_tension: 30, folder_mood: 50 }
+  }
+  return { ...usk.global_state }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -858,6 +913,183 @@ export function syncToMemoryGraph(usk) {
   }
 
   return edges
+}
+
+// ═══════════════════════════════════════════════════════════
+// Folder-Scoped USK (v6)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Create a folder-scoped USK with multiple characters.
+ * This is the v6 canonical USK creation path.
+ *
+ * @param {string} folderId
+ * @param {object[]} charactersData — array of { id, name, affectionInitial?, ... }
+ * @param {object} options — { sourceMode: 'drama'|'daily' }
+ * @returns {object} fresh folder-scoped USK
+ */
+export function createFolderUSK(folderId, charactersData = [], options = {}) {
+  const now = Date.now()
+
+  const characters = {}
+  for (const char of charactersData) {
+    const key = char.id || char.name || 'unknown'
+    characters[key] = {
+      relationship: {
+        affection: char.affectionInitial ?? 50,
+        trust: 30,
+        dependency: 30,
+        respect: 40,
+        fear: 30,
+        possessiveness: 30,
+      },
+      emotion: {
+        anger: 5,
+        sadness: 5,
+        jealousy: 5,
+        anxiety: 10,
+        curiosity: 30,
+        excitement: 20,
+      },
+      tension: {
+        unresolved_conflicts: 0,
+        emotional_pressure: 20,
+        attraction_tension: 40,
+        power_imbalance: 50,
+      },
+      life: {
+        busy: 20,
+        busyness: 20,
+        tired: 15,
+        lonely: 40,
+        loneliness: 40,
+        social_need: 30,
+        mood: 60,
+        initiative_score: 50,
+      },
+    }
+  }
+
+  return {
+    version: 1,
+    folderId: folderId,
+    createdAt: now,
+    updatedAt: now,
+
+    meta: {
+      last_update: new Date().toISOString(),
+      active_mode: options.sourceMode === 'daily' ? 'DAILY' : 'DRAMA',
+    },
+
+    // ── Per-character state ──
+    characters,
+
+    // ── Global mode state ──
+    global: {
+      currentMode: options.sourceMode === 'daily' ? 'daily' : 'drama',
+      lastModeSwitch: null,
+      turnCount: 0,
+      lastInteractionAt: now,
+    },
+
+    // ── Global state (v6 folder-level) ──
+    global_state: {
+      world_tension: 30,
+      folder_mood: 50,
+    },
+
+    // ── Event memory ──
+    event_memory: [],
+
+    // ── Initiative engine state ──
+    initiative: {
+      score: 50,
+      lastActiveMessageAt: null,
+      consecutivePassiveTurns: 0,
+    },
+
+    // ── Migration flags ──
+    _migration: {
+      fromMemoryGraph: false,
+      fromArchive: false,
+      migratedAt: null,
+    },
+  }
+}
+
+/**
+ * Save folder-scoped USK to localStorage.
+ * @param {string} folderId
+ * @param {object} usk
+ * @returns {boolean}
+ */
+export function saveFolderUSK(folderId, usk) {
+  try {
+    if (!folderId || !usk) return false
+    const key = FOLDER_USK_PREFIX + folderId
+    localStorage.setItem(key, JSON.stringify(usk))
+    return true
+  } catch (e) {
+    console.warn('[USK] Folder save failed:', e.message)
+    return false
+  }
+}
+
+/**
+ * Load folder-scoped USK from localStorage.
+ * @param {string} folderId
+ * @returns {object|null}
+ */
+export function loadFolderUSK(folderId) {
+  try {
+    const key = FOLDER_USK_PREFIX + folderId
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed.version !== 1) return null
+    return parsed
+  } catch (e) {
+    console.warn('[USK] Folder load failed:', e.message)
+    return null
+  }
+}
+
+/**
+ * Load or create folder-scoped USK.
+ * @param {string} folderId
+ * @param {object[]} charactersData
+ * @param {object} options
+ * @returns {object} USK
+ */
+export function loadOrCreateFolderUSK(folderId, charactersData = [], options = {}) {
+  let usk = loadFolderUSK(folderId)
+
+  if (!usk) {
+    usk = createFolderUSK(folderId, charactersData, options)
+  }
+
+  // Ensure all provided characters have state entries
+  for (const char of charactersData) {
+    const key = char.id || char.name
+    if (key && !usk.characters[key]) {
+      usk.characters[key] = createCharacterState(char)
+    }
+  }
+
+  return usk
+}
+
+/**
+ * Delete folder-scoped USK.
+ * @param {string} folderId
+ */
+export function deleteFolderUSK(folderId) {
+  try {
+    localStorage.removeItem(FOLDER_USK_PREFIX + folderId)
+    return true
+  } catch {
+    return false
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

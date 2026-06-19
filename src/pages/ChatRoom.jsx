@@ -19,7 +19,8 @@ import { createEpisodeMessage } from '../memory/episodeSummarizer'
 import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordinator'
 import { validatePersona } from '../runtime/antiSmoothing'
 import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
-import { initBridge, getUIState, dramaTurnStart, dramaTurnEnd, dailyTurnStart, dailyTurnEnd, switchMode, getPromptState, getRawUSK } from '../state/stateBridge'
+import { initBridge, getUIState, dramaTurnStart, dramaTurnEnd, dailyTurnStart, dailyTurnEnd, switchMode, getPromptState, getRawUSK, initBridgeForFolder, getFolderUIState, getRawFolderUSK, isFolderMode } from '../state/stateBridge'
+import { getSave, getOrCreateDefaultSave, updateSaveMessages } from '../state/folderStore'
 import { useAutoMessage } from '../hooks/useAutoMessage'
 import TypingIndicator from '../components/TypingIndicator'
 import ChatHeader from '../components/ChatHeader'
@@ -713,7 +714,10 @@ function MessageBubble({ msg, index, isUser, character, userAvatar, onEdit, onRe
   )
 }
 
-export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange }) {
+export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _v6FolderId, _v6FolderChars }) {
+  const isV6Folder = !!_v6FolderId
+  const folderId = _v6FolderId || null
+  const folderChars = _v6FolderChars || []
   const [character, setCharacter] = useState(null)
   const [archiveName, setArchiveName] = useState('')
   const [messages, setMessages] = useState([])
@@ -762,6 +766,75 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange })
   const menuTimerRef = useRef(null)
 
   useEffect(() => {
+    // ── v6: Folder mode ──
+    if (isV6Folder && folderId) {
+      // Use character from props (already legacy-formatted by App.jsx)
+      setCharacter(folderChars[0] ? {
+        id: folderChars[0].id || folderChars[0].legacyId || folderId,
+        name: folderChars[0].name || '角色',
+        avatar: folderChars[0].avatar || '',
+        chatStyle: mode === 'daily' ? 'casual' : 'story',
+        worldSetting: folderChars[0].worldSetting || '',
+        openingScenario: folderChars[0].openingScenario || '',
+        affectionEnabled: folderChars[0].affectionEnabled !== false,
+        affectionInitial: folderChars[0].affectionInitial ?? 50,
+        romanceCharacters: folderChars[0].romanceCharacters || null,
+        npcs: folderChars[0].npcs || [],
+        contextWindow: folderChars[0].contextWindow || 40,
+        thinkingEnabled: folderChars[0].thinkingEnabled || false,
+        thinkingPrompt: folderChars[0].thinkingPrompt || '',
+        temperature: folderChars[0].temperature ?? 0.9,
+        topP: folderChars[0].topP ?? 0.95,
+        activeMessageEnabled: folderChars[0].activeMessageEnabled || false,
+        activePrompt: folderChars[0].activePrompt || '',
+        nickname: folderChars[0].nickname || '',
+      } : null)
+
+      // Get save from folder (specific or default)
+      const save = archiveId ? getSave(archiveId, folderId) : getOrCreateDefaultSave(folderId)
+      if (!save) return
+      setArchiveName(save.name)
+      const msgs = save.messages || []
+
+      // Inject opening scenario on fresh chat
+      const firstChar = folderChars[0]
+      if (msgs.length === 0 && firstChar?.openingScenario) {
+        const openingMsg = {
+          role: 'assistant',
+          content: firstChar.openingScenario,
+          timestamp: Date.now(),
+          isOpening: true,
+        }
+        setMessages([openingMsg])
+        updateSaveMessages(save.id, folderId, [openingMsg])
+      } else {
+        setMessages(msgs)
+      }
+      setUserAvatarState(getUserAvatar())
+
+      // Init folder-scoped bridge
+      const charsForUSK = folderChars.map(c => ({
+        id: c.name,  // use name as USK key for persona compatibility
+        name: c.name,
+        affectionInitial: c.affectionInitial ?? 50,
+      }))
+      const { state: folderUSK } = initBridgeForFolder(folderId, charsForUSK, mode === 'daily' ? 'daily' : 'drama')
+
+      // Set usk state for LLM prompt injection (buildStateSnapshot needs it)
+      setUsk(folderUSK)
+
+      // Set persona from first character
+      const mainChar = folderChars[0]
+      if (mainChar) {
+        setPersona({ characters: [{ type: 'romance', name: mainChar.name, affectionEnabled: mainChar.affectionEnabled !== false, affectionInitial: mainChar.affectionInitial ?? 50 }] })
+        const uiState = getFolderUIState(mainChar.name)  // use name as key (matches USK key)
+        setAffection(uiState?.relationship?.affection ?? mainChar.affectionInitial ?? 50)
+      }
+
+      return // folder mode done, skip legacy code below
+    }
+
+    // ── Legacy mode ──
     const archive = getArchive(archiveId, mode)
     if (!archive) return
     setArchiveName(archive.name)
@@ -811,17 +884,21 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange })
         setAffection(uiState?.relationship?.affection ?? 50)
       }
     }
-  }, [archiveId])
+  }, [archiveId, isV6Folder, folderId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
   useEffect(() => {
-    if (character) {
+    if (isV6Folder && folderId) {
+      // v6: save to folder save (specific or default)
+      const save = archiveId ? getSave(archiveId, folderId) : getOrCreateDefaultSave(folderId)
+      if (save) updateSaveMessages(save.id, folderId, messages)
+    } else if (character) {
       saveChatMessages(archiveId, messages, mode)
     }
-  }, [messages, archiveId, character, mode])
+  }, [messages, archiveId, character, mode, isV6Folder, folderId])
 
   useEffect(() => {
     if (character?.affectionEnabled && affection !== null) {
@@ -839,8 +916,8 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange })
 
 
   // Shared function to display active messages sequentially
-  const displayActiveMessages = useCallback((messages, archiveId) => {
-    if (!messages || messages.length === 0) return
+  const displayActiveMessages = useCallback((activeMsgs, targetArchiveId) => {
+    if (!activeMsgs || activeMsgs.length === 0) return
     // Cancel any previous displays
     if (activeDisplayRef.current) {
       clearTimeout(activeDisplayRef.current)
@@ -851,10 +928,16 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange })
     setRevealingState(null)
 
     // Add a new assistant message with segments (simple text segments)
-    const segments = messages.map(m => ({ text: m, action: null, thought: null }))
+    const segments = activeMsgs.map(m => ({ text: m, action: null, thought: null }))
     setMessages(prev => {
-      const updated = [...prev, { role: 'assistant', content: messages.join('|||'), segments, timestamp: Date.now(), isAutonomous: true }]
-      saveChatMessages(archiveId, updated, mode)
+      const updated = [...prev, { role: 'assistant', content: activeMsgs.join('|||'), segments, timestamp: Date.now(), isAutonomous: true }]
+      // v6: use folder save if in folder mode
+      if (isV6Folder && folderId) {
+        const save = getOrCreateDefaultSave(folderId)
+        if (save) updateSaveMessages(save.id, folderId, updated)
+      } else {
+        saveChatMessages(targetArchiveId, updated, mode)
+      }
 
       // Start sequential reveal
       const msgIndex = updated.length - 1
@@ -1369,13 +1452,20 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange })
 
   const handleClear = () => {
     if (window.confirm('确定要清除所有对话记录吗？')) {
-      clearChatHistory(archiveId, mode)
-      setMessages([])
-      // Clear compressed memory from character
-      const char = getCharacter(character.id, mode)
-      if (char && char.compressedMemory) {
-        delete char.compressedMemory
-        saveCharacter(char, mode)
+      if (isV6Folder && folderId) {
+        // v6: clear folder save messages
+        const save = getOrCreateDefaultSave(folderId)
+        if (save) updateSaveMessages(save.id, folderId, [])
+        setMessages([])
+      } else {
+        clearChatHistory(archiveId, mode)
+        setMessages([])
+        // Clear compressed memory from character
+        const char = getCharacter(character.id, mode)
+        if (char && char.compressedMemory) {
+          delete char.compressedMemory
+          saveCharacter(char, mode)
+        }
       }
       if (character?.chatStyle === 'story' && character?.romanceCharacters) {
         const initial = {}

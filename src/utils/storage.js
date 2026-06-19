@@ -293,3 +293,83 @@ export function saveUserAvatar(avatar) {
   settings.userAvatar = avatar
   saveSettings(settings)
 }
+
+// ═══════════════════════════════════════════════════════════
+// Player Profile (v6)
+// ═══════════════════════════════════════════════════════════
+
+const PLAYER_PROFILE_KEY = 'jsjg_player_profile'
+
+export function getPlayerProfile() {
+  try {
+    return JSON.parse(localStorage.getItem(PLAYER_PROFILE_KEY) || '{"name":"","avatar":"","gender":"","personalityTags":[]}')
+  } catch {
+    return { name: '', avatar: '', gender: '', personalityTags: [] }
+  }
+}
+
+export function savePlayerProfile(profile) {
+  const existing = getPlayerProfile()
+  const merged = { ...existing, ...profile }
+  try {
+    localStorage.setItem(PLAYER_PROFILE_KEY, JSON.stringify(merged))
+    return true
+  } catch { return false }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Folder Storage (v6) — delegates to folderStore
+// ═══════════════════════════════════════════════════════════
+
+const FOLDERS_KEY = 'jsjg_folders'
+const FOLDER_SAVES_PREFIX = 'jsjg_folder_saves_'
+
+export function _readFolders() {
+  try { return JSON.parse(localStorage.getItem(FOLDERS_KEY) || '[]') } catch { return [] }
+}
+
+export function _writeFolders(folders) {
+  try { localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders)) } catch {}
+}
+
+export function _readFolderSaves(folderId) {
+  try { return JSON.parse(localStorage.getItem(FOLDER_SAVES_PREFIX + folderId) || '{}') } catch { return {} }
+}
+
+export function _writeFolderSaves(folderId, saves) {
+  try { localStorage.setItem(FOLDER_SAVES_PREFIX + folderId, JSON.stringify(saves)) } catch {}
+}
+
+// ═══════════════════════════════════════════════════════════
+// Legacy Character Import Helpers (v6)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Get all legacy characters across both modes.
+ * Used by the import-into-folder flow.
+ * @returns {object[]} — [ { id, name, avatar, mode, raw }, ... ]
+ */
+export function getAllLegacyCharacters() {
+  const chars = []
+  try {
+    const storyChars = JSON.parse(localStorage.getItem('story_characters') || '[]')
+    for (const c of storyChars) {
+      chars.push({ id: c.id, name: c.name, avatar: c.avatar || '', mode: 'story', raw: c })
+    }
+  } catch {}
+  try {
+    const dailyChars = JSON.parse(localStorage.getItem('daily_characters') || '[]')
+    for (const c of dailyChars) {
+      chars.push({ id: c.id, name: c.name, avatar: c.avatar || '', mode: 'daily', raw: c })
+    }
+  } catch {}
+  return chars
+}
+
+/**
+ * Get all legacy archives for a character.
+ * @returns {object[]}
+ */
+export function getLegacyArchivesForCharacter(characterId, mode) {
+  return getArchives(characterId, mode)
+}

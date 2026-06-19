@@ -16,7 +16,7 @@
  */
 
 import * as USK_API from './uskApi'
-import { syncToMemoryGraph } from './unifiedStateKernel'
+import { syncToMemoryGraph, loadOrCreateFolderUSK } from './unifiedStateKernel'
 import { loadGraph, saveGraph } from '../memory/memoryGraph'
 
 // ═══════════════════════════════════════════════════════════
@@ -204,4 +204,84 @@ export function getPersona() {
  */
 export function getRawUSK() {
   return USK_API._unsafe_getRawUSK()
+}
+
+// ═══════════════════════════════════════════════════════════
+// v6: Folder-scoped Bridge (Phase 3)
+// ═══════════════════════════════════════════════════════════
+
+let _folderUSK = null
+let _folderId = null
+
+/**
+ * Initialize the bridge for a folder (v6 multi-character world).
+ * Loads folder-scoped USK instead of per-character legacy USK.
+ *
+ * @param {string} folderId
+ * @param {object[]} charactersData — [{ id, name, affectionInitial, ... }]
+ * @param {string} initialMode — 'drama' | 'daily'
+ * @returns {{ state: object, characters: object[] }}
+ */
+export function initBridgeForFolder(folderId, charactersData, initialMode) {
+  _folderId = folderId
+  _folderUSK = loadOrCreateFolderUSK(folderId, charactersData, { sourceMode: initialMode })
+
+  // Sync to legacy USK_API for backward compat in engine calls
+  USK_API._unsafe_setFolderUSK(_folderUSK, folderId)
+
+  return {
+    state: JSON.parse(JSON.stringify(_folderUSK)),
+    characters: charactersData,
+  }
+}
+
+/**
+ * Get UI state for a character within a folder USK.
+ * @param {string} charIdOrName
+ * @returns {object|null} { relationship, emotion, tension, life }
+ */
+export function getFolderUIState(charIdOrName) {
+  if (!_folderUSK?.characters) return null
+
+  // Try by id first, then by name
+  let charState = _folderUSK.characters[charIdOrName]
+  if (!charState) {
+    // Search by name
+    for (const [key, state] of Object.entries(_folderUSK.characters)) {
+      if (key === charIdOrName) {
+        charState = state
+        break
+      }
+    }
+  }
+
+  if (!charState) return null
+
+  return {
+    relationship: { ...charState.relationship },
+    emotion: { ...charState.emotion },
+    tension: { ...charState.tension },
+    life: { ...charState.life },
+  }
+}
+
+/**
+ * Get the raw folder USK (for coordinator sync).
+ */
+export function getRawFolderUSK() {
+  return _folderUSK
+}
+
+/**
+ * Check if bridge is in folder mode.
+ */
+export function isFolderMode() {
+  return !!_folderId
+}
+
+/**
+ * Get the current folder ID.
+ */
+export function getCurrentFolderId() {
+  return _folderId
 }

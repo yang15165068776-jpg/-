@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getArchives, createArchive, deleteArchive, renameArchive } from '../utils/storage'
+import { getSaves, createSave, deleteSave, renameSave } from '../state/folderStore'
 
 function getPreview(messages) {
   if (!messages || messages.length === 0) return '暂无对话记录'
@@ -9,28 +10,50 @@ function getPreview(messages) {
   return text.slice(0, 60) + (text.length > 60 ? '...' : '')
 }
 
-export default function ArchiveList({ mode, character, onBack, onChat }) {
+export default function ArchiveList({ mode, character, onBack, onChat, _v6FolderId }) {
   const [archives, setArchives] = useState([])
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [renameId, setRenameId] = useState(null)
   const [renameText, setRenameText] = useState('')
+  const isV6Folder = !!_v6FolderId
 
   const refresh = useCallback(() => {
-    setArchives(getArchives(character.id, mode))
-  }, [character.id, mode])
+    if (isV6Folder && _v6FolderId) {
+      // v6: use folder saves
+      const saves = getSaves(_v6FolderId)
+      setArchives(saves.map(s => ({
+        id: s.id,
+        name: s.name,
+        messages: s.messages || [],
+        createdAt: s.createdAt,
+      })))
+    } else {
+      setArchives(getArchives(character.id, mode))
+    }
+  }, [character.id, mode, isV6Folder, _v6FolderId])
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
   const handleCreate = () => {
-    const name = '新对话 ' + new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    const archive = createArchive(character.id, name, mode)
-    onChat(archive.id)
+    if (isV6Folder && _v6FolderId) {
+      const name = '存档 ' + new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      const save = createSave(_v6FolderId, name)
+      if (save) onChat(save.id)
+    } else {
+      const name = '新对话 ' + new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+      const archive = createArchive(character.id, name, mode)
+      onChat(archive.id)
+    }
   }
 
   const handleDelete = (id) => {
-    deleteArchive(id, mode)
+    if (isV6Folder && _v6FolderId) {
+      deleteSave(id, _v6FolderId)
+    } else {
+      deleteArchive(id, mode)
+    }
     setDeleteConfirm(null)
     if (renameId === id) {
       setRenameId(null)
@@ -47,7 +70,11 @@ export default function ArchiveList({ mode, character, onBack, onChat }) {
   const handleRenameConfirm = (id) => {
     const trimmed = renameText.trim()
     if (trimmed) {
-      renameArchive(id, trimmed, mode)
+      if (isV6Folder && _v6FolderId) {
+        renameSave(id, _v6FolderId, trimmed)
+      } else {
+        renameArchive(id, trimmed, mode)
+      }
     }
     setRenameId(null)
     setRenameText('')

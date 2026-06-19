@@ -2,32 +2,56 @@ import { useState } from 'react'
 import ChatRoom from './ChatRoom'
 import ArchiveList from './ArchiveList'
 import { getRomanceCharacters } from '../persona/personaCore'
-import { initBridge, getUIState } from '../state/stateBridge'
+import { initBridge, getUIState, initBridgeForFolder, getFolderUIState } from '../state/stateBridge'
 import { normalizeCharacter } from '../persona/personaCore'
 
 /**
  * CharacterHome — Character space with tab bar navigation.
  * Props: character, onBack
+ *
+ * v6: When character._v6FolderId exists, uses folder-scoped USK and folder saves.
  */
 export default function CharacterHome({ character, onBack }) {
   const [activeTab, setActiveTab] = useState('daily')
   const [archiveId, setArchiveId] = useState(null)
+  const isV6Folder = !!character?._v6FolderId
+  const folderId = character?._v6FolderId || null
+  const folderChars = character?._v6FolderChars || []
 
-  // Load affection from USK
+  // Load affection from USK (folder or legacy)
   const [affection, setAffection] = useState(() => {
     try {
-      const persona = normalizeCharacter(character, character?.chatStyle === 'story' ? 'story' : 'daily')
-      const mainChar = persona?.characters?.find(c => c.type === 'romance')
-      if (mainChar) {
-        initBridge(persona, 'daily')
-        const state = getUIState(mainChar.name)
-        return state?.relationship?.affection ?? mainChar.affectionInitial ?? 50
+      if (isV6Folder && folderId) {
+        // v6: folder-scoped USK — use name as key for persona compatibility
+        const charsForUSK = folderChars.map(c => ({
+          id: c.name,  // use name as USK key so persona lookups match
+          name: c.name,
+          affectionInitial: c.affectionInitial ?? 50,
+        }))
+        initBridgeForFolder(folderId, charsForUSK, 'daily')
+        const mainChar = folderChars[0]
+        if (mainChar) {
+          const state = getFolderUIState(mainChar.id || mainChar.name)
+          return state?.relationship?.affection ?? mainChar.affectionInitial ?? 50
+        }
+      } else {
+        // Legacy: per-character USK
+        const persona = normalizeCharacter(character, character?.chatStyle === 'story' ? 'story' : 'daily')
+        const mainChar = persona?.characters?.find(c => c.type === 'romance')
+        if (mainChar) {
+          initBridge(persona, 'daily')
+          const state = getUIState(mainChar.name)
+          return state?.relationship?.affection ?? mainChar.affectionInitial ?? 50
+        }
       }
     } catch { /* fall through */ }
     return 50
   })
 
-  const mainName = getRomanceCharacters(normalizeCharacter(character, character?.chatStyle === 'story' ? 'story' : 'daily'))?.[0]?.name || character?.name || ''
+  const mainName = (isV6Folder
+    ? (folderChars[0]?.name || character?.name || '')
+    : getRomanceCharacters(normalizeCharacter(character, character?.chatStyle === 'story' ? 'story' : 'daily'))?.[0]?.name || character?.name || ''
+  )
 
   const tabs = [
     { key: 'daily', icon: '💬', label: '日常' },
@@ -77,17 +101,19 @@ export default function CharacterHome({ character, onBack }) {
             onBack={null}
             onChat={(id) => {
               setArchiveId(id)
-              setActiveTab('daily') // switch to daily tab with archive
+              setActiveTab('daily')
             }}
+            {...(isV6Folder ? { _v6FolderId: folderId } : {})}
           />
         ) : (
           <ChatRoom
-            key={character?.id + '_' + activeTab}
+            key={(character?.id || 'char') + '_' + activeTab}
             character={character}
             mode={activeTab}
             onAffectionChange={setAffection}
             archiveId={archiveId}
             onBack={null}
+            {...(isV6Folder ? { _v6FolderId: folderId, _v6FolderChars: folderChars } : {})}
           />
         )}
       </div>
