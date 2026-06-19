@@ -8,6 +8,8 @@ import StoryCharacterForm from './pages/story/CharacterForm'
 import DailyCharacterList from './pages/daily/CharacterList'
 import DailyCharacterForm from './pages/daily/CharacterForm'
 import CharacterHome from './pages/CharacterHome'
+import DramaPage from './pages/DramaPage'
+import DailyPage from './pages/DailyPage'
 import Settings from './pages/Settings'
 import DirectChat from './pages/DirectChat'
 import Toast from './components/Toast'
@@ -78,61 +80,16 @@ export default function App() {
     setPage('list')
   }, [])
 
-  // ── v6: Enter drama/daily from folder ──
+  // ── v6: Enter drama/daily from folder → standalone pages (COMPLETELY ISOLATED) ──
   const handleEnterDrama = useCallback((folder) => {
-    // Convert folder's first character to legacy format for ChatRoom
     const chars = (folder.characterData || []).filter(c => !c.type || c.type !== 'npc')
     if (chars.length === 0) {
       showToast('请先在文件夹中添加角色', 'error')
       return
     }
-    const mainChar = chars[0]
-    const legacyChar = {
-      id: mainChar.id || mainChar.legacyId || folder.id,
-      name: mainChar.name || folder.name,
-      avatar: mainChar.avatar || '',
-      chatStyle: 'story',
-      worldSetting: mainChar.worldSetting || folder.worldview || '',
-      openingScenario: mainChar.openingScenario || folder.story_intro || '',
-      storyTone: mainChar.storyTone || '',
-      protagonistName: mainChar.protagonistName || '',
-      protagonistGender: mainChar.protagonistGender || '',
-      protagonistBackground: mainChar.protagonistBackground || '',
-      protagonistPersonality: mainChar.protagonistPersonality || '',
-      romanceCharacters: (mainChar.romanceCharacters?.length > 0
-        ? mainChar.romanceCharacters
-        : [{
-            id: mainChar.id,
-            name: mainChar.name,
-            avatar: mainChar.avatar || '',
-            background: mainChar.background || '',
-            personality: mainChar.personality || '',
-            speakingStyle: mainChar.speakingStyle || '',
-            styleRules: mainChar.styleRules || [],
-            forbiddenWords: mainChar.forbiddenWords || [],
-            affectionEnabled: mainChar.affectionEnabled !== false,
-            affectionInitial: mainChar.affectionInitial ?? 50,
-            affectionStages: mainChar.affectionStages || [],
-            transitionTriggers: mainChar.transitionTriggers || '',
-            irreversibleMoment: mainChar.irreversibleMoment || '',
-            erosionCondition: mainChar.erosionCondition || '',
-            anchorSuppression: mainChar.anchorSuppression || '',
-            thinkingEnabled: mainChar.thinkingEnabled || false,
-            thinkingPrompt: mainChar.thinkingPrompt || '',
-          }]
-      ),
-      npcs: mainChar.npcs || [],
-      contextWindow: mainChar.contextWindow || 40,
-      thinkingEnabled: mainChar.thinkingEnabled || false,
-      thinkingPrompt: mainChar.thinkingPrompt || '',
-      temperature: mainChar.temperature ?? 0.9,
-      topP: mainChar.topP ?? 0.95,
-      // v6: attach folder info for USK lookup
-      _v6FolderId: folder.id,
-      _v6FolderChars: chars,
-    }
-    setSelectedCharacter(legacyChar)
-    setPage('character')
+    // Store folder context for DramaPage
+    setSelectedFolder({ ...folder, _chars: chars })
+    setPage('dramaPage')
   }, [showToast])
 
   const handleEnterDaily = useCallback((folder) => {
@@ -141,43 +98,8 @@ export default function App() {
       showToast('请先在文件夹中添加角色', 'error')
       return
     }
-    const mainChar = chars[0]
-    const legacyChar = {
-      id: mainChar.id || mainChar.legacyId || folder.id,
-      name: mainChar.name || folder.name,
-      avatar: mainChar.avatar || '',
-      chatStyle: 'casual',
-      background: mainChar.background || '',
-      personality: mainChar.personality || '',
-      speakingStyle: mainChar.speakingStyle || '',
-      styleRules: mainChar.styleRules || [],
-      forbiddenWords: mainChar.forbiddenWords || [],
-      affectionEnabled: mainChar.affectionEnabled !== false,
-      affectionInitial: mainChar.affectionInitial ?? 50,
-      affectionStages: mainChar.affectionStages || [],
-      affectionUpRules: mainChar.transitionTriggers || '',
-      affectionDownRules: mainChar.irreversibleMoment || '',
-      thinkingEnabled: mainChar.thinkingEnabled || false,
-      thinkingPrompt: mainChar.thinkingPrompt || '',
-      protagonistName: mainChar.protagonistName || '',
-      protagonistGender: mainChar.protagonistGender || '',
-      protagonistBackground: mainChar.protagonistBackground || '',
-      protagonistPersonality: mainChar.protagonistPersonality || '',
-      openingScenario: mainChar.openingScenario || folder.story_intro || '',
-      worldSetting: mainChar.worldSetting || folder.worldview || '',
-      contextWindow: mainChar.contextWindow || 40,
-      temperature: mainChar.temperature ?? 0.9,
-      topP: mainChar.topP ?? 0.95,
-      activeMessageEnabled: mainChar.activeMessageEnabled || false,
-      activePrompt: mainChar.activePrompt || '',
-      nickname: mainChar.nickname || '',
-      npcs: mainChar.npcs || [],
-      // v6
-      _v6FolderId: folder.id,
-      _v6FolderChars: chars,
-    }
-    setSelectedCharacter(legacyChar)
-    setPage('character')
+    setSelectedFolder({ ...folder, _chars: chars })
+    setPage('dailyPage')
   }, [showToast])
 
   // ── Page state checks ──
@@ -185,6 +107,8 @@ export default function App() {
   const isProfile = page === 'profile'
   const isCreateFolder = page === 'createFolder'
   const isFolder = page === 'folder'
+  const isDramaPage = page === 'dramaPage'
+  const isDailyPage = page === 'dailyPage'
   const isList = page === 'list'
   const isCharacter = page === 'character'
   const isForm = page === 'form'
@@ -192,7 +116,7 @@ export default function App() {
   const isDirect = page === 'direct'
 
   // Pages with their own header
-  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isCharacter
+  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isCharacter
 
   return (
     <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative', borderRadius: 'env(safe-area-inset-top, 0px)' }}>
@@ -257,6 +181,24 @@ export default function App() {
             onBack={() => { setSelectedFolder(null); setPage('entry') }}
             onEnterDrama={handleEnterDrama}
             onEnterDaily={handleEnterDaily}
+          />
+        )}
+
+        {/* ── v6: Standalone Drama page (NO BUBBLES, NO CHAT UI) ── */}
+        {isDramaPage && selectedFolder && (
+          <DramaPage
+            folderId={selectedFolder.id}
+            folderChars={selectedFolder._chars || []}
+            onBack={() => { setSelectedFolder(null); setPage('folder') }}
+          />
+        )}
+
+        {/* ── v6: Standalone Daily page (BUBBLES ONLY, WECHAT UI) ── */}
+        {isDailyPage && selectedFolder && (
+          <DailyPage
+            folderId={selectedFolder.id}
+            folderChars={selectedFolder._chars || []}
+            onBack={() => { setSelectedFolder(null); setPage('folder') }}
           />
         )}
 
