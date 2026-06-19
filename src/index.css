@@ -27,6 +27,17 @@
 
 /* Dark mode DISABLED — this is a light-theme-only design system */
 
+/* ═══════════════════════════════════════════════════════════
+   🔴 KILL SWITCH v2 — CSS Legacy Lockdown
+   ═══════════════════════════════════════════════════════════ */
+.legacy-ui,
+.chat-room,
+.direct-chat,
+.character-home {
+  all: unset;
+  display: none !important;
+}
+
 /* ── Base ── */
 * {
   box-sizing: border-box;

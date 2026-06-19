@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Entry from './pages/Entry'
 import PlayerProfile from './pages/PlayerProfile'
 import CreateFolder from './pages/CreateFolder'
@@ -15,82 +15,119 @@ import DirectChat from './pages/DirectChat'
 import Toast from './components/Toast'
 import StatusBar from './components/StatusBar'
 
+// ═══════════════════════════════════════
+// 🔴 KILL SWITCH v2 — Legacy Lockdown
+// ═══════════════════════════════════════
+
+/** Only these routes are allowed to execute. Everything else is dead. */
+const V6_ROUTES = new Set([
+  'entry',
+  'profile',
+  'createFolder',
+  'folder',
+  'dramaPage',
+  'dailyPage',
+])
+
+/**
+ * Legacy redirect: these routes silently bounce to entry.
+ * They exist in the codebase but cannot be navigated to.
+ */
+const LEGACY_REDIRECT = new Set([
+  'list',
+  'form',
+  'settings',
+])
+
+/**
+ * Legacy block: these routes are forcibly replaced with <Entry />.
+ * If they somehow render, the user sees entry instead.
+ */
+const LEGACY_BLOCKED = new Set([
+  'character',
+  'direct',
+])
+
+/** Master kill flag — set false to physically unmount all legacy. */
+const LEGACY_ENABLED = false
+
 export default function App() {
-  const [page, setPage] = useState('entry')  // v6: entry is the new home
-  const [mode, setMode] = useState('story')  // 'story' | 'daily'
+  const [page, setPage] = useState('entry')
+  const [mode, setMode] = useState('story')
   const [characterId, setCharacterId] = useState(null)
   const [selectedCharacter, setSelectedCharacter] = useState(null)
-  const [selectedFolder, setSelectedFolder] = useState(null) // v6
+  const [selectedFolder, setSelectedFolder] = useState(null)
   const [toast, setToast] = useState({ visible: false, message: '', type: 'info' })
   const showToast = useCallback((message, type = 'info') => {
     setToast({ visible: true, message, type })
   }, [])
 
-  // ── Legacy handlers (unchanged) ──
-  const handleSelectCharacter = useCallback((char) => {
-    setSelectedCharacter(char)
-    setPage('character')
+  // ═══════════════════════════════════════
+  // 🔴 Kill Switch: Runtime Lock
+  // ═══════════════════════════════════════
+  useEffect(() => {
+    window.__LEGACY_LOCK__ = true
+    console.log('[KILL SWITCH] v6 UI ACTIVE — legacy locked down')
   }, [])
 
-  const handleNewCharacter = useCallback(() => {
-    setPage('form')
-    setCharacterId(null)
+  // ═══════════════════════════════════════
+  // 🔴 Kill Switch: safeSetPage
+  // ═══════════════════════════════════════
+  const safeSetPage = useCallback((nextPage) => {
+    // Legacy redirect: silently bounce to entry
+    if (LEGACY_REDIRECT.has(nextPage)) {
+      console.warn('[KILL SWITCH] Legacy route redirected to entry:', nextPage)
+      setPage('entry')
+      return
+    }
+
+    // Legacy blocked: bounce to entry with warning
+    if (LEGACY_BLOCKED.has(nextPage)) {
+      console.warn('[KILL SWITCH] Blocked legacy route:', nextPage)
+      setPage('entry')
+      return
+    }
+
+    // Unknown route: bounce to entry
+    if (!V6_ROUTES.has(nextPage)) {
+      console.warn('[KILL SWITCH] Unknown route blocked:', nextPage)
+      setPage('entry')
+      return
+    }
+
+    setPage(nextPage)
   }, [])
 
-  const handleEditCharacter = useCallback((id) => {
-    setPage('form')
-    setCharacterId(id)
-  }, [])
-
-  const handleFormSaved = useCallback(() => {
-    setPage('list')
-    setCharacterId(null)
-  }, [])
-
-  const handleFormCancel = useCallback(() => {
-    setPage('list')
-    setCharacterId(null)
-  }, [])
-
-  // ── v6: Folder navigation ──
+  // ── v6: Folder navigation (all through safeSetPage) ──
   const handleEnterFolder = useCallback((folder) => {
     setSelectedFolder(folder)
-    setPage('folder')
-  }, [])
+    safeSetPage('folder')
+  }, [safeSetPage])
 
   const handleCreateFolder = useCallback(() => {
-    setPage('createFolder')
-  }, [])
+    safeSetPage('createFolder')
+  }, [safeSetPage])
 
   const handleFolderCreated = useCallback((folder) => {
     setSelectedFolder(folder)
-    setPage('folder')
+    safeSetPage('folder')
     showToast('世界创建成功！', 'success')
-  }, [showToast])
+  }, [showToast, safeSetPage])
 
   const handleProfile = useCallback(() => {
-    setPage('profile')
-  }, [])
+    safeSetPage('profile')
+  }, [safeSetPage])
 
-  const handleSettings = useCallback(() => {
-    setPage('settings')
-  }, [])
-
-  const handleLegacyList = useCallback(() => {
-    setPage('list')
-  }, [])
-
-  // ── v6: Enter drama/daily from folder → standalone pages (COMPLETELY ISOLATED) ──
+  // ── v6: Drama/Daily entry ──
   const handleEnterDrama = useCallback((folder) => {
     const chars = (folder.characterData || []).filter(c => !c.type || c.type !== 'npc')
     if (chars.length === 0) {
       showToast('请先在文件夹中添加角色', 'error')
       return
     }
-    // Store folder context for DramaPage
     setSelectedFolder({ ...folder, _chars: chars })
-    setPage('dramaPage')
-  }, [showToast])
+    safeSetPage('dramaPage')
+  }, [showToast, safeSetPage])
 
   const handleEnterDaily = useCallback((folder) => {
     const chars = (folder.characterData || []).filter(c => !c.type || c.type !== 'npc')
@@ -99,8 +136,8 @@ export default function App() {
       return
     }
     setSelectedFolder({ ...folder, _chars: chars })
-    setPage('dailyPage')
-  }, [showToast])
+    safeSetPage('dailyPage')
+  }, [showToast, safeSetPage])
 
   // ── Page state checks ──
   const isEntry = page === 'entry'
@@ -109,120 +146,106 @@ export default function App() {
   const isFolder = page === 'folder'
   const isDramaPage = page === 'dramaPage'
   const isDailyPage = page === 'dailyPage'
-  const isList = page === 'list'
-  const isCharacter = page === 'character'
-  const isForm = page === 'form'
-  const isSettings = page === 'settings'
-  const isDirect = page === 'direct'
+  const isV6Page = V6_ROUTES.has(page)
+  const isBlocked = LEGACY_BLOCKED.has(page) || (!V6_ROUTES.has(page) && !LEGACY_REDIRECT.has(page))
 
-  // Pages with their own header
-  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isCharacter
+  // Pages with their own header (no legacy nav bar)
+  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isBlocked
 
   return (
-    <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative', borderRadius: 'env(safe-area-inset-top, 0px)' }}>
+    <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
       {/* ── Phone Shell: Status Bar ── */}
       <StatusBar />
-      {/* ── Header for pages that need the old nav bar ── */}
-      {!hasOwnHeader && (
+
+      {/* ── Legacy nav header (dead zone — only renders if legacy somehow active) ── */}
+      {!hasOwnHeader && LEGACY_ENABLED && (
         <header style={{ background: 'var(--bg)', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
           <div style={{ padding: '0 16px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text)' }}>
-              {isList ? '角色列表' : isForm ? (characterId ? '编辑角色' : '新建角色') : isSettings ? '设置' : isDirect ? '直接对话' : ''}
+              {page === 'list' ? '角色列表' : page === 'form' ? (characterId ? '编辑角色' : '新建角色') : ''}
             </span>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              {isList && (
-                <>
-                  <button onClick={() => setMode(m => m === 'story' ? 'daily' : 'story')} style={{
-                    padding: '5px 10px', borderRadius: '14px', border: 'none', fontSize: '11px', fontWeight: 500, cursor: 'pointer',
-                    background: mode === 'story' ? 'var(--bg2)' : 'transparent',
-                    color: mode === 'story' ? 'var(--text)' : 'var(--text3)',
-                  }}>剧情</button>
-                  <button onClick={() => setMode(m => m === 'story' ? 'daily' : 'story')} style={{
-                    padding: '5px 10px', borderRadius: '14px', border: 'none', fontSize: '11px', fontWeight: 500, cursor: 'pointer',
-                    background: mode === 'daily' ? 'var(--bg2)' : 'transparent',
-                    color: mode === 'daily' ? 'var(--text)' : 'var(--text3)',
-                  }}>日常</button>
-                  <button onClick={() => setPage('direct')} style={{ background: 'var(--bg2)', border: 'none', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', color: 'var(--text2)', cursor: 'pointer' }}>直接对话</button>
-                </>
-              )}
-              {/* v6: Home button to return to Entry */}
-              <button onClick={() => setPage('entry')} style={{ background: 'var(--bg2)', border: 'none', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', color: 'var(--text2)', cursor: 'pointer' }}>🏠</button>
-              <button onClick={() => setPage('settings')} style={{ background: 'var(--bg2)', border: 'none', width: '32px', height: '32px', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text2)' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-              </button>
+              <button onClick={() => safeSetPage('entry')} style={{ background: 'var(--bg2)', border: 'none', padding: '6px 10px', borderRadius: '8px', fontSize: '11px', color: 'var(--text2)', cursor: 'pointer' }}>🏠</button>
             </div>
           </div>
         </header>
       )}
 
       <main style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {/* ── v6: New pages ── */}
+        {/* ═══════════════════════════════════════
+            v6 ROUTES — the only code that runs
+            ═══════════════════════════════════════ */}
         {isEntry && (
           <Entry
             onEnterFolder={handleEnterFolder}
             onCreateFolder={handleCreateFolder}
             onProfile={handleProfile}
-            onSettings={handleSettings}
-            onLegacyList={handleLegacyList}
+            onSettings={() => safeSetPage('settings')}
+            onLegacyList={() => safeSetPage('list')}
           />
         )}
         {isProfile && (
-          <PlayerProfile onBack={() => setPage('entry')} />
+          <PlayerProfile onBack={() => safeSetPage('entry')} />
         )}
         {isCreateFolder && (
           <CreateFolder
-            onBack={() => setPage('entry')}
+            onBack={() => safeSetPage('entry')}
             onCreated={handleFolderCreated}
           />
         )}
         {isFolder && selectedFolder && (
           <FolderInterior
             folderId={selectedFolder.id}
-            onBack={() => { setSelectedFolder(null); setPage('entry') }}
+            onBack={() => { setSelectedFolder(null); safeSetPage('entry') }}
             onEnterDrama={handleEnterDrama}
             onEnterDaily={handleEnterDaily}
           />
         )}
-
-        {/* ── v6: Standalone Drama page (NO BUBBLES, NO CHAT UI) ── */}
         {isDramaPage && selectedFolder && (
           <DramaPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
-            onBack={() => { setSelectedFolder(null); setPage('folder') }}
+            onBack={() => { setSelectedFolder(null); safeSetPage('folder') }}
           />
         )}
-
-        {/* ── v6: Standalone Daily page (BUBBLES ONLY, WECHAT UI) ── */}
         {isDailyPage && selectedFolder && (
           <DailyPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
-            onBack={() => { setSelectedFolder(null); setPage('folder') }}
+            onBack={() => { setSelectedFolder(null); safeSetPage('folder') }}
           />
         )}
 
-        {/* ── Legacy pages (unchanged) ── */}
-        {isList && mode === 'story' && (
-          <StoryCharacterList onCreate={handleNewCharacter} onEdit={handleEditCharacter} onArchives={handleSelectCharacter} />
+        {/* ═══════════════════════════════════════
+            🔴 DEAD ZONE — blocked routes
+            ═══════════════════════════════════════ */}
+        {isBlocked && (
+          <Entry
+            onEnterFolder={handleEnterFolder}
+            onCreateFolder={handleCreateFolder}
+            onProfile={handleProfile}
+            onSettings={() => safeSetPage('settings')}
+            onLegacyList={() => safeSetPage('list')}
+          />
         )}
-        {isList && mode === 'daily' && (
-          <DailyCharacterList onCreate={handleNewCharacter} onEdit={handleEditCharacter} onArchives={handleSelectCharacter} />
+
+        {/* ═══════════════════════════════════════
+            ☠️ LEGACY — only if LEGACY_ENABLED=true
+            ═══════════════════════════════════════ */}
+        {LEGACY_ENABLED && page === 'list' && mode === 'story' && (
+          <StoryCharacterList onCreate={handleCreateFolder} onEdit={() => {}} onArchives={() => {}} />
         )}
-        {isForm && mode === 'story' && (
-          <StoryCharacterForm characterId={characterId} onSave={handleFormSaved} onCancel={handleFormCancel} />
+        {LEGACY_ENABLED && page === 'list' && mode === 'daily' && (
+          <DailyCharacterList onCreate={handleCreateFolder} onEdit={() => {}} onArchives={() => {}} />
         )}
-        {isForm && mode === 'daily' && (
-          <DailyCharacterForm characterId={characterId} onSave={handleFormSaved} onCancel={handleFormCancel} />
+        {LEGACY_ENABLED && page === 'form' && mode === 'story' && (
+          <StoryCharacterForm characterId={characterId} onSave={() => safeSetPage('entry')} onCancel={() => safeSetPage('entry')} />
         )}
-        {isCharacter && selectedCharacter && (
-          <CharacterHome character={selectedCharacter} onBack={() => { setSelectedCharacter(null); setPage(selectedCharacter._v6FolderId ? 'folder' : 'list') }} />
+        {LEGACY_ENABLED && page === 'form' && mode === 'daily' && (
+          <DailyCharacterForm characterId={characterId} onSave={() => safeSetPage('entry')} onCancel={() => safeSetPage('entry')} />
         )}
-        {isSettings && (
-          <Settings onBack={() => setPage('entry')} showToast={showToast} />
-        )}
-        {isDirect && (
-          <DirectChat onBack={() => setPage('list')} />
+        {LEGACY_ENABLED && page === 'character' && selectedCharacter && (
+          <CharacterHome character={selectedCharacter} onBack={() => { setSelectedCharacter(null); safeSetPage('entry') }} />
         )}
       </main>
 
