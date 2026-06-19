@@ -122,6 +122,12 @@ body {
   animation: bounce 1.2s infinite;
 }
 
+/* ── Blink cursor ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 /* ── Press Effect ── */
 .press-scale:active {
   transform: scale(0.98);

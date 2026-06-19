@@ -1,11 +1,12 @@
 /**
  * DramaRenderer — Novel-style narrative display.
- * Props: messages
+ * Props: messages, streamingText
  *
  * Renders action descriptions (italic, small) and dialogue (regular, large).
  * Parses content for 【Character】 headers and separates action vs speech.
+ * streamingText: live token-by-token text during LLM generation.
  */
-export default function DramaRenderer({ messages }) {
+export default function DramaRenderer({ messages, streamingText }) {
   const visible = (messages || []).filter(m => m.role === 'user' || m.role === 'assistant')
 
   if (visible.length === 0) {
@@ -108,6 +109,27 @@ export default function DramaRenderer({ messages }) {
           </div>
         )
       })}
+
+      {/* ── Streaming text (live token-by-token) ── */}
+      {streamingText && (
+        <div style={{
+          animation: 'fadeIn 0.2s ease-out',
+          fontSize: '15px',
+          lineHeight: 1.8,
+          color: 'var(--text)',
+        }}>
+          {streamingText}
+          <span style={{
+            display: 'inline-block',
+            width: '2px',
+            height: '15px',
+            background: 'var(--purple)',
+            marginLeft: '1px',
+            verticalAlign: 'text-bottom',
+            animation: 'blink 0.8s step-end infinite',
+          }}>|</span>
+        </div>
+      )}
     </div>
   )
 }
