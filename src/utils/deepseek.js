@@ -31,6 +31,13 @@ import { buildPersonaShield } from '../runtime/personaIntegrity'
 import { extractEvents, extractEventsDeterministic } from '../memory/eventExtractor'
 import { initGraphFromCharacter, loadGraph, saveGraph, updateGraph } from '../memory/memoryGraph'
 import { buildContext } from '../memory/contextBuilder'
+import {
+  buildCPSInjection,
+  loadConflictState,
+  saveConflictState,
+  updateCPSFromEvents,
+  ConflictStateEngine,
+} from '../runtime/conflictPersistence'
 
 const BASE_URL = 'https://api.deepseek.com'
 function buildUserWrapper(character, affections, storyTime) {
@@ -1319,6 +1326,15 @@ export async function sendStoryStageMessage(character, messages, affections, api
     memoryGraph = initGraphFromCharacter(character, affections)
   }
 
+  // ── CPS v1: Load conflict persistence state ──
+  let cpsState = loadConflictState(characterId)
+  if (!cpsState || !cpsState.activeConflicts) {
+    cpsState = ConflictStateEngine.create()
+  }
+
+  // Inject CPS into system prompt (before graph context)
+  systemPrompt += '\n\n' + buildCPSInjection(cpsState)
+
   // Build graph-based memory context
   const graphContext = buildContext(memoryGraph, { maxEvents: 12, includeScene: true })
   if (graphContext) {
@@ -1396,9 +1412,9 @@ export async function sendStoryStageMessage(character, messages, affections, api
         }
       }
 
-      // ── v2.2 Event-Native Memory: Extract events + update graph ──
+      // ── v2.2 Event-Native Memory: Extract events + update graph + CPS ──
       if (characterId && memoryGraph && fullReply) {
-        scheduleGraphUpdate(characterId, memoryGraph, truncated, fullReply, apiKey, affections, character)
+        scheduleGraphUpdate(characterId, memoryGraph, cpsState, truncated, fullReply, apiKey, affections, character)
       }
 
       return {
@@ -1406,7 +1422,8 @@ export async function sendStoryStageMessage(character, messages, affections, api
         reasoningContent,
         usage,
         error: null,
-        _memoryGraph: memoryGraph,  // Pass back for ChatRoom to use
+        _memoryGraph: memoryGraph,
+        _cpsState: cpsState,
       }
     } catch (err) {
       lastError = err
@@ -1525,7 +1542,7 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
  * Fire-and-forget: extracts events from the latest turn and updates the memory graph.
  * Runs after the AI reply is returned to the user, so it doesn't block the response.
  */
-async function scheduleGraphUpdate(characterId, graph, messages, aiReply, apiKey, affections, character) {
+async function scheduleGraphUpdate(characterId, graph, cpsState, messages, aiReply, apiKey, affections, character) {
   try {
     // Get the last user message
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
@@ -1552,8 +1569,16 @@ async function scheduleGraphUpdate(characterId, graph, messages, aiReply, apiKey
 
     if (events.length > 0) {
       console.log('[MemoryGraph] Extracted ' + events.length + ' events:', events.map(e => e.summary).join(' | '))
+
+      // Update Memory Graph
       updateGraph(graph, events, { aiReply, turnNumber: graph.global.turnCount + 1 })
       saveGraph(characterId, graph)
+
+      // Update CPS — register conflicts from events, advance state
+      updateCPSFromEvents(cpsState, events, { turnNumber: cpsState.turnCount + 1 })
+      saveConflictState(characterId, cpsState)
+      console.log('[CPS] Active conflicts:', cpsState.activeConflicts.length,
+        '| Tension:', Math.round(cpsState.tensionLevel * 100) + '%')
     }
   } catch (err) {
     console.warn('[MemoryGraph] Background update failed:', err.message)
