@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getFolder, getSaves, createSave, deleteSave, renameSave, getFolderCharacters } from '../state/folderStore'
+import { getFolder, getSaves, createSave, deleteSave, renameSave, getFolderCharacters, getSaveMessageCount } from '../state/folderStore'
 import { getPlayerProfile } from '../utils/storage'
 
 export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnterDaily }) {
@@ -223,7 +223,7 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
                     </div>
                     <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', gap: '12px' }}>
                       <span>{formatDate(s.createdAt)}</span>
-                      <span>{(s.messages || []).length} 条消息</span>
+                      <span>{getSaveMessageCount(s.id, folderId)} 条消息</span>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>

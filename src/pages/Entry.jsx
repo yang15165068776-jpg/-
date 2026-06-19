@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { getAllFolders } from '../state/folderStore'
 import { getPlayerProfile } from '../utils/storage'
 
 /**
- * Entry — Opening page of Character OS.
- * Large player avatar center, horizontal world card carousel, create button.
+ * Entry — Opening page. Strict 3-column layout:
+ *   Left  : Story world card list + action button
+ *   Center: Large player avatar
+ *   Right : Create world button + Settings entry
  */
 export default function Entry({
   onEnterFolder,
@@ -15,80 +17,151 @@ export default function Entry({
 }) {
   const [folders, setFolders] = useState([])
   const [profile, setProfile] = useState({ name: '', avatar: '' })
-  const carouselRef = useRef(null)
 
   const refresh = () => {
     setFolders(getAllFolders())
     setProfile(getPlayerProfile())
   }
-
   useEffect(() => { refresh() }, [])
   useEffect(() => {
-    const onFocus = () => refresh()
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
   }, [])
-
-  const formatDate = (ts) => {
-    if (!ts) return ''
-    const d = new Date(ts)
-    const now = new Date()
-    const diff = now - d
-    if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
-    if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
-    return (d.getMonth() + 1) + '/' + d.getDate()
-  }
 
   return (
     <div style={{
       height: '100%',
       display: 'flex',
-      flexDirection: 'column',
       overflow: 'hidden',
       background: 'var(--bg)',
     }}>
-      {/* ── Settings gear (bottom-right of screen) ── */}
-      <button
-        onClick={onSettings}
-        style={{
-          position: 'absolute',
-          bottom: '20px',
-          right: '20px',
-          width: '40px',
-          height: '40px',
-          borderRadius: '20px',
-          border: '0.5px solid var(--border)',
-          background: 'var(--bg)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          color: 'var(--text3)',
-          zIndex: 10,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-        }}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-        </svg>
-      </button>
-
-      {/* ── Center: Large Avatar ── */}
+      {/* ══════════════════════════════════════
+          LEFT COLUMN — Story world cards
+          ══════════════════════════════════════ */}
       <div style={{
+        width: '34%',
+        display: 'flex',
+        flexDirection: 'column',
+        borderRight: '0.5px solid var(--border2)',
+        overflow: 'hidden',
+      }}>
+        {/* Card list */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '12px 10px',
+        }}>
+          <div style={{
+            fontSize: '10px',
+            fontWeight: 600,
+            color: 'var(--text3)',
+            letterSpacing: '0.5px',
+            marginBottom: '8px',
+            padding: '0 2px',
+          }}>
+            世界
+          </div>
+
+          {folders.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              color: 'var(--text3)',
+              fontSize: '11px',
+              padding: '20px 0',
+              lineHeight: 1.6,
+            }}>
+              <div style={{ fontSize: '28px', marginBottom: '4px' }}>🌍</div>
+              暂无
+            </div>
+          ) : (
+            folders.map((f) => {
+              const charCount = (f.characterData || []).length + (f.characterIds || []).length
+              return (
+                <div
+                  key={f.id}
+                  onClick={() => onEnterFolder(f)}
+                  style={{
+                    padding: '10px',
+                    borderRadius: '10px',
+                    border: '0.5px solid var(--border)',
+                    background: 'var(--bg)',
+                    marginBottom: '6px',
+                    cursor: 'pointer',
+                    transition: 'background 0.12s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg)'}
+                >
+                  <div style={{
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'var(--text)',
+                    marginBottom: '2px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {f.name}
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    color: 'var(--text3)',
+                    overflow: 'hidden',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    marginBottom: '4px',
+                    lineHeight: 1.4,
+                  }}>
+                    {f.worldview ? f.worldview.slice(0, 40) + (f.worldview.length > 40 ? '…' : '') : '暂无世界观'}
+                  </div>
+                  <div style={{ fontSize: '9px', color: 'var(--text3)' }}>
+                    {charCount} 角色
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Left bottom button */}
+        <div style={{ padding: '8px 10px', borderTop: '0.5px solid var(--border2)' }}>
+          <button
+            onClick={onLegacyList}
+            style={{
+              width: '100%',
+              padding: '8px',
+              borderRadius: '8px',
+              border: '0.5px solid var(--border)',
+              background: 'var(--bg)',
+              color: 'var(--text3)',
+              fontSize: '10px',
+              cursor: 'pointer',
+            }}
+          >
+            旧版角色
+          </button>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════
+          CENTER — Large player avatar
+          ══════════════════════════════════════ */}
+      <div style={{
+        flex: 1,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        paddingTop: '48px',
-        paddingBottom: '20px',
-        flexShrink: 0,
+        justifyContent: 'center',
+        padding: '20px',
       }}>
+        {/* Avatar circle */}
         <div
           onClick={onProfile}
           style={{
-            width: '80px',
-            height: '80px',
-            borderRadius: '40px',
+            width: '96px',
+            height: '96px',
+            borderRadius: '48px',
             overflow: 'hidden',
             cursor: 'pointer',
             background: 'var(--bg3)',
@@ -97,194 +170,111 @@ export default function Entry({
             alignItems: 'center',
             justifyContent: 'center',
             transition: 'transform 0.15s',
+            marginBottom: '12px',
           }}
-          onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'}
+          onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.04)'}
           onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
         >
           {profile.avatar ? (
             <img src={profile.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           ) : (
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--text3)' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ color: 'var(--text3)' }}>
               <circle cx="12" cy="8" r="4"/>
               <path d="M4 20c0-4 4-7 8-7s8 3 8 7"/>
             </svg>
           )}
         </div>
+
+        {/* Player name */}
         <div style={{
-          marginTop: '10px',
-          fontSize: '15px',
+          fontSize: '14px',
           fontWeight: 500,
           color: 'var(--text)',
+          textAlign: 'center',
+          marginBottom: '2px',
         }}>
           {profile.name || '玩家'}
         </div>
+        <div style={{
+          fontSize: '11px',
+          color: 'var(--text3)',
+          textAlign: 'center',
+        }}>
+          Character OS
+        </div>
       </div>
 
-      {/* ── World Card Carousel ── */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {folders.length === 0 ? (
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '0 32px',
-          }}>
-            <div style={{
-              textAlign: 'center',
-              color: 'var(--text3)',
-              fontSize: '14px',
-              lineHeight: 1.8,
-            }}>
-              <div style={{ fontSize: '40px', marginBottom: '12px' }}>🌍</div>
-              还没有世界<br />
-              点击下方按钮创建你的第一个世界
-            </div>
-          </div>
-        ) : (
-          <>
-            <div style={{
-              padding: '0 24px',
-              marginBottom: '12px',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: 'var(--text2)',
-              letterSpacing: '0.5px',
-            }}>
-              你的世界
-            </div>
-            <div
-              ref={carouselRef}
-              style={{
-                display: 'flex',
-                gap: '12px',
-                overflowX: 'auto',
-                scrollSnapType: 'x mandatory',
-                padding: '4px 24px 16px',
-                WebkitOverflowScrolling: 'touch',
-                scrollBehavior: 'smooth',
-              }}
-            >
-              {folders.map((f) => {
-                const charCount = (f.characterData || []).length + (f.characterIds || []).length
-                const saveCount = (f.saveIds || []).length
-                return (
-                  <div
-                    key={f.id}
-                    onClick={() => onEnterFolder(f)}
-                    style={{
-                      minWidth: '200px',
-                      maxWidth: '200px',
-                      padding: '20px 16px',
-                      borderRadius: '16px',
-                      border: '0.5px solid var(--border)',
-                      background: 'var(--bg)',
-                      cursor: 'pointer',
-                      scrollSnapAlign: 'start',
-                      flexShrink: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      transition: 'box-shadow 0.15s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 16px rgba(0,0,0,0.06)'}
-                    onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-                  >
-                    {/* World icon placeholder */}
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      borderRadius: '12px',
-                      background: 'var(--bg3)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '20px',
-                      marginBottom: '14px',
-                    }}>
-                      🌏
-                    </div>
-                    <div style={{
-                      fontSize: '15px',
-                      fontWeight: 600,
-                      color: 'var(--text)',
-                      marginBottom: '4px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {f.name}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: 'var(--text3)',
-                      lineHeight: 1.5,
-                      marginBottom: '12px',
-                      flex: 1,
-                      overflow: 'hidden',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                    }}>
-                      {f.worldview ? f.worldview.slice(0, 50) + (f.worldview.length > 50 ? '…' : '') : '暂无世界观描述'}
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      fontSize: '11px',
-                      color: 'var(--text3)',
-                    }}>
-                      <span>{charCount} 角色 · {saveCount} 存档</span>
-                      <span>{formatDate(f.updatedAt || f.createdAt)}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Bottom: Create Button ── */}
+      {/* ══════════════════════════════════════
+          RIGHT COLUMN — Actions
+          ══════════════════════════════════════ */}
       <div style={{
-        padding: '12px 24px',
-        flexShrink: 0,
+        width: '30%',
         display: 'flex',
         flexDirection: 'column',
+        borderLeft: '0.5px solid var(--border2)',
+        padding: '12px 10px',
         gap: '8px',
       }}>
+        {/* Create world — primary */}
         <button
           onClick={onCreateFolder}
           style={{
             width: '100%',
-            padding: '16px',
-            borderRadius: '14px',
+            padding: '14px 8px',
+            borderRadius: '12px',
             border: 'none',
             background: 'var(--text)',
             color: 'var(--bg)',
-            fontSize: '15px',
+            fontSize: '12px',
             fontWeight: 600,
             cursor: 'pointer',
             letterSpacing: '0.3px',
+            marginTop: '4px',
           }}
         >
-          + 创建新世界
+          + 创建世界
         </button>
+
+        {/* Settings entry */}
         <button
-          onClick={onLegacyList}
+          onClick={onSettings}
           style={{
             width: '100%',
-            padding: '6px',
-            borderRadius: '8px',
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--text3)',
-            fontSize: '12px',
+            padding: '12px 8px',
+            borderRadius: '10px',
+            border: '0.5px solid var(--border)',
+            background: 'var(--bg)',
+            color: 'var(--text2)',
+            fontSize: '11px',
             cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
           }}
         >
-          查看旧版角色列表
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          设置
         </button>
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Player quick info */}
+        <div style={{
+          textAlign: 'center',
+          padding: '8px',
+          borderRadius: '8px',
+          background: 'var(--bg3)',
+          fontSize: '10px',
+          color: 'var(--text3)',
+          lineHeight: 1.5,
+        }}>
+          {profile.name || '未设定玩家'}
+        </div>
       </div>
     </div>
   )

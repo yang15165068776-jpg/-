@@ -313,7 +313,8 @@ export function createSave(folderId, name) {
     name: name || '新存档',
     createdAt: Date.now(),
     updatedAt: Date.now(),
-    messages: [],
+    dramaMessages: [],     // DRAMA mode — completely isolated
+    dailyMessages: [],     // DAILY mode — completely isolated
     // Note: NO affection/affections — state is from USK (SSOT)
   }
 
@@ -360,10 +361,42 @@ export function getOrCreateDefaultSave(folderId) {
 }
 
 /**
- * Save messages to a Save slot.
+ * Get messages for a specific mode from a Save.
+ * DRAMA and DAILY message streams are COMPLETELY ISOLATED.
+ *
  * @param {string} saveId
  * @param {string} folderId
+ * @param {string} mode — 'drama' | 'daily'
+ * @returns {object[]}
+ */
+export function getSaveMessages(saveId, folderId, mode) {
+  const saves = _readSaves(folderId)
+  if (!saves[saveId]) return []
+  const key = mode === 'drama' ? 'dramaMessages' : 'dailyMessages'
+  return saves[saveId][key] || []
+}
+
+/**
+ * Save messages for a specific mode to a Save slot.
+ * DRAMA writes to dramaMessages. DAILY writes to dailyMessages. NEVER cross.
+ *
+ * @param {string} saveId
+ * @param {string} folderId
+ * @param {string} mode — 'drama' | 'daily'
  * @param {object[]} messages
+ */
+export function saveSaveMessages(saveId, folderId, mode, messages) {
+  const saves = _readSaves(folderId)
+  if (!saves[saveId]) return
+  const key = mode === 'drama' ? 'dramaMessages' : 'dailyMessages'
+  saves[saveId][key] = messages
+  saves[saveId].updatedAt = Date.now()
+  _writeSaves(folderId, saves)
+}
+
+/**
+ * Legacy: update all messages (backward compat for old saves).
+ * @deprecated Use saveSaveMessages with mode parameter instead.
  */
 export function updateSaveMessages(saveId, folderId, messages) {
   const saves = _readSaves(folderId)
@@ -371,6 +404,17 @@ export function updateSaveMessages(saveId, folderId, messages) {
   saves[saveId].messages = messages
   saves[saveId].updatedAt = Date.now()
   _writeSaves(folderId, saves)
+}
+
+/**
+ * Get total message count across both streams for a save.
+ * Used by FolderInterior to show message counts.
+ */
+export function getSaveMessageCount(saveId, folderId) {
+  const saves = _readSaves(folderId)
+  if (!saves[saveId]) return 0
+  const s = saves[saveId]
+  return (s.dramaMessages?.length || 0) + (s.dailyMessages?.length || 0) + (s.messages?.length || 0)
 }
 
 /**

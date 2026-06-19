@@ -20,7 +20,7 @@ import { runAgentTurn, initAgentSystem, resetAgentTurn } from '../agents/coordin
 import { validatePersona } from '../runtime/antiSmoothing'
 import { normalizeCharacter, getLegacyCharacter, getRomanceCharacters } from '../persona/personaCore'
 import { initBridge, getUIState, dramaTurnStart, dramaTurnEnd, dailyTurnStart, dailyTurnEnd, switchMode, getPromptState, getRawUSK, initBridgeForFolder, getFolderUIState, getRawFolderUSK, isFolderMode } from '../state/stateBridge'
-import { getSave, getOrCreateDefaultSave, updateSaveMessages } from '../state/folderStore'
+import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, updateSaveMessages } from '../state/folderStore'
 import { useAutoMessage } from '../hooks/useAutoMessage'
 import TypingIndicator from '../components/TypingIndicator'
 import ChatHeader from '../components/ChatHeader'
@@ -794,10 +794,12 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _
       const save = archiveId ? getSave(archiveId, folderId) : getOrCreateDefaultSave(folderId)
       if (!save) return
       setArchiveName(save.name)
-      const msgs = save.messages || []
+      // DRAMA/DAILY complete isolation: read from correct stream
+      const msgs = getSaveMessages(save.id, folderId, mode === 'daily' ? 'daily' : 'drama')
 
       // Inject opening scenario on fresh chat
       const firstChar = folderChars[0]
+      const streamMode = mode === 'daily' ? 'daily' : 'drama'
       if (msgs.length === 0 && firstChar?.openingScenario) {
         const openingMsg = {
           role: 'assistant',
@@ -806,7 +808,7 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _
           isOpening: true,
         }
         setMessages([openingMsg])
-        updateSaveMessages(save.id, folderId, [openingMsg])
+        saveSaveMessages(save.id, folderId, streamMode, [openingMsg])
       } else {
         setMessages(msgs)
       }
@@ -892,9 +894,10 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _
 
   useEffect(() => {
     if (isV6Folder && folderId) {
-      // v6: save to folder save (specific or default)
+      // v6: save to correct mode stream (DRAMA / DAILY completely isolated)
       const save = archiveId ? getSave(archiveId, folderId) : getOrCreateDefaultSave(folderId)
-      if (save) updateSaveMessages(save.id, folderId, messages)
+      const streamMode = mode === 'daily' ? 'daily' : 'drama'
+      if (save) saveSaveMessages(save.id, folderId, streamMode, messages)
     } else if (character) {
       saveChatMessages(archiveId, messages, mode)
     }
@@ -931,10 +934,11 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _
     const segments = activeMsgs.map(m => ({ text: m, action: null, thought: null }))
     setMessages(prev => {
       const updated = [...prev, { role: 'assistant', content: activeMsgs.join('|||'), segments, timestamp: Date.now(), isAutonomous: true }]
-      // v6: use folder save if in folder mode
+      // v6: use folder save with correct mode stream
       if (isV6Folder && folderId) {
         const save = getOrCreateDefaultSave(folderId)
-        if (save) updateSaveMessages(save.id, folderId, updated)
+        const streamMode = mode === 'daily' ? 'daily' : 'drama'
+        if (save) saveSaveMessages(save.id, folderId, streamMode, updated)
       } else {
         saveChatMessages(targetArchiveId, updated, mode)
       }
@@ -1453,9 +1457,10 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _
   const handleClear = () => {
     if (window.confirm('确定要清除所有对话记录吗？')) {
       if (isV6Folder && folderId) {
-        // v6: clear folder save messages
+        // v6: clear only current mode's message stream (DRAMA/DAILY isolated)
         const save = getOrCreateDefaultSave(folderId)
-        if (save) updateSaveMessages(save.id, folderId, [])
+        const streamMode = mode === 'daily' ? 'daily' : 'drama'
+        if (save) saveSaveMessages(save.id, folderId, streamMode, [])
         setMessages([])
       } else {
         clearChatHistory(archiveId, mode)
