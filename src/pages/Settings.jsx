@@ -34,7 +34,7 @@ function imageToBase64(file) {
   })
 }
 
-export default function Settings({ onBack }) {
+export default function Settings({ onBack, showToast }) {
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -66,6 +66,7 @@ export default function Settings({ onBack }) {
     saveApiKey(apiKey.trim())
     saveModel(model)
     setSaved(true)
+    showToast && showToast('设置已保存', 'success')
     setTimeout(() => setSaved(false), 2000)
   }
 

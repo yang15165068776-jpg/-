@@ -395,6 +395,14 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
   const labelStyle = { fontSize:'13px', color:'var(--text2)', display:'block', marginBottom:'6px' }
   const groupTitle = { fontSize:'12px', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'8px', marginTop:'24px' }
 
+  // Collapsible stage cards
+  const [expandedStages, setExpandedStages] = useState(() => {
+    const init = {}
+    const stages = JSON.parse(localStorage.getItem('_cf_expanded') || '{}')
+    return stages
+  })
+  const toggleStage = (i) => setExpandedStages(p => ({ ...p, [i]: !p[i] }))
+
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)' }}>
       <div style={{ height:'56px', display:'flex', alignItems:'center', padding:'0 16px', gap:'12px', borderBottom:'0.5px solid var(--border2)', flexShrink:0 }}>
@@ -768,59 +776,41 @@ export default function CharacterForm({ mode, characterId, onSave, onCancel }) {
             <div>
               <label className={labelClass}>好感度阶段</label>
               <div className="space-y-3">
-                {form.affectionStages.map((stage, i) => (
-                  <div key={i} className="bg-gray-700/50 rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-400">阶段 {i + 1}</span>
-                      {form.affectionStages.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeStage(i)}
-                          className="text-xs text-red-400 hover:text-red-300"
-                        >
-                          删除
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="text"
-                      className={inputClass}
-                      value={stage.name}
-                      onChange={e => updateStage(i, 'name', e.target.value)}
-                      placeholder="阶段名称，如：陌生、友好、亲密"
-                    />
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <label className="text-[10px] text-gray-500">下限</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          className={inputClass + " mt-0.5"}
-                          value={stage.min}
-                          onChange={e => updateStage(i, 'min', parseInt(e.target.value) || 0)}
-                        />
+                {form.affectionStages.map((stage, i) => {
+                  const expanded = expandedStages[i] ?? (i === form.affectionStages.length - 1)
+                  return (
+                  <div key={i} style={sectionStyle}>
+                    <div onClick={() => toggleStage(i)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', paddingBottom: expanded ? '12px' : '0', borderBottom: expanded ? '0.5px solid var(--border2)' : 'none' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                        <div style={{ width:'6px', height:'6px', borderRadius:'50%', background:'var(--purple)' }} />
+                        <span style={{ fontSize:'13px', fontWeight:500, color:'var(--text)' }}>{stage.name || '阶段 ' + (i + 1)}</span>
+                        <span style={{ fontSize:'11px', color:'var(--text3)' }}>{stage.min}-{stage.max}</span>
                       </div>
-                      <div className="flex-1">
-                        <label className="text-[10px] text-gray-500">上限</label>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          className={inputClass + " mt-0.5"}
-                          value={stage.max}
-                          onChange={e => updateStage(i, 'max', parseInt(e.target.value) || 0)}
-                        />
+                      <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                        {form.affectionStages.length > 1 && (
+                          <button type="button" onClick={e => { e.stopPropagation(); removeStage(i) }} style={{ fontSize:'11px', color:'var(--coral)', background:'none', border:'none', cursor:'pointer' }}>删除</button>
+                        )}
+                        <span style={{ fontSize:'10px', color:'var(--text3)', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition:'transform 0.2s', display:'inline-block' }}>▼</span>
                       </div>
                     </div>
-                    <textarea
-                      className={inputClass + " h-16 resize-none"}
-                      value={stage.behavior}
-                      onChange={e => updateStage(i, 'behavior', e.target.value)}
-                      placeholder="该阶段的行为规则"
-                    />
+                    {expanded && (
+                      <div style={{ paddingTop:'12px', display:'flex', flexDirection:'column', gap:'8px' }}>
+                        <input type="text" style={inputStyle} value={stage.name} onChange={e => updateStage(i, 'name', e.target.value)} placeholder="阶段名称，如：陌生、友好、亲密" />
+                        <div style={{ display:'flex', gap:'8px' }}>
+                          <div style={{ flex:1 }}>
+                            <label style={{ fontSize:'11px', color:'var(--text3)' }}>下限</label>
+                            <input type="number" min="0" max="100" style={{ ...inputStyle, marginTop:'2px' }} value={stage.min} onChange={e => updateStage(i, 'min', parseInt(e.target.value) || 0)} />
+                          </div>
+                          <div style={{ flex:1 }}>
+                            <label style={{ fontSize:'11px', color:'var(--text3)' }}>上限</label>
+                            <input type="number" min="0" max="100" style={{ ...inputStyle, marginTop:'2px' }} value={stage.max} onChange={e => updateStage(i, 'max', parseInt(e.target.value) || 0)} />
+                          </div>
+                        </div>
+                        <textarea style={{ ...inputStyle, height:'64px', resize:'none' }} value={stage.behavior} onChange={e => updateStage(i, 'behavior', e.target.value)} placeholder="该阶段的行为规则" />
+                      </div>
+                    )}
                   </div>
-                ))}
+                )})}
                 <button
                   type="button"
                   onClick={addStage}

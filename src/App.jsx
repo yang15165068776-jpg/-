@@ -11,12 +11,17 @@ import DailyArchiveList from './pages/daily/ArchiveList'
 import DirectChat from './pages/DirectChat'
 import Settings from './pages/Settings'
 import { getCharacter, getArchive } from './utils/storage'
+import Toast from './components/Toast'
 
 export default function App() {
   const [page, setPage] = useState('mode-select')
   const [mode, setMode] = useState(null)
   const [characterId, setCharacterId] = useState(null)
   const [archiveId, setArchiveId] = useState(null)
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'info' })
+  const showToast = useCallback((message, type = 'info') => {
+    setToast({ visible: true, message, type })
+  }, [])
 
   const navigateToModeSelect = useCallback(() => {
     setPage('mode-select')
@@ -275,9 +280,11 @@ export default function App() {
         )}
 
         {isSettings && (
-          <Settings onBack={navigateToModeSelect} />
+          <Settings onBack={navigateToModeSelect} showToast={showToast} />
         )}
       </main>
+
+      <Toast message={toast.message} type={toast.type} visible={toast.visible} onHide={() => setToast(t => ({ ...t, visible: false }))} />
     </div>
   )
 }

@@ -1413,6 +1413,28 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         onBack={onBack} archiveName={archiveName}
         autoMessageEnabled={autoMessageEnabled} onToggleAutoMessage={() => setAutoMessageEnabled(a => !a)} />
 
+      {/* ── Auto Message Notification Bar ── */}
+      {currentMode === 'daily' && pendingMessage && (
+        <div onClick={dismissMessage} style={{
+          padding: '10px 16px',
+          background: 'var(--purple-l)',
+          borderBottom: '0.5px solid var(--border2)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          animation: 'slideDown 0.25s ease',
+          flexShrink: 0, cursor: 'pointer',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--purple)', color: '#fff', fontSize: '11px', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {mainCharName?.[0]}
+            </div>
+            <span style={{ fontSize: '13px', color: 'var(--text)' }}>
+              {pendingMessage}
+            </span>
+          </div>
+          <button onClick={e => { e.stopPropagation(); dismissMessage() }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: '16px', padding: '0 4px' }}>×</button>
+        </div>
+      )}
+
       {/* Affection bar - GM story mode: multi-character */}
       {(currentMode === 'drama' || character.chatStyle === 'story') && character.romanceCharacters?.length > 0 && (
         <div className="px-3 py-2 bg-gray-800/50 border-b border-gray-700/50">

@@ -76,7 +76,8 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [expandedRC, setExpandedRC] = useState(0) // which romance char section is expanded
+  const [expandedRC, setExpandedRC] = useState(0)
+  const [expandedNPC, setExpandedNPC] = useState(0)
 
   const [form, setForm] = useState({
     id: '',
@@ -975,35 +976,30 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
         ) : (
           <div className="space-y-2">
             {form.npcs.map((npc, i) => (
-              <div key={i} className="bg-gray-700/30 rounded-lg p-3 space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-400">NPC {i + 1}</span>
-                  <button type="button" onClick={() => removeNpc(i)} className="text-xs text-red-400 hover:text-red-300">删除</button>
+              <div key={i} style={{ ...sectionStyle, overflow:'hidden' }}>
+                <div onClick={() => setExpandedNPC(expandedNPC === i ? -1 : i)} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', cursor:'pointer', paddingBottom: expandedNPC === i ? '12px' : '0', borderBottom: expandedNPC === i ? '0.5px solid var(--border2)' : 'none' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                    <div style={{ width:'6px', height:'6px', borderRadius:'50%', background:'var(--teal)' }} />
+                    <span style={{ fontSize:'13px', fontWeight:500, color:'var(--text)' }}>{npc.name || 'NPC ' + (i + 1)}</span>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                    <button type="button" onClick={e => { e.stopPropagation(); removeNpc(i) }} style={{ fontSize:'11px', color:'var(--coral)', background:'none', border:'none', cursor:'pointer' }}>删除</button>
+                    <span style={{ fontSize:'10px', color:'var(--text3)', transform: expandedNPC === i ? 'rotate(180deg)' : 'rotate(0deg)', transition:'transform 0.2s', display:'inline-block' }}>▼</span>
+                  </div>
                 </div>
-                <div className="flex gap-3">
-                  <div>
-                    <input
-                      type="file" accept="image/*" className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) handleNpcAvatar(i, f) }}
-                      id={`npc-avatar-${i}`}
-                    />
-                    <label
-                      htmlFor={`npc-avatar-${i}`}
-                      className="w-10 h-10 rounded-full border-2 border-dashed border-gray-500 hover:border-blue-400 flex items-center justify-center overflow-hidden cursor-pointer transition-colors bg-gray-600 flex-shrink-0 block"
-                    >
-                      {npc.avatar ? (
-                        <img src={npc.avatar} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <span className="text-gray-400 text-sm">+</span>
-                      )}
+                {expandedNPC === i && (
+                  <div style={{ paddingTop:'12px', display:'flex', gap:'10px', alignItems:'flex-start' }}>
+                    <input type="file" accept="image/*" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleNpcAvatar(i, f) }} id={`npc-avatar-${i}`} />
+                    <label htmlFor={`npc-avatar-${i}`} style={{ width:'40px', height:'40px', borderRadius:'50%', border:'2px dashed var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer', flexShrink:0, background:'var(--bg)' }}>
+                      {npc.avatar ? <img src={npc.avatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:'14px', color:'var(--text3)' }}>+</span>}
                     </label>
+                    <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
+                      <input type="text" style={inputStyle} value={npc.name} onChange={e => updateNpc(i, 'name', e.target.value)} placeholder="NPC姓名" />
+                      <input type="text" style={inputStyle} value={npc.relationship} onChange={e => updateNpc(i, 'relationship', e.target.value)} placeholder="与故事的关系" />
+                      <textarea style={{ ...inputStyle, height:'56px', resize:'none' }} value={npc.personality} onChange={e => updateNpc(i, 'personality', e.target.value)} placeholder="性格简介" />
+                    </div>
                   </div>
-                  <div className="flex-1 space-y-2">
-                    <input type="text" className={inputClass} value={npc.name} onChange={e => updateNpc(i, 'name', e.target.value)} placeholder="NPC姓名" />
-                    <input type="text" className={inputClass} value={npc.relationship} onChange={e => updateNpc(i, 'relationship', e.target.value)} placeholder="与故事的关系（一行）" />
-                    <textarea className={inputClass + " h-14 resize-none"} value={npc.personality} onChange={e => updateNpc(i, 'personality', e.target.value)} placeholder="性格简介（一段话）" />
-                  </div>
-                </div>
+                )}
               </div>
             ))}
           </div>
