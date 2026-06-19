@@ -56,11 +56,13 @@ export default function ArchiveList({ mode, character, onBack, onChat }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}>
-      {/* Header */}
-      <div style={{ height: '56px', display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
-        <button onClick={onBack} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: 'var(--text2)' }}>←</button>
-        <span style={{ flex: 1, fontSize: '16px', fontWeight: 500, color: 'var(--text)' }}>{character?.name || ''} 的对话</span>
-      </div>
+      {/* Header — only in standalone mode */}
+      {onBack && (
+        <div style={{ height: '56px', display: 'flex', alignItems: 'center', padding: '0 16px', gap: '12px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
+          <button onClick={onBack} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', color: 'var(--text2)' }}>←</button>
+          <span style={{ flex: 1, fontSize: '16px', fontWeight: 500, color: 'var(--text)' }}>{character?.name || ''} 的对话</span>
+        </div>
+      )}
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>

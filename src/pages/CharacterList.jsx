@@ -125,7 +125,7 @@ export default function CharacterList({ mode, onCreate, onEdit, onArchives }) {
                 {/* Actions */}
                 <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => onArchives(char.id)}
+                    onClick={() => onArchives(char)}
                     className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors active:scale-[0.98]"
                   >
                     对话

@@ -713,7 +713,7 @@ function MessageBubble({ msg, index, isUser, character, userAvatar, onEdit, onRe
   )
 }
 
-export default function ChatRoom({ mode, archiveId, onBack }) {
+export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange }) {
   const [character, setCharacter] = useState(null)
   const [archiveName, setArchiveName] = useState('')
   const [messages, setMessages] = useState([])
@@ -977,9 +977,9 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
         [charName]: clampAffection((prev?.[charName] ?? rc?.affectionInitial ?? 50) + delta, rc)
       }))
     } else {
-      setAffection(prev => clampAffection(prev + delta, character))
+      setAffection(prev => { const val = clampAffection(prev + delta, character); if (onAffectionChange) onAffectionChange(val); return val })
     }
-  }, [character, clampAffection])
+  }, [character, clampAffection, onAffectionChange])
 
   const handleToggleActions = useCallback((idx, isHoverEnter) => {
     clearTimeout(menuTimerRef.current)
@@ -1408,10 +1408,13 @@ export default function ChatRoom({ mode, archiveId, onBack }) {
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
-      <ChatHeader persona={persona} character={character} currentMode={currentMode}
-        onSwitchMode={handleSwitchMode} affection={affection} affections={affections}
-        onBack={onBack} archiveName={archiveName}
-        autoMessageEnabled={autoMessageEnabled} onToggleAutoMessage={() => setAutoMessageEnabled(a => !a)} />
+      {/* Header — only in standalone mode (not inside CharacterHome) */}
+      {onBack && (
+        <ChatHeader persona={persona} character={character} currentMode={currentMode}
+          onSwitchMode={handleSwitchMode} affection={affection} affections={affections}
+          onBack={onBack} archiveName={archiveName}
+          autoMessageEnabled={autoMessageEnabled} onToggleAutoMessage={() => setAutoMessageEnabled(a => !a)} />
+      )}
 
       {/* ── Auto Message Notification Bar ── */}
       {currentMode === 'daily' && pendingMessage && (
