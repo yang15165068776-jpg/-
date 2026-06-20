@@ -1711,6 +1711,7 @@ export async function extractStoryFromText(text, apiKey) {
     '          "label": "阶段名",\n' +
     '          "min": 下限数字,\n' +
     '          "max": 上限数字,\n' +
+    '          "behavior": "本阶段核心行为描述（如：冷淡回避/试探性靠近/主动黏人/若即若离），AI据此决定角色行为基调",\n' +
     '          "coreState": "角色状态描述",\n' +
     '          "playerStrategy": "对玩家的核心策略",\n' +
     '          "riseCondition": "上涨触发条件（预期被打破）",\n' +
