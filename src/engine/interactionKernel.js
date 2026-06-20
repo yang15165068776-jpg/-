@@ -146,6 +146,26 @@ export const InteractionKernel = {
     }))
     initBridgeForFolder(folderId, charsForUSK, mode)
 
+    // ── Fresh session: override USK with character's affectionInitial ──
+    // If no messages exist (beyond opening), the user's character settings
+    // should take priority over stale USK values from previous sessions.
+    const hasOnlyOpening = messages.every(m => m.isOpening)
+    if (messages.length === 0 || hasOnlyOpening) {
+      for (const c of characters) {
+        const name = c.name || c.id
+        if (name && c.affectionInitial != null) {
+          const charState = getFolderUIState(name)
+          if (charState && charState.relationship) {
+            // Write the character's configured initial affection into USK
+            const currentUSK = getRawFolderUSK()
+            if (currentUSK?.characters?.[name]) {
+              currentUSK.characters[name].relationship.affection = c.affectionInitial
+            }
+          }
+        }
+      }
+    }
+
     // ── Sync affection / tension from USK ──
     const mainChar = characters[0]
     if (mainChar) {
