@@ -583,3 +583,50 @@ export function getTotalSaveCount() {
   }
   return count
 }
+
+// ═══════════════════════════════════════════════════════════
+// Daily Session Saves (v4 新增)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Save a daily session snapshot to the folder.
+ * Unlike full saves (dramaMessages + dailyMessages), this only stores
+ * the daily chat messages as a lightweight time-point snapshot.
+ *
+ * @param {string} folderId
+ * @param {object[]} messages — daily message array
+ * @returns {object} the saved session entry
+ */
+export function saveDailySession(folderId, messages) {
+  const folder = getFolder(folderId)
+  if (!folder) return null
+
+  if (!folder.dailySaves) folder.dailySaves = []
+
+  const session = {
+    id: generateId(),
+    messages: messages.slice(-100), // cap at last 100 messages
+    timestamp: Date.now(),
+  }
+
+  folder.dailySaves.push(session)
+
+  // Cap at 20 daily saves
+  if (folder.dailySaves.length > 20) {
+    folder.dailySaves = folder.dailySaves.slice(-20)
+  }
+
+  updateFolder(folderId, { dailySaves: folder.dailySaves })
+  return session
+}
+
+/**
+ * Get all daily session saves for a folder.
+ * @param {string} folderId
+ * @returns {object[]}
+ */
+export function getDailySessions(folderId) {
+  const folder = getFolder(folderId)
+  if (!folder || !folder.dailySaves) return []
+  return folder.dailySaves.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+}

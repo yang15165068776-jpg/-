@@ -31,7 +31,6 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [saveId, setSaveId] = useState(null)
-  const [revealing, setRevealing] = useState(null)
   const [activeCharIndex, setActiveCharIndex] = useState(0)
   const [autoMsgEnabled, setAutoMsgEnabled] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
@@ -39,7 +38,6 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
-  const revealTimerRef = useRef(null)
 
   const mainChar = folderChars[activeCharIndex] || folderChars[0] || {}
   const apiKey = getApiKey()
@@ -134,11 +132,20 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       )
       if (apiError) { alert('主动消息请求失败：' + (apiError.message || apiError)); return }
       if (!packet || !packet.bubbles || packet.bubbles.length === 0) return
-      // Only use first bubble for initiative messages
+      // v4 queue renderer — initiative bubble with natural delay
       const bubble = packet.bubbles[0]
-      const segments = [{ text: bubble.text, delay: bubble.delay || 600, type: bubble.type || 'text' }]
-      const msg = { role: 'assistant', content: reply || bubble.text, segments, timestamp: Date.now(), isAutonomous: true }
-      setMessages(prev => [...prev, msg])
+      const delay = bubble.delay || 600
+      setTimeout(() => {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_auto',
+          role: 'assistant',
+          content: bubble.text,
+          type: bubble.type || 'text',
+          timestamp: Date.now(),
+          isAutonomous: true,
+          _isBubble: true,
+        }])
+      }, delay)
       // Update USK with initiative event
       dailyTurnEnd(mainChar.name, { reply: bubble.text, emotion_delta: packet.emotion_delta || 0, relationship_delta: packet.relationship_delta || 0 })
       refreshUSK()
@@ -215,30 +222,10 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         return
       }
 
-      // ── Daily v4: use structured packet from LLM ──
+      // ── Daily v4: structured packet → queue renderer ──
       const bubbles = (packet && packet.bubbles && packet.bubbles.length > 0)
         ? packet.bubbles
         : [{ text: reply.slice(0, 60), type: 'text', delay: 800 }]
-
-      // Build segments with LLM-provided delays
-      const segments = bubbles.map((b, i) => ({
-        text: b.text,
-        delay: b.delay || (500 + i * 300),
-        type: b.type || 'text',
-      }))
-
-      const assistantMsg = {
-        role: 'assistant',
-        content: reply,
-        segments,
-        reasoningContent,
-        usage,
-        timestamp: Date.now(),
-        _behavior: behavior,
-      }
-      const finalMsgs = [...newMsgs, assistantMsg]
-      const msgIndex = finalMsgs.length - 1
-      setMessages(finalMsgs)
 
       // Update USK with LLM-provided deltas
       dailyTurnEnd(mainChar.name, {
@@ -255,27 +242,30 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         setTimeout(() => setAffectionFlash(null), 2500)
       }
 
-      // Typing indicator → then burst reveal
+      // ── v4 Queue Renderer: setTimeout per bubble → true WeChat feel ──
       setIsTyping(true)
       const typingDelay = 600 + Math.random() * 1200
       setTimeout(() => {
         setIsTyping(false)
-        // v4: sequential reveal with LLM-provided delays
-        const totalCount = segments.length
-        setRevealing({ msgIndex, revealedCount: 0, totalCount })
-        let revealed = 0
-        const revealNext = () => {
-          revealed++
-          setRevealing({ msgIndex, revealedCount: revealed, totalCount })
-          if (revealed < totalCount) {
-            const delay = segments[revealed]?.delay || (400 + Math.random() * 600)
-            revealTimerRef.current = setTimeout(revealNext, delay)
-          } else {
-            revealTimerRef.current = null
-            setRevealing(null)
-          }
+        // Schedule each bubble as a separate message with its own delay
+        let cumulativeDelay = 0
+        for (let i = 0; i < bubbles.length; i++) {
+          const bubble = bubbles[i]
+          cumulativeDelay += bubble.delay || (500 + i * 300)
+          setTimeout(() => {
+            setMessages(prev => [...prev, {
+              id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_' + i,
+              role: 'assistant',
+              content: bubble.text,
+              type: bubble.type || 'text',
+              timestamp: Date.now(),
+              _isBubble: true,
+              _behavior: behavior,
+              reasoningContent: i === 0 ? reasoningContent : null,
+              usage: i === 0 ? usage : null,
+            }])
+          }, cumulativeDelay)
         }
-        revealTimerRef.current = setTimeout(revealNext, personaBurst[0]?.delay || (300 + Math.random() * 400))
       }, typingDelay)
     } catch (e) {
       setLoading(false)
@@ -292,11 +282,12 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   // ── Bubble renderer ──
   const renderBubble = (msg, i) => {
     const isUser = msg.role === 'user'
+    const isLastMsg = i === messages.length - 1
     const time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : ''
 
     if (isUser) {
       return (
-        <div key={i} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px', animation: 'fadeIn 0.25s ease-out' }}>
+        <div key={msg.id || i} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px', animation: 'fadeIn 0.25s ease-out' }}>
           <div style={{ maxWidth: '72%' }}>
             <div style={{
               padding: '10px 14px', borderRadius: '16px 16px 4px 16px',
@@ -313,54 +304,33 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       )
     }
 
-    // Assistant — can be multiple bubbles (burst)
-    const segments = msg.segments || (msg.content ? [{ text: msg.content }] : [])
-    const isRevealing = revealing && revealing.msgIndex === i
-    const isLastMsg = i === messages.length - 1
-    // Don't flash all segments before reveal starts: if this is the newest message
-    // with segments and reveal hasn't started yet, show nothing
-    const visibleSegments = isRevealing
-      ? segments.slice(0, revealing.revealedCount)
-      : (!isLastMsg || revealing !== null ? segments : [])
-
+    // ── v4: each bubble is a standalone message ──
+    const showAvatar = i === 0 || messages[i - 1]?.role !== 'assistant' || messages[i - 1]?.isAutonomous !== msg.isAutonomous
     return (
-      <div key={i} style={{ display: 'flex', marginBottom: '8px', animation: 'fadeIn 0.25s ease-out' }}>
-        {/* Avatar */}
-        <div style={{
-          width: '32px', height: '32px', borderRadius: '8px',
-          background: mainChar.avatar ? 'transparent' : 'var(--purple)',
-          color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '12px', fontWeight: 500, flexShrink: 0, marginRight: '8px', marginTop: '2px',
-          overflow: 'hidden',
-        }}>
-          {mainChar.avatar ? <img src={mainChar.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (mainChar.name || '?')[0]}
-        </div>
+      <div key={msg.id || i} style={{ display: 'flex', marginBottom: '6px', animation: 'fadeIn 0.25s ease-out' }}>
+        {showAvatar ? (
+          <div style={{
+            width: '32px', height: '32px', borderRadius: '8px',
+            background: mainChar.avatar ? 'transparent' : 'var(--purple)',
+            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '12px', fontWeight: 500, flexShrink: 0, marginRight: '8px', marginTop: '2px',
+            overflow: 'hidden',
+          }}>
+            {mainChar.avatar ? <img src={mainChar.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (mainChar.name || '?')[0]}
+          </div>
+        ) : (
+          <div style={{ width: '32px', flexShrink: 0, marginRight: '8px' }} />
+        )}
 
         <div style={{ maxWidth: '72%' }}>
-          {visibleSegments.map((seg, si) => (
-            <div key={si} style={{
-              padding: '10px 14px', borderRadius: '4px 16px 16px 16px',
-              background: 'var(--bg2)', color: 'var(--text)',
-              fontSize: '14px', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              marginBottom: si < visibleSegments.length - 1 ? '4px' : 0,
-              animation: 'fadeIn 0.2s ease-out',
-            }}>
-              {seg.text || seg}
-            </div>
-          ))}
-          {isRevealing && revealing.revealedCount < segments.length && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 0' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text3)' }}>正在输入</span>
-              <span style={{ display: 'inline-flex', gap: '2px' }}>
-                <span className="dot-bounce" style={{ width: '3px', height: '3px', borderRadius: '1.5px', background: 'var(--text3)' }} />
-                <span className="dot-bounce" style={{ width: '3px', height: '3px', borderRadius: '1.5px', background: 'var(--text3)', animationDelay: '0.2s' }} />
-                <span className="dot-bounce" style={{ width: '3px', height: '3px', borderRadius: '1.5px', background: 'var(--text3)', animationDelay: '0.4s' }} />
-              </span>
-            </div>
-          )}
-          {time && !isRevealing && (
-            <div style={{ fontSize: '9px', color: 'var(--text3)', marginTop: '2px', paddingLeft: '4px' }}>{time} · 已读</div>
-          )}
+          <div style={{
+            padding: '10px 14px', borderRadius: '4px 16px 16px 16px',
+            background: 'var(--bg2)', color: 'var(--text)',
+            fontSize: '14px', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            animation: 'fadeIn 0.2s ease-out',
+          }}>
+            {msg.content}
+          </div>
         </div>
       </div>
     )
