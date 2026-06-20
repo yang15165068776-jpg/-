@@ -24,6 +24,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const [diceResult, setDiceResult] = useState(null)
   const [diceRolling, setDiceRolling] = useState(false)
   const [saveId, setSaveId] = useState(null)
+  const [lastDecision, setLastDecision] = useState(null)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -111,6 +112,20 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       return
     }
 
+    // Track decision for UI indicator
+    if (result.decision) {
+      setLastDecision(result.decision)
+      if (result.decision.type !== 'normal_reply') {
+        setTimeout(() => setLastDecision(null), 4000)
+      }
+    }
+
+    // Silent: character refused to respond — still update messages
+    if (result.silent) {
+      setMessages(result.messages)
+      return
+    }
+
     setMessages(result.messages)
     if (result.updatedAffections) {
       setAffections(result.updatedAffections)
@@ -157,6 +172,35 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
   // ── Paragraph renderer (NO BUBBLES) ──
   const renderParagraph = (msg, i) => {
+    // System messages: silent, interrupt context
+    if (msg.role === 'system') {
+      if (msg.silent) {
+        return (
+          <div key={i} style={{ textAlign: 'center', marginBottom: '20px', padding: '12px' }}>
+            <span style={{
+              fontSize: '11px', color: 'var(--text3)', background: 'var(--bg3)',
+              padding: '4px 12px', borderRadius: '16px', fontStyle: 'italic',
+            }}>
+              {msg.content}
+            </span>
+          </div>
+        )
+      }
+      if (msg.interruptCtx) {
+        return (
+          <div key={i} style={{ textAlign: 'center', marginBottom: '8px' }}>
+            <span style={{
+              fontSize: '10px', color: 'var(--coral)', background: 'var(--coral-l)',
+              padding: '3px 10px', borderRadius: '10px',
+            }}>
+              ⚡ {msg.content}
+            </span>
+          </div>
+        )
+      }
+      return null
+    }
+
     if (msg.role === 'user') {
       return (
         <div key={i} style={{ marginBottom: '20px', paddingLeft: '24px' }}>
@@ -242,6 +286,27 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       <div style={{ padding: '8px 16px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
         <ProgressBar label="好感度" value={affection} color="var(--purple)" height={4} flash={affFlashSingle} />
         <ProgressBar label="张力" value={tension} color="var(--coral)" height={3} />
+        {/* Decision indicator */}
+        {lastDecision && lastDecision.type !== 'normal_reply' && (
+          <div style={{
+            marginTop: '4px', textAlign: 'center',
+            fontSize: '10px', padding: '2px 8px', borderRadius: '6px',
+            background: lastDecision.type === 'silent' ? 'var(--bg3)' :
+                        lastDecision.type === 'interrupt' ? 'var(--coral-l)' :
+                        lastDecision.type === 'emotional_burst' ? 'var(--coral-l)' :
+                        'var(--purple-l)',
+            color: lastDecision.type === 'silent' ? 'var(--text3)' :
+                   lastDecision.type === 'interrupt' ? 'var(--coral)' :
+                   lastDecision.type === 'emotional_burst' ? 'var(--coral)' :
+                   'var(--purple)',
+          }}>
+            {lastDecision.type === 'silent' && '🤐 '}
+            {lastDecision.type === 'interrupt' && '⚡ '}
+            {lastDecision.type === 'emotional_burst' && '💢 '}
+            {lastDecision.type === 'initiate_chat' && '💬 '}
+            {lastDecision.reason}
+          </div>
+        )}
       </div>
 
       {/* ── Narrative Area ── */}

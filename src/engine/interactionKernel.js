@@ -492,6 +492,52 @@ export const InteractionKernel = {
           )
         : null
 
+      // 2.6. Decision-driven behavior
+      // SILENT: character refuses to respond → inject system message, skip LLM
+      if (decision && decision.type === 'silent') {
+        const silentMsg = {
+          id: generateMsgId(),
+          role: 'system',
+          content: `【${mainCharName} 选择了沉默】`,
+          silent: true,
+          duration: decision.duration || 1,
+          timestamp: Date.now(),
+        }
+        this.state.messages.push(silentMsg)
+        this.state.lifecycle.passiveTurns++
+        this._autoSave()
+        this._saveToHydration()
+        return {
+          reply: null,
+          reasoningContent: null,
+          usage: null,
+          error: null,
+          messages: [...this.state.messages],
+          updatedAffections: { ...this.state.affections },
+          affectionFlash: null,
+          affection: this.state.affection,
+          tension: this.state.tension,
+          decision,
+          silent: true,
+          turnReport: null,
+          worldState: null,
+        }
+      }
+
+      // INTERRUPT / EMOTIONAL_BURST: inject pre-turn context
+      if (decision && (decision.type === 'interrupt' || decision.type === 'emotional_burst')) {
+        const emotionLabel = decision.emotion === 'anger' ? '愤怒' :
+                             decision.emotion === 'jealousy' ? '嫉妒' : '激动'
+        const interruptCtx = {
+          id: generateMsgId(),
+          role: 'system',
+          content: `【${mainCharName} 情绪${emotionLabel}，${decision.reason}】`,
+          interruptCtx: true,
+          timestamp: Date.now(),
+        }
+        this.state.messages.push(interruptCtx)
+      }
+
       // 3. Call agent coordinator
       const result = await runAgentTurn(
         userText,
@@ -586,6 +632,7 @@ export const InteractionKernel = {
         affection: this.state.affection,
         tension: this.state.tension,
         decision,
+        silent: false,
         turnReport: result.turnReport || null,
         worldState: result.worldState || null,
       }
