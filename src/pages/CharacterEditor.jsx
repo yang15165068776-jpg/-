@@ -346,17 +346,6 @@ export default function CharacterEditor({ folderId, charIndex, onBack }) {
             </div>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <label style={{ ...labelStyle, marginBottom: 0 }}>思考层</label>
-            <Toggle value={!!char.thinkingEnabled} onChange={v => update('thinkingEnabled', v)} />
-          </div>
-          {char.thinkingEnabled && (
-            <div style={{ marginBottom: '10px' }}>
-              <label style={labelStyle}>思考层指令</label>
-              <textarea style={{ ...textareaStyle, minHeight: '60px' }} value={char.thinkingPrompt || ''} onChange={e => update('thinkingPrompt', e.target.value)} placeholder="AI 的思考过程指令…" />
-            </div>
-          )}
-
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>上下文窗口（条数）</label>
             <input style={{ ...inputStyle, width: '80px' }} type="number" min={10} max={100} value={char.contextWindow || 40} onChange={e => update('contextWindow', safeInt(e.target.value, 40))} />

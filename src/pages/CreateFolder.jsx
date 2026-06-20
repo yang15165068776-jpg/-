@@ -269,13 +269,6 @@ export default function CreateFolder({ onBack, onCreated }) {
             {char.activeMessageEnabled && (
               <textarea style={{ ...S.textarea, minHeight: '40px', marginTop: '4px' }} value={char.activePrompt || ''} onChange={e => updateChar(i, 'activePrompt', e.target.value)} placeholder="主动消息的 AI 指令…" />
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-              <label style={{ ...S.label, marginBottom: 0 }}>思考层</label>
-              <Toggle value={!!char.thinkingEnabled} onChange={v => updateChar(i, 'thinkingEnabled', v)} />
-            </div>
-            {char.thinkingEnabled && (
-              <textarea style={{ ...S.textarea, minHeight: '40px', marginTop: '4px' }} value={char.thinkingPrompt || ''} onChange={e => updateChar(i, 'thinkingPrompt', e.target.value)} placeholder="思考层指令…" />
-            )}
             <div style={{ ...S.row, marginTop: '6px' }}>
               <div style={S.col}><label style={S.label}>上下文窗口</label><input style={{ ...S.input, width: '60px' }} type="number" min={10} max={100} value={char.contextWindow || 40} onChange={e => updateChar(i, 'contextWindow', safeInt(e.target.value, 40))} /></div>
               <div style={S.col}><label style={S.label}>Temperature</label><input style={{ ...S.input, width: '60px' }} type="number" min={0} max={2} step={0.05} value={char.temperature ?? 0.9} onChange={e => updateChar(i, 'temperature', safeFloat(e.target.value, 0.9))} /></div>

@@ -1237,7 +1237,7 @@ export async function* streamCompletion(messages, apiKey, model, temperature, to
     }
     if (temperature != null) body.temperature = temperature
     if (topP != null) body.top_p = topP
-    if (thinkingEnabled) body.thinking = { type: 'enabled' }
+    // thinking layer removed — no longer requested
     const response = await fetch(BASE_URL + '/chat/completions', {
       method: 'POST',
       headers: {
@@ -1517,7 +1517,6 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
           stream: false,
           ...(character.temperature != null ? { temperature: character.temperature } : {}),
           ...(character.topP != null ? { top_p: character.topP } : {}),
-          ...(character.thinkingEnabled ? { thinking: { type: 'enabled' } } : {}),
         }),
         signal: controller.signal,
       })
