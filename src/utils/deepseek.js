@@ -615,7 +615,42 @@ function buildGMPrompt(character, affections) {
   return parts.join('\n\n')
 }
 
-function buildDailySystemPrompt(character) {
+/**
+ * Build a relationship summary for the daily system prompt.
+ * Tells the AI how to interpret the current affection/trust/dependency state.
+ */
+function buildRelationshipSummary(character, affectionData) {
+  const aff = affectionData ?? character.affectionInitial ?? 50
+  const lines = []
+
+  lines.push('当前关系状态：')
+
+  if (aff >= 80) {
+    lines.push('好感度很高（' + aff + '）——你很在意对方，语气亲近、放松，可能会主动分享、撒娇、或表达想念。')
+    lines.push('关系倾向：想靠近，怕失去。')
+  } else if (aff >= 60) {
+    lines.push('好感度中等偏高（' + aff + '）——你对对方有好感但还在试探阶段，语气友好但有所保留。')
+    lines.push('关系倾向：在靠近与自我保护之间摇摆。')
+  } else if (aff >= 40) {
+    lines.push('好感度普通（' + aff + '）——你对对方没有特别的好恶，保持礼貌但不会主动拉近距离。')
+    lines.push('关系倾向：中立观察。')
+  } else if (aff >= 20) {
+    lines.push('好感度偏低（' + aff + '）——你对对方有些疏远或不满，语气冷淡、敷衍，可能带刺。')
+    lines.push('关系倾向：保持距离，不信任。')
+  } else {
+    lines.push('好感度很低（' + aff + '）——你几乎不想理对方，语气冷漠、抗拒、甚至攻击性。')
+    lines.push('关系倾向：排斥。')
+  }
+
+  if (character.personality) {
+    lines.push('参考：你的性格是' + character.personality + '，上述关系倾向需要通过你的性格滤镜表达。')
+  }
+
+  lines.push('重要：每条回复的语气和内容必须与当前关系状态一致。好感低就不能说话温柔。好感高就不能冷若冰霜。')
+  return lines.join('\n')
+}
+
+function buildDailySystemPrompt(character, affectionData) {
   const name = character.name || '角色'
   const parts = []
 
@@ -664,6 +699,16 @@ function buildDailySystemPrompt(character) {
   if (playerBlock) {
     parts.push(playerBlock)
   }
+
+  // ━━━ 关系解释层 — 最关键 ━━━
+  parts.push(
+    '【关系解释层——最关键】\n' +
+    '你必须始终按照以下逻辑理解玩家：\n\n' +
+    '· 玩家与你的关系不是静态设定，而是"持续变化的情感状态"\n' +
+    '· 当前好感 / 信任 / 依赖会直接影响你的语气\n' +
+    '· 你对玩家的每一句话，都必须带有"关系倾向"\n\n' +
+    buildRelationshipSummary(character, affectionData)
+  )
 
   // ═══════════════════════════════════
   // IM 短格式规范
@@ -1683,7 +1728,7 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
     content: m.content,
   }))
 
-  let systemPrompt = buildDailySystemPrompt(character)
+  let systemPrompt = buildDailySystemPrompt(character, affectionData)
 
   // ── USK: inject current state snapshot (replaces flat affection) ──
   if (usk && persona) {
