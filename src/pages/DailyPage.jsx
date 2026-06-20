@@ -7,6 +7,7 @@ import { HydrationEngine } from '../engine/hydrationEngine'
 import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
 import StatusPanel from '../components/StatusPanel'
+import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix, composeBurst, createPersonaStream } from '../runtime/personaStateEngine'
 
 /**
  * DailyPage — DAILY MODE ONLY. Pure WeChat bubble UI. NO LONG TEXT. NO NARRATIVE.
@@ -242,10 +243,20 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     }
 
     const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }
+    const uskSnapshot = getFolderUIState(mainChar.name)
+
+    // ── v3 Persona Engine: state → behavior → intent ──
+    const persona = buildPersonaFromUSK(uskSnapshot)
+    const behavior = decideBehavior(persona)
+    const personaSuffix = getPersonaPromptSuffix(persona, behavior)
+    // Inject persona behavior as system message (highest priority context)
+    const sendMsgs = personaSuffix
+      ? [...newMsgs, { role: 'system', content: personaSuffix }]
+      : newMsgs
 
     try {
       const { reply, reasoningContent, usage, error: apiError } = await sendDailyChatMessage(
-        char, newMsgs, affection, apiKey, uskState,
+        char, sendMsgs, affection, apiKey, uskState,
         { characters: [{ type: 'romance', name: mainChar.name, affectionEnabled: true, affectionInitial: mainChar.affectionInitial ?? 50 }] }
       )
 
@@ -258,7 +269,9 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
 
       // Parse into bubbles (||| separator → burst)
       const segments = parseCasualReply(reply)
-      const assistantMsg = { role: 'assistant', content: reply, segments, reasoningContent, usage, timestamp: Date.now() }
+      // v3: persona-driven burst timing
+      const personaBurst = createPersonaStream(persona, composeBurst(behavior, segments))
+      const assistantMsg = { role: 'assistant', content: reply, segments: personaBurst.map(b => ({ text: b.text })), reasoningContent, usage, timestamp: Date.now(), _behavior: behavior }
       const finalMsgs = [...newMsgs, assistantMsg]
       const msgIndex = finalMsgs.length - 1
       setMessages(finalMsgs)
@@ -272,20 +285,22 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       const typingDelay = 600 + Math.random() * 1200
       setTimeout(() => {
         setIsTyping(false)
-        // Sequential reveal: burst animation
+        // Sequential reveal: persona-driven burst animation
         setRevealing({ msgIndex, revealed: 0, total: segments.length })
         let revealed = 0
         const revealNext = () => {
           revealed++
           setRevealing({ msgIndex, revealedCount: revealed, totalCount: segments.length })
           if (revealed < segments.length) {
-            revealTimerRef.current = setTimeout(revealNext, 400 + Math.random() * 600)
+            // v3: use persona-driven delay if available
+            const delay = personaBurst[revealed]?.delay || (400 + Math.random() * 600)
+            revealTimerRef.current = setTimeout(revealNext, delay)
           } else {
             revealTimerRef.current = null
             setRevealing(null)
           }
         }
-        revealTimerRef.current = setTimeout(revealNext, 300 + Math.random() * 400)
+        revealTimerRef.current = setTimeout(revealNext, personaBurst[0]?.delay || (300 + Math.random() * 400))
       }, typingDelay)
     } catch (e) {
       setLoading(false)
