@@ -271,7 +271,23 @@ interpret(event, mode, context) → { meaning, weight, tension_delta, affection_
 
 ---
 
-## 12. 开发规则
+## 12. 已知问题与近期修复
+
+### ✅ 已修复
+- **好感度 0→50**：CreateFolder AI 提取 `||` 吃 0，已改 `??`
+- **Coordinator 状态泄漏**：切换文件夹旧好感度残留，`resetAgentTurn()` 归零
+- **日常消息闪烁**：新消息 reveal 前显示 0 条气泡
+- **思考层移除**：CharacterEditor/CreateFolder UI 已删，API 不再请求 thinking
+- **反幻觉硬约束**：禁止编造 NPC/地点/物品/事件
+
+### ⚠️ 已知问题
+- CharacterEditor 与 CreateFolder 内编辑器代码重复
+- DailyPage 好感度变化未接入 LLM judge（`delta: 0` 硬编码）
+- Settings 部分旧 UI 残留
+
+---
+
+## 13. 开发规则
 
 - **引擎层**：runtime/ agents/ memory/ world/ prompt/ — 不可动
 - **新建引擎**：interactionKernel/ agentDecisionLayer/ stabilityCompiler/ antiSmoothingV2/ personaStateEngine/ causalEngine/ memoryInterpreter — 可扩展
