@@ -45,12 +45,16 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   // ── Refresh UI state from USK ──
   const refreshUSK = useCallback(() => {
     const uiState = getFolderUIState(mainChar.name)
+    const defaultAffection = mainChar.affectionInitial ?? 50
     if (uiState) {
-      setAffection(uiState.relationship?.affection ?? 50)
-      setRelationship(uiState.relationship || { affection: 50, trust: 30, dependency: 30 })
+      setAffection(uiState.relationship?.affection ?? defaultAffection)
+      setRelationship(uiState.relationship || { affection: defaultAffection, trust: 30, dependency: 30 })
       setEmotion(uiState.emotion || {})
       setTension(uiState.tension || {})
       setLife(uiState.life || {})
+    } else {
+      // USK not initialized — use character defaults
+      setAffection(defaultAffection)
     }
   }, [mainChar.name])
 
@@ -167,6 +171,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     if (!apiKey) { setError('请先配置 API Key'); return }
     setError('')
     setLoading(true)
+    setIsTyping(true) // start typing indicator immediately, no flicker
 
     const userMsg = { role: 'user', content: userText, timestamp: Date.now() }
     const newMsgs = [...messages, userMsg]
@@ -219,6 +224,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
 
       if (apiError || !reply) {
         setError(apiError?.message || '请求失败')
+        setIsTyping(false)
         return
       }
 
@@ -243,32 +249,37 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       }
 
       // ── v4 Queue Renderer: setTimeout per bubble → true WeChat feel ──
-      setIsTyping(true)
       const typingDelay = 600 + Math.random() * 1200
       setTimeout(() => {
-        setIsTyping(false)
-        // Schedule each bubble as a separate message with its own delay
-        let cumulativeDelay = 0
-        for (let i = 0; i < bubbles.length; i++) {
-          const bubble = bubbles[i]
-          cumulativeDelay += bubble.delay || (500 + i * 300)
-          setTimeout(() => {
-            setMessages(prev => [...prev, {
-              id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_' + i,
-              role: 'assistant',
-              content: bubble.text,
-              type: bubble.type || 'text',
-              timestamp: Date.now(),
-              _isBubble: true,
-              _behavior: behavior,
-              reasoningContent: i === 0 ? reasoningContent : null,
-              usage: i === 0 ? usage : null,
-            }])
-          }, cumulativeDelay)
+        try {
+          setIsTyping(false)
+          // Schedule each bubble as a separate message with its own delay
+          let cumulativeDelay = 0
+          for (let i = 0; i < bubbles.length; i++) {
+            const bubble = bubbles[i]
+            cumulativeDelay += bubble.delay || (500 + i * 300)
+            setTimeout(() => {
+              setMessages(prev => [...prev, {
+                id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_' + i,
+                role: 'assistant',
+                content: bubble.text,
+                type: bubble.type || 'text',
+                timestamp: Date.now(),
+                _isBubble: true,
+                _behavior: behavior,
+                reasoningContent: i === 0 ? reasoningContent : null,
+                usage: i === 0 ? usage : null,
+              }])
+            }, cumulativeDelay)
+          }
+        } catch (err) {
+          setIsTyping(false)
+          alert('气泡渲染异常：' + (err.message || err))
         }
       }, typingDelay)
     } catch (e) {
       setLoading(false)
+      setIsTyping(false)
       setError(e.message)
     }
   }, [messages, affection, apiKey, folderId, mainChar, folderChars, relationship, emotion, tension, life, refreshUSK])
@@ -420,8 +431,8 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
 
           {messages.map((msg, i) => renderBubble(msg, i))}
 
-          {/* Typing indicator */}
-          {(loading || isTyping) && (
+          {/* Typing indicator — only isTyping, not loading (prevents flicker) */}
+          {isTyping && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0', animation: 'fadeIn 0.2s ease-out' }}>
               <div style={{
                 width: '32px', height: '32px', borderRadius: '8px',
