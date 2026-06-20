@@ -90,7 +90,7 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', height: '48px', borderBottom: '0.5px solid var(--border)', flexShrink: 0, gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 12px', height: '48px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0, gap: '8px' }}>
         <button onClick={onBack} style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: 'var(--bg2)', cursor: 'pointer', color: 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
@@ -101,7 +101,7 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
       </div>
 
       {/* ── Folder Info ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '12px 14px', padding: '12px', borderRadius: '12px', background: 'var(--bg3)', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '12px 14px', padding: '14px', borderRadius: '14px', background: 'var(--bg2)', flexShrink: 0 }}>
         <div style={{ width: '40px', height: '40px', borderRadius: '20px', overflow: 'hidden', background: 'var(--bg)', border: '0.5px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           {profile.avatar ? <img src={profile.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--text3)' }}><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>
@@ -133,11 +133,10 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
                 onTouchMove={handleTouchEnd}
                 onClick={() => handleSaveClick(s.id)}
                 style={{
-                  padding: '12px', borderRadius: '10px',
-                  border: '0.5px solid var(--border)',
-                  background: deleteTarget === s.id ? 'var(--coral-l)' : isPicked ? 'var(--purple-l)' : 'var(--bg)',
-                  marginBottom: '6px', cursor: 'pointer', transition: 'all 0.12s',
-                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '12px 16px', borderRadius: '14px',
+                  background: deleteTarget === s.id ? 'var(--coral-l)' : isPicked ? 'var(--purple-l)' : 'var(--bg2)',
+                  marginBottom: '8px', cursor: 'pointer', transition: 'all 0.12s',
+                  display: 'flex', alignItems: 'center', gap: '12px',
                 }}
               >
                 {deleteTarget === s.id ? (

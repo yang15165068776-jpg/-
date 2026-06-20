@@ -70,16 +70,16 @@ function StageEditor({ stages, onChange }) {
 
 const S = {
   page: { height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)' },
-  header: { display: 'flex', alignItems: 'center', padding: '0 12px', height: '48px', borderBottom: '0.5px solid var(--border)', flexShrink: 0, gap: '8px' },
+  header: { display: 'flex', alignItems: 'center', padding: '0 12px', height: '48px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0, gap: '8px' },
   title: { flex: 1, fontSize: '15px', fontWeight: 600, color: 'var(--text)' },
   body: { flex: 1, overflowY: 'auto', padding: '12px 14px' },
-  card: { padding: '12px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg)', marginBottom: '8px' },
-  aiBox: { background: 'var(--bg3)', borderRadius: '12px', padding: '14px', marginBottom: '14px' },
+  card: { padding: '14px', borderRadius: '14px', border: '0.5px solid var(--border)', background: 'var(--bg2)', marginBottom: '10px' },
+  aiBox: { background: 'var(--bg2)', borderRadius: '14px', padding: '12px', marginBottom: '14px' },
   label: { fontSize: '11px', fontWeight: 500, color: 'var(--text2)', marginBottom: '3px', display: 'block' },
-  input: { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '13px', color: 'var(--text)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' },
-  textarea: { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '12px', color: 'var(--text)', outline: 'none', resize: 'vertical', minHeight: '56px', fontFamily: 'inherit', boxSizing: 'border-box' },
-  btn: { padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: '12px', fontWeight: 500, cursor: 'pointer' },
-  btn2: { padding: '8px 14px', borderRadius: '8px', border: '0.5px solid var(--border)', background: 'var(--bg)', color: 'var(--text2)', fontSize: '12px', cursor: 'pointer' },
+  input: { width: '100%', padding: '10px 12px', borderRadius: '12px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '13px', color: 'var(--text)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' },
+  textarea: { width: '100%', padding: '10px 12px', borderRadius: '12px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '12px', color: 'var(--text)', outline: 'none', resize: 'vertical', minHeight: '56px', fontFamily: 'inherit', boxSizing: 'border-box' },
+  btn: { padding: '10px 16px', borderRadius: '12px', border: 'none', background: 'var(--text)', color: 'var(--bg)', fontSize: '12px', fontWeight: 500, cursor: 'pointer' },
+  btn2: { padding: '10px 16px', borderRadius: '12px', border: '0.5px solid var(--border)', background: 'var(--bg)', color: 'var(--text2)', fontSize: '12px', cursor: 'pointer' },
   sectionTitle: { fontSize: '12px', fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '4px' },
   row: { display: 'flex', gap: '8px', marginBottom: '8px' },
   col: { flex: 1 },
@@ -335,14 +335,11 @@ export default function CreateFolder({ onBack, onCreated }) {
         {characters.map((char, i) => renderCharEditor(char, i))}
       </div>
 
-      {/* Bottom */}
-      <div style={{ padding: '10px 14px', borderTop: '0.5px solid var(--border)', flexShrink: 0 }}>
-        <button
-          style={{ ...S.btn, width: '100%', padding: '14px', fontSize: '14px', opacity: hasContent ? 1 : 0.35 }}
-          onClick={handleCreate}
-          disabled={!hasContent}
-        >
-          创建世界{characters.length > 0 ? '（含 ' + characters.length + ' 位角色）' : ''}
+      {/* Bottom — cancel + confirm */}
+      <div style={{ padding: '12px 14px', borderTop: '0.5px solid var(--border2)', flexShrink: 0, display: 'flex', gap: '10px' }}>
+        <button style={{ flex: 1, padding: '14px', borderRadius: '14px', border: '0.5px solid var(--border)', background: 'var(--bg3)', color: 'var(--text2)', fontSize: '15px', fontWeight: 500, cursor: 'pointer' }} onClick={onBack}>取消</button>
+        <button style={{ flex: 1, padding: '14px', borderRadius: '14px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '15px', fontWeight: 600, cursor: 'pointer', opacity: hasContent ? 1 : 0.4 }} onClick={handleCreate} disabled={!hasContent}>
+          确认{characters.length > 0 ? '（' + characters.length + '位角色）' : ''}
         </button>
       </div>
     </div>

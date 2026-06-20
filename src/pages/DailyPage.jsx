@@ -35,13 +35,14 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [saveId, setSaveId] = useState(null)
-  const [revealing, setRevealing] = useState(null) // { msgIndex, revealed, total }
+  const [revealing, setRevealing] = useState(null)
+  const [activeCharIndex, setActiveCharIndex] = useState(0)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
   const revealTimerRef = useRef(null)
 
-  const mainChar = folderChars[0] || {}
+  const mainChar = folderChars[activeCharIndex] || folderChars[0] || {}
   const apiKey = getApiKey()
 
   // ── Refresh UI state from USK ──
@@ -264,47 +265,45 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
 
   return (
     <div style={{ height: '100%', display: 'flex', background: 'var(--bg)' }}>
-      {/* ── LEFT: Character Sidebar (collapsible) ── */}
+      {/* ── LEFT: Character Sidebar (56px, round avatars) ── */}
       <div style={{
-        width: sidebarCollapsed ? '36px' : '120px',
-        flexShrink: 0,
-        borderRight: '0.5px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'width 0.2s',
-        overflow: 'hidden',
+        width: '56px', flexShrink: 0, borderRight: '0.5px solid var(--border2)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: '16px', padding: '12px 0', overflowY: 'auto',
       }}>
-        <button onClick={() => setSidebarCollapsed(v => !v)} style={{
-          width: '100%', padding: '8px 0', border: 'none', background: 'none',
-          cursor: 'pointer', color: 'var(--text3)', fontSize: '12px',
-          display: 'flex', justifyContent: 'center',
-        }}>
-          {sidebarCollapsed ? '▶' : '◀'}
-        </button>
-        {!sidebarCollapsed && (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
-            <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', marginBottom: '8px', letterSpacing: '0.5px' }}>角色</div>
-            {folderChars.map((c, i) => (
-              <div key={i} style={{
-                padding: '8px', borderRadius: '8px', marginBottom: '4px',
-                background: c.name === mainChar.name ? 'var(--bg3)' : 'transparent',
-                fontSize: '11px', color: 'var(--text2)', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '6px',
+        {folderChars.map((c, i) => {
+          const isActive = i === activeCharIndex
+          const unread = 0 // placeholder for future unread tracking
+          return (
+            <div key={i} style={{ position: 'relative', cursor: 'pointer' }}
+              onClick={() => { setActiveCharIndex(i); refreshUSK() }}
+            >
+              <div style={{
+                width: '40px', height: '40px', borderRadius: '20px',
+                overflow: 'hidden', background: 'var(--bg3)',
+                border: isActive ? '2px solid var(--purple)' : '0.5px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'border 0.15s',
               }}>
-                <div style={{
-                  width: '20px', height: '20px', borderRadius: '6px',
-                  background: c.avatar ? 'transparent' : 'var(--purple)',
-                  color: '#fff', fontSize: '9px', display: 'flex',
-                  alignItems: 'center', justifyContent: 'center',
-                  overflow: 'hidden', flexShrink: 0,
-                }}>
-                  {c.avatar ? <img src={c.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (c.name || '?')[0]}
-                </div>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                {c.avatar ? (
+                  <img src={c.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--purple)' }}>{(c.name || '?')[0]}</span>
+                )}
               </div>
-            ))}
-          </div>
-        )}
+              {/* Unread badge */}
+              {unread > 0 && (
+                <span style={{
+                  position: 'absolute', top: '-2px', right: '-2px',
+                  minWidth: '16px', height: '16px', borderRadius: '8px',
+                  background: 'var(--coral)', color: '#fff', fontSize: '9px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 4px', fontWeight: 600,
+                }}>{unread > 99 ? '99+' : unread}</span>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* ── CENTER: Chat Area ── */}
@@ -312,10 +311,10 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         {/* Header */}
         <div style={{
           display: 'flex', alignItems: 'center', padding: '0 12px', height: '48px',
-          borderBottom: '0.5px solid var(--border)', flexShrink: 0, gap: '8px',
+          borderBottom: '0.5px solid var(--border2)', flexShrink: 0, gap: '8px',
         }}>
           <button onClick={onBack} style={{
-            width: '32px', height: '32px', borderRadius: '8px', border: 'none',
+            width: '32px', height: '32px', borderRadius: '12px', border: 'none',
             background: 'var(--bg2)', cursor: 'pointer', color: 'var(--text2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
