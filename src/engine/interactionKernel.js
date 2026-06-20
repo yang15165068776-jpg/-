@@ -34,6 +34,7 @@ import { AgentDecisionLayer } from './agentDecisionLayer'
 import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
 import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
+import { CausalEngine } from '../runtime/causalEngine'
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -492,6 +493,22 @@ export const InteractionKernel = {
     return { ...this.state.affections }
   },
 
+  /**
+   * @private — take a flat USK snapshot for causal diffing
+   */
+  _snapshotUSK(charName) {
+    const state = getFolderUIState(charName)
+    if (!state) return null
+    return {
+      affection: state.relationship?.affection ?? 50,
+      tension: state.tension?.unresolved_conflicts ?? 30,
+      dependency: state.relationship?.dependency ?? 30,
+      anger: state.emotion?.anger ?? 5,
+      jealousy: state.emotion?.jealousy ?? 5,
+      trust: state.relationship?.trust ?? 30,
+    }
+  },
+
   // ═══════════════════════════════════════════════════
   // 4.5. Agent Decision Layer Bridge
   // ═══════════════════════════════════════════════════
@@ -560,8 +577,11 @@ export const InteractionKernel = {
       this.state.messages.push(userMsg)
       this.state.lifecycle.turnCount++
 
-      // 2. Get USK snapshot for coordinator
+      // 2. Get USK snapshot for coordinator + pre-turn state for causal engine
       const usk = getRawFolderUSK()
+      const uskBefore = mainCharName
+        ? this._snapshotUSK(mainCharName)
+        : null
 
       // 2.5. Run agent decision layer
       const mainCharName = character.name
@@ -732,8 +752,14 @@ export const InteractionKernel = {
         }
       }
 
-      // 11.5. Memory Interpretation — record + dual-view
+      // 11.5. Causal Narrative Engine — explain WHY changes happened
       const mode = this.state.mode || 'drama'
+      const uskAfter = mainCharName ? this._snapshotUSK(mainCharName) : null
+      const causalAnalysis = (uskBefore && uskAfter)
+        ? CausalEngine.analyze(uskBefore, uskAfter, mode, { characterName: mainCharName, userText })
+        : null
+
+      // 11.6. Memory Interpretation — record + dual-view
       const uskContext = mainCharName ? getFolderUIState(mainCharName) : null
       const interpretation = MemoryInterpreter.interpretTurn(
         { role: 'user', content: userText },
@@ -765,6 +791,7 @@ export const InteractionKernel = {
         tension: this.state.tension,
         decision,
         interpretation,
+        causalAnalysis,
         silent: false,
         turnReport: result.turnReport || null,
         worldState: result.worldState || null,
