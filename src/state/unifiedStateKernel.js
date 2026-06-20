@@ -636,54 +636,54 @@ export function updateUSK(event, usk, charName) {
 
   switch (event.type) {
     case 'conflict':
-      ten.unresolved_conflict = clamp((ten.unresolved_conflict || 0) + 10, 0, 100)
-      rel.trust = clamp((rel.trust || 30) - 5, 0, 100)
-      emo.anger = clamp((emo.anger || 5) + 15, 0, 100)
-      ten.emotional_pressure = clamp((ten.emotional_pressure || 20) + 8, 0, 100)
+      ten.unresolved_conflict = clamp((ten.unresolved_conflict ?? 0) + 10, 0, 100)
+      rel.trust = clamp((rel.trust ?? 30) - 5, 0, 100)
+      emo.anger = clamp((emo.anger ?? 5) + 15, 0, 100)
+      ten.emotional_pressure = clamp((ten.emotional_pressure ?? 20) + 8, 0, 100)
       break
 
     case 'intimacy':
-      rel.affection = clamp((rel.affection || 50) + 8, 0, 100)
-      rel.dependency = clamp((rel.dependency || 30) + 5, 0, 100)
-      emo.excitement = clamp((emo.excitement || 20) + 10, 0, 100)
-      ten.attraction_tension = clamp((ten.attraction_tension || 40) + 5, 0, 100)
+      rel.affection = clamp((rel.affection ?? 50) + 8, 0, 100)
+      rel.dependency = clamp((rel.dependency ?? 30) + 5, 0, 100)
+      emo.excitement = clamp((emo.excitement ?? 20) + 10, 0, 100)
+      ten.attraction_tension = clamp((ten.attraction_tension ?? 40) + 5, 0, 100)
       break
 
     case 'rejection':
-      rel.trust = clamp((rel.trust || 30) - 10, 0, 100)
-      emo.anger = clamp((emo.anger || 5) + 15, 0, 100)
-      emo.sadness = clamp((emo.sadness || 5) + 10, 0, 100)
-      ten.power_imbalance = clamp((ten.power_imbalance || 50) + 10, 0, 100)
+      rel.trust = clamp((rel.trust ?? 30) - 10, 0, 100)
+      emo.anger = clamp((emo.anger ?? 5) + 15, 0, 100)
+      emo.sadness = clamp((emo.sadness ?? 5) + 10, 0, 100)
+      ten.power_imbalance = clamp((ten.power_imbalance ?? 50) + 10, 0, 100)
       break
 
     case 'absence':
-      lif.loneliness = clamp((lif.loneliness || lif.lonely || 40) + 10, 0, 100)
+      lif.loneliness = clamp((lif.loneliness ?? lif.lonely ?? 40) + 10, 0, 100)
       lif.lonely = lif.loneliness  // sync alias
-      lif.initiative_score = clamp((lif.initiative_score || 50) + 5, 0, 100)
-      emo.anxiety = clamp((emo.anxiety || 10) + 8, 0, 100)
+      lif.initiative_score = clamp((lif.initiative_score ?? 50) + 5, 0, 100)
+      emo.anxiety = clamp((emo.anxiety ?? 10) + 8, 0, 100)
       break
 
     case 'rupture':
-      rel.trust = clamp((rel.trust || 30) - 20, 0, 100)
-      ten.unresolved_conflict = clamp((ten.unresolved_conflict || 0) + 20, 0, 100)
-      rel.fear = clamp((rel.fear || 30) + 15, 0, 100)
-      emo.anger = clamp((emo.anger || 5) + 25, 0, 100)
-      emo.sadness = clamp((emo.sadness || 5) + 20, 0, 100)
+      rel.trust = clamp((rel.trust ?? 30) - 20, 0, 100)
+      ten.unresolved_conflict = clamp((ten.unresolved_conflict ?? 0) + 20, 0, 100)
+      rel.fear = clamp((rel.fear ?? 30) + 15, 0, 100)
+      emo.anger = clamp((emo.anger ?? 5) + 25, 0, 100)
+      emo.sadness = clamp((emo.sadness ?? 5) + 20, 0, 100)
       break
 
     case 'daily_chat':
       // ── Daily v4: LLM-provided deltas → daily subspace only ──
-      const relDelta = event.relationship_delta || 0
-      const emoDelta = event.emotion_delta || 0
+      const relDelta = event.relationship_delta ?? 0
+      const emoDelta = event.emotion_delta ?? 0
       // Relationship: LLM delta (primary) or default +2 bonding
-      rel.affection = clamp((rel.affection || 50) + (relDelta !== 0 ? relDelta : 2), 0, 100)
+      rel.affection = clamp((rel.affection ?? 50) + (relDelta !== 0 ? relDelta : 2), 0, 100)
       // Life: emotion delta drives mood change
-      lif.mood = clamp((lif.mood || 50) + emoDelta * 0.8, 0, 100)
+      lif.mood = clamp((lif.mood ?? 50) + emoDelta * 0.8, 0, 100)
       // Social need satisfied by any chat
-      lif.loneliness = clamp((lif.loneliness || lif.lonely || 40) - 3, 0, 100)
+      lif.loneliness = clamp((lif.loneliness ?? lif.lonely ?? 40) - 3, 0, 100)
       lif.lonely = lif.loneliness  // sync alias
       // Curiosity slightly satisfied
-      emo.curiosity = clamp((emo.curiosity || 30) - Math.abs(emoDelta) * 0.3 - 2, 0, 100)
+      emo.curiosity = clamp((emo.curiosity ?? 30) - Math.abs(emoDelta) * 0.3 - 2, 0, 100)
       // ⚠️ Daily v4: do NOT write tension — that's drama-only territory
       break
 
