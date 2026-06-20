@@ -48,7 +48,7 @@ export default function Entry({
 
       {/* ═══ LEFT — 76px toolbar ═══ */}
       <div style={{
-        width: '76px', flexShrink: 0, display: 'flex', flexDirection: 'column',
+        width: '84px', flexShrink: 0, display: 'flex', flexDirection: 'column',
         alignItems: 'center', padding: '12px 8px', background: 'var(--bg2)',
         borderRight: '0.5px solid var(--border2)', height: '100%', overflowY: 'auto',
       }}>
@@ -78,17 +78,23 @@ export default function Entry({
                 <div key={f.id}
                   onClick={() => setSelectedFolder(f)}
                   style={{
-                    width: '52px', height: '52px', borderRadius: '10px',
-                    background: isSelected ? 'var(--bg)' : 'var(--bg3)',
-                    border: isSelected ? '2px solid var(--purple)' : '0.5px solid var(--border)',
+                    width: '60px', minHeight: '44px', borderRadius: '10px',
+                    background: isSelected ? 'var(--purple-l)' : 'var(--bg3)',
+                    border: isSelected ? '2px solid var(--purple)' : '2px solid transparent',
                     marginBottom: '10px', cursor: 'pointer', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '20px', position: 'relative', transition: 'all 0.12s',
+                    padding: '8px 6px', position: 'relative', transition: 'all 0.12s',
                   }}
                   title={f.name}
                 >
-                  {f.characterData?.[0]?.name?.[0] || f.name?.[0] || '?'}
-                  {/* Delete button — long press / right-click */}
+                  <span style={{
+                    fontSize: '12px', color: isSelected ? 'var(--purple)' : 'var(--text2)',
+                    textAlign: 'center', lineHeight: '1.3', wordBreak: 'break-word',
+                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}>
+                    {f.name}
+                  </span>
                   <button
                     onClick={e => {
                       e.stopPropagation()
@@ -102,8 +108,8 @@ export default function Entry({
                       position: 'absolute', top: '-4px', right: '-4px',
                       width: '16px', height: '16px', borderRadius: '50%',
                       border: 'none', background: 'var(--coral)', color: '#fff',
-                      fontSize: '9px', cursor: 'pointer', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center', opacity: 0.7,
+                      fontSize: '10px', cursor: 'pointer', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
                     }}
                     title="删除"
                   >×</button>
