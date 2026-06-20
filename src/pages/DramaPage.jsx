@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { sendStoryStageMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
-import { getApiKey, getUserAvatar } from '../utils/storage'
-import { shouldTriggerAffectionJudge } from '../runtime/affectionTrigger'
-import { runAgentTurn } from '../agents/coordinator'
-import { validatePersona } from '../runtime/antiSmoothing'
-import { initBridgeForFolder, getFolderUIState, getRawFolderUSK, dramaTurnStart, dramaTurnEnd } from '../state/stateBridge'
-import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, getFolder } from '../state/folderStore'
-import { HydrationEngine } from '../engine/hydrationEngine'
+import { parseMultiCharacterMessage, findCharacterAvatar } from '../utils/deepseek'
+import { getApiKey } from '../utils/storage'
+import { getFolder } from '../state/folderStore'
+import { InteractionKernel } from '../engine/interactionKernel'
 import ProgressBar from '../components/ProgressBar'
 import EventActionPanel from '../components/EventActionPanel'
 
@@ -34,61 +30,21 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
   const mainChar = folderChars[0] || {}
   const apiKey = getApiKey()
-  const mode = 'drama'
 
-  // ── Init: hydration → save → USK ──
+  // ── Init: kernel handles hydration → save → USK ──
   useEffect(() => {
-    // 1. Try HydrationEngine cache first (back-navigation recovery)
-    const cached = HydrationEngine.get(folderId, 'drama')
-    if (cached && cached.messages.length > 0) {
-      setMessages(cached.messages)
-      // Don't re-init USK if we have cached state — bridge still needs init
-    }
-
-    // 2. Load from folder save
-    const save = getOrCreateDefaultSave(folderId)
-    if (!save) return
-    setSaveId(save.id)
-
-    if (!cached || cached.messages.length === 0) {
-      const msgs = getSaveMessages(save.id, folderId, 'drama')
-      if (msgs.length === 0 && mainChar.openingScenario) {
-        const opening = { role: 'assistant', content: mainChar.openingScenario, timestamp: Date.now(), isOpening: true }
-        setMessages([opening])
-        saveSaveMessages(save.id, folderId, 'drama', [opening])
-      } else if (msgs.length > 0) {
-        setMessages(msgs)
-      }
-    }
-
-    // 3. Init folder USK
-    const charsForUSK = folderChars.map(c => ({ id: c.name, name: c.name, affectionInitial: c.affectionInitial ?? 50 }))
-    initBridgeForFolder(folderId, charsForUSK, 'drama')
-
-    const uiState = getFolderUIState(mainChar.name)
-    if (uiState) {
-      setAffection(uiState.relationship?.affection ?? 50)
-      setTension(uiState.tension?.unresolved_conflicts ?? 30)
-    }
-
-    // 4. Save state before unmount (back navigation recovery)
-    return () => {
-      // messages captured via closure — HydrationEngine saves current state
-    }
+    const state = InteractionKernel.init(folderId, folderChars, 'drama')
+    setMessages(state.messages)
+    setAffection(state.affection)
+    setTension(state.tension)
+    setSaveId(state.saveId)
+    setAffections(state.affections)
   }, [folderId])
 
-  // ── Save state to HydrationEngine before navigation ──
-  useEffect(() => {
-    if (messages.length > 0) {
-      const usk = getRawFolderUSK()
-      HydrationEngine.save(folderId, 'drama', messages, usk)
-    }
-  }, [messages, folderId])
-
-  // ── Auto-save messages ──
+  // ── Auto-save safety net ──
   useEffect(() => {
     if (saveId && messages.length > 0) {
-      saveSaveMessages(saveId, folderId, 'drama', messages)
+      InteractionKernel.persistMessages()
     }
   }, [messages, saveId, folderId])
 
@@ -97,25 +53,13 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
 
-  // ── Send ──
-  const doSend = useCallback(async (userText) => {
-    if (!apiKey) { setError('请先配置 API Key'); return }
-    setError('')
-    setLoading(true)
-
-    const userMsg = { role: 'user', content: userText, timestamp: Date.now() }
-    const newMsgs = [...messages, userMsg]
-    setMessages(newMsgs)
-    setInput('')
-    setStreamingText('')
-
-    // Merge folder-level worldview into character for LLM prompt
+  // ── Build character object for LLM ──
+  const buildCharacterForLLM = useCallback(() => {
     const folder = getFolder(folderId)
     const mergedWorldSetting = mainChar.worldSetting || (folder ? folder.worldview : '') || ''
     const mergedOpening = mainChar.openingScenario || (folder ? folder.story_intro : '') || ''
 
-    // Build a character object for the engine
-    const char = {
+    return {
       id: mainChar.id || folderId,
       name: mainChar.name,
       chatStyle: 'story',
@@ -138,58 +82,46 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       thinkingEnabled: mainChar.thinkingEnabled || false,
       contextWindow: mainChar.contextWindow || 40,
     }
+  }, [folderId, mainChar])
 
-    const usk = getRawFolderUSK()
+  // ── Send ──
+  const doSend = useCallback(async (userText) => {
+    if (!apiKey) { setError('请先配置 API Key'); return }
+    setError('')
+    setLoading(true)
+    setInput('')
+    setStreamingText('')
 
-    try {
-      // v3 Agent Coordinator
-      const result = await runAgentTurn(
-        userText, char, affections, newMsgs, apiKey,
-        (token, fullText, reset) => {
-          if (reset) { setStreamingText(''); return }
-          setStreamingText(fullText)
-        },
-        usk
-      )
+    const char = buildCharacterForLLM()
 
-      setLoading(false)
-      setStreamingText('')
+    const result = await InteractionKernel.executeTurn(
+      userText, apiKey,
+      (token, fullText, reset) => {
+        if (reset) { setStreamingText(''); return }
+        setStreamingText(fullText)
+      },
+      char,
+    )
 
-      if (result.error || !result.reply) {
-        setError(result.error?.message || '请求失败')
-        return
-      }
+    setLoading(false)
+    setStreamingText('')
 
-      const cleanReply = (result.reply || '').replace(/<affection>[\s\S]*?<\/affection>/gi, '').trim() || result.reply
-      const assistantMsg = { role: 'assistant', content: cleanReply, reasoningContent: result.reasoningContent, usage: result.usage, timestamp: Date.now() }
-      setMessages([...newMsgs, assistantMsg])
-
-      // Update affections
-      if (result.updatedAffections) {
-        setAffections(result.updatedAffections)
-        const deltas = result.turnReport?.affectionDeltas || {}
-        const flashMap = {}
-        for (const [name, delta] of Object.entries(deltas)) {
-          if (delta !== 0) flashMap[name] = delta
-        }
-        if (Object.keys(flashMap).length > 0) {
-          setAffectionFlash(flashMap)
-          setTimeout(() => setAffectionFlash(null), 1500)
-        }
-      }
-
-      // Update USK
-      dramaTurnEnd(mainChar.name, result)
-      const uiState = getFolderUIState(mainChar.name)
-      if (uiState) {
-        setAffection(uiState.relationship?.affection ?? 50)
-        setTension(uiState.tension?.unresolved_conflicts ?? 30)
-      }
-    } catch (e) {
-      setLoading(false)
-      setError(e.message)
+    if (result.error) {
+      setError(result.error?.message || result.error?.toString?.() || '请求失败')
+      return
     }
-  }, [messages, affection, affections, apiKey, folderId, mainChar, folderChars])
+
+    setMessages(result.messages)
+    if (result.updatedAffections) {
+      setAffections(result.updatedAffections)
+    }
+    if (result.affectionFlash) {
+      setAffectionFlash(result.affectionFlash)
+      setTimeout(() => setAffectionFlash(null), 1500)
+    }
+    setAffection(result.affection)
+    setTension(result.tension)
+  }, [apiKey, buildCharacterForLLM])
 
   const handleSend = () => {
     const text = input.trim()
@@ -207,24 +139,20 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   }
 
   const handleEditLast = () => {
-    const lastUserIdx = [...messages].reverse().findIndex(m => m.role === 'user')
-    if (lastUserIdx === -1) return
-    const idx = messages.length - 1 - lastUserIdx
-    const text = prompt('编辑消息：', messages[idx].content)
+    const last = InteractionKernel.getLastUserMessage()
+    if (!last) return
+    const text = prompt('编辑消息：', last.content)
     if (text) {
-      const truncated = messages.slice(0, idx)
-      setMessages(truncated)
+      InteractionKernel.rollbackTo(last._index - 1)
+      const state = InteractionKernel.getState()
+      setMessages(state.messages)
       doSend(text)
     }
   }
 
   const handleDeleteLast = () => {
-    if (messages.length < 2) return
-    // Remove last assistant + user pair
-    const lastUserIdx = [...messages].reverse().findIndex(m => m.role === 'user')
-    if (lastUserIdx === -1) return
-    const idx = messages.length - 1 - lastUserIdx
-    setMessages(messages.slice(0, idx))
+    const msgs = InteractionKernel.deleteLastPair()
+    setMessages(msgs)
   }
 
   // ── Paragraph renderer (NO BUBBLES) ──
