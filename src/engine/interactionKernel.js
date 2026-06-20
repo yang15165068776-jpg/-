@@ -35,6 +35,7 @@ import { runAgentTurn, resetAgentTurn } from '../agents/coordinator'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
 import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 import { CausalEngine } from '../runtime/causalEngine'
+import { DramaOrchestrator } from '../runtime/dramaOrchestrator'
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -66,6 +67,7 @@ export const InteractionKernel = {
     affectionFlash: null,
     tension: 30,
     compiledPersona: null,
+    scene: null,           // DramaOrchestrator scene state
     lifecycle: {
       turnCount: 0,
       passiveTurns: 0,
@@ -197,6 +199,11 @@ export const InteractionKernel = {
     // ── Compile character personality ──
     if (mainChar) {
       this.state.compiledPersona = StabilityCompiler.compile(mainChar)
+    }
+
+    // ── Drama Orchestrator v1: init scene state ──
+    if (mode === 'drama' && mainChar) {
+      this.state.scene = DramaOrchestrator.initScene(mainChar, folder)
     }
 
     this.state._initialized = true
@@ -643,7 +650,20 @@ export const InteractionKernel = {
         this.state.messages.push(interruptCtx)
       }
 
-      // 2.7. Stability Compiler — inject compiled constraints into character
+      // 2.7. Drama Orchestrator v1 — advance scene + inject director prompt
+      if (this.state.scene && this.state.mode === 'drama') {
+        const uskState = getFolderUIState(mainCharName)
+        const interactionType = decision?.type === 'emotional_burst' ? 'conflict' :
+                               decision?.type === 'silent' ? 'rejection' : null
+        const { scene, event } = DramaOrchestrator.advance(this.state.scene, uskState, interactionType)
+        this.state.scene = scene
+        if (scene) {
+          character._sceneContext = DramaOrchestrator.buildDirectorPrompt(scene)
+          character._sceneEvent = event
+        }
+      }
+
+      // 2.8. Stability Compiler — inject compiled constraints into character
       if (this.state.compiledPersona) {
         character._compiledConstraints = StabilityCompiler.buildPromptInjection(this.state.compiledPersona)
         // Validate runtime state against compiled constraints

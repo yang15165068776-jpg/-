@@ -401,6 +401,11 @@ function buildGMPrompt(character, affections) {
     buildPlayerIdentityBlock(character)
   )
 
+  // 🎬 Drama Orchestrator v1 — director's scene instructions
+  if (character._sceneContext) {
+    parts.push(character._sceneContext)
+  }
+
   // 2: World view
   if (character.worldSetting) {
     parts.push('【世界观】\n' + character.worldSetting +
