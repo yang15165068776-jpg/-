@@ -15,10 +15,68 @@ import StatusPanel from '../components/StatusPanel'
  * Layout: CharacterSidebar (left) | Chat Bubbles (center) | StatusPanel (right)
  */
 
+function isNarrativeLine(text) {
+  // Detect 3rd-person narration patterns
+  if (/[他她它]+\s*(低头|抬头|看着|走向|转身|缓缓|轻轻|冷笑|沉默|开口|心想|说道|默默|突然|回头)/.test(text)) return true
+  if (/^[（(].*[）)]$/.test(text.trim())) return true  // Pure action descriptions in parens
+  if (/^[他她]/.test(text.trim()) && text.length > 20) return true  // Starts with 3rd person + long
+  return false
+}
+
+function stripNarrative(text) {
+  // Remove parenthetical action descriptions (novel-style)
+  let t = text.replace(/[（(][^）)]*(?:低头|看向|转身|缓缓|轻轻|冷笑|沉默|开口|心想|说道|默默|瞥了)+[^）)]*[）)]/g, '')
+  // Remove 3rd-person tagged narration at start
+  t = t.replace(/^[他她][^，。！？]*(?:，|。|！|？)/g, '')
+  return t.trim()
+}
+
+function forceSplitToSegments(text) {
+  // Force-split long text into sentence-length segments
+  const raw = text.split(/[。！？\n]+/).map(s => s.trim()).filter(s => s.length > 0)
+  const segments = []
+  for (const seg of raw) {
+    // Skip narrative-looking segments
+    if (isNarrativeLine(seg)) continue
+    // Enforce max length: split long segments further
+    if (seg.length > 40) {
+      const sub = seg.split(/[，,、]/).filter(s => s.trim().length > 0)
+      let buf = ''
+      for (const s of sub) {
+        if ((buf + s).length > 35) {
+          if (buf) segments.push(buf.trim())
+          buf = s
+        } else {
+          buf += (buf ? '，' : '') + s
+        }
+      }
+      if (buf) segments.push(buf.trim())
+    } else {
+      segments.push(seg)
+    }
+  }
+  return segments.filter(s => s.length > 0)
+}
+
 function parseCasualReply(rawText) {
-  return rawText.split('|||')
-    .map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
-    .filter(s => s.length > 0)
+  if (!rawText) return []
+
+  // Primary: split by ||| separator
+  const hasSeparator = rawText.includes('|||')
+  if (hasSeparator) {
+    const segments = rawText.split('|||')
+      .map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
+      .filter(s => s.length > 0)
+    // Filter out narrative-looking segments
+    const clean = segments.filter(s => !isNarrativeLine(s))
+    if (clean.length > 0) return clean
+  }
+
+  // Fallback: strip narrative and force-split
+  const stripped = stripNarrative(rawText)
+  if (!stripped) return []
+
+  return forceSplitToSegments(stripped)
 }
 
 export default function DailyPage({ folderId, folderChars, onBack }) {
