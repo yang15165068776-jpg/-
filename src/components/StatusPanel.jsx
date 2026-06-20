@@ -2,13 +2,12 @@ import ProgressBar from './ProgressBar'
 
 /**
  * StatusPanel — Right-side status panel for daily mode.
- * Shows affection, trust, tension, and emotion summary for a character.
+ * Shows affection, trust, life, and emotion summary for a character. (Tension removed in v4.)
  *
  * Props:
  *   characterName: string
  *   relationship: { affection, trust, dependency, respect, fear, possessiveness }
  *   emotion: { anger, sadness, jealousy, anxiety, curiosity, excitement }
- *   tension: { unresolved_conflicts, emotional_pressure, attraction_tension, power_imbalance }
  *   life: { mood, lonely, busy, tired }
  *   affectionFlash: number | null
  *   collapsed: boolean
@@ -18,7 +17,6 @@ export default function StatusPanel({
   characterName = '',
   relationship = {},
   emotion = {},
-  tension = {},
   life = {},
   affectionFlash = null,
   collapsed = false,
@@ -138,31 +136,6 @@ export default function StatusPanel({
         <ProgressBar
           label="依赖"
           value={relationship.dependency ?? 30}
-          color="var(--purple)"
-          height={2}
-        />
-      </div>
-
-      {/* Section: Tension */}
-      <div>
-        <div style={{ fontSize: '10px', fontWeight: 600, color: 'var(--text3)', marginBottom: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-          张力
-        </div>
-        <ProgressBar
-          label="冲突"
-          value={tension.unresolved_conflicts ?? 0}
-          color="var(--coral)"
-          height={3}
-        />
-        <ProgressBar
-          label="情绪压力"
-          value={tension.emotional_pressure ?? 20}
-          color="var(--coral)"
-          height={2}
-        />
-        <ProgressBar
-          label="吸引"
-          value={tension.attraction_tension ?? 40}
           color="var(--purple)"
           height={2}
         />

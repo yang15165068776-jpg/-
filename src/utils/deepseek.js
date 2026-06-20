@@ -783,51 +783,77 @@ function buildDailySystemPrompt(character) {
   )
 
   // ═══════════════════════════════════════════
-  // 三条不可违背的铁律 — 最高优先级压底
+  // 【Daily v4】JSON 结构化输出 — 最高优先级
   // ═══════════════════════════════════════════
   parts.push(
     '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-    '⚠️ 以下三条铁律覆盖以上所有规则，\n' +
+    '⚠️ 以下输出规则覆盖以上所有规则，\n' +
     '是本次回复的最高优先级指令，\n' +
     '任何一条违反都必须重写。\n' +
     '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n' +
 
+    '【Daily v4 强制 JSON 输出格式——程序解析规则】\n\n' +
+    '你必须输出一个严格的 JSON 对象。不要任何 JSON 之外的文字。\n' +
+    '不要 markdown 代码块。不要解释。直接输出花括号开头的 JSON：\n\n' +
+
+    '{\n' +
+    '  "bubbles": [\n' +
+    '    {"text": "消息内容", "type": "text", "delay": 800}\n' +
+    '  ],\n' +
+    '  "emotion_delta": 0,\n' +
+    '  "relationship_delta": 0\n' +
+    '}\n\n' +
+
+    '━━━ 字段规则 ━━━\n\n' +
+
+    '【bubbles 数组】\n' +
+    '· 1-5 条消息气泡，每条都是一个独立的消息\n' +
+    '· text：消息正文，5-60 字。像真人微信。短句。\n' +
+    '· type："text"（默认）、"voice_hint"（对应 [语音 5秒]）、"action"（对应 [转账]/[图片] 等系统消息）\n' +
+    '· delay：这条消息的发送延迟（毫秒），500-2000 之间。\n' +
+    '  短消息（<10字）→ 300-600ms\n' +
+    '  中等消息（10-30字）→ 600-1200ms\n' +
+    '  长消息（>30字）→ 1000-2000ms\n' +
+    '  连续两条之间至少间隔 400ms\n\n' +
+
+    '【emotion_delta】\n' +
+    '· -10 到 +10 的整数\n' +
+    '· 正数：角色情绪变好（收到好消息、被逗笑、感到被在乎）\n' +
+    '· 负数：角色情绪变差（被冷落、被冒犯、感到不安）\n' +
+    '· 平淡回复 → 0\n\n' +
+
+    '【relationship_delta】\n' +
+    '· -5 到 +5 的整数\n' +
+    '· 正数：感到更亲近（对方说了暖心的话、被理解、被尊重）\n' +
+    '· 负数：感到更疏远（被冷淡对待、被敷衍、被冒犯）\n' +
+    '· 普通聊天 → 0 或 +1\n\n' +
+
+    '━━━ 内容铁律（违反即重写）━━━\n\n' +
+
     '【铁律一：物理空间隔离】\n' +
-    '你和玩家现在绝对不在同一个物理空间！\n' +
-    '你们隔着网络，正在用手机微信纯文字聊天！\n' +
-    '你看不见玩家，玩家也看不见你。\n\n' +
-    '绝对禁止写出以下类型的面对面物理动作：\n' +
-    '· "回头看你一眼""把外套抬到鼻尖""伸手摸你头发"\n' +
-    '· "从背后抱住你""靠近你耳边""握住你的手"\n' +
-    '· 任何需要你和玩家处于同一房间才能发生的动作\n\n' +
-    '你能做的只有：打字、发消息、发语音、发图片、发红包、\n' +
-    '撤回消息、改备注——以及其他微信App内的操作。\n' +
-    '其他一切物理动作都是幻觉，必须删除。\n\n' +
+    '你和玩家不在同一个物理空间。你们在用微信纯文字聊天。\n' +
+    '禁止任何面对面物理动作（回头看你、伸手摸你、从背后抱住你…）\n' +
+    '你只能做微信 App 内的操作：打字、发语音、发图片、发红包、撤回、改备注。\n\n' +
 
     '【铁律二：纯键盘打字输出】\n' +
-    '你的所有输出，必须且只能是你用手指在屏幕上敲出的文字本身！\n\n' +
-    '错误示例（小说腔——绝对禁止）：\n' +
-    '  他冷笑了一声，打字道："你在哪？"\n' +
-    '  沈墨言停顿了很久，最终只发了三个字\n' +
-    '正确示例（纯消息）：\n' +
-    '  你在哪？\n\n' +
-    '严禁：\n' +
-    '· 任何第三人称代词——"他""她"以及角色名（如"沈墨言"）\n' +
-    '· 任何动作描写——"打字道""按下发送键""盯着屏幕"\n' +
-    '· 任何神态描写——"冷笑""叹了口气""眼眶红了"\n' +
-    '· 任何环境描写——"窗外的光""手机屏幕的光"\n' +
-    '· 任何心理描写——"他心里想的却是""他知道自己不该"\n\n' +
+    'text 字段里只能是角色在手机上敲出来的字。\n' +
+    '严禁第三人称代词（"他""她"及角色名）\n' +
+    '严禁动作/神态/环境/心理描写\n' +
     '你就是消息本身，不是"正在发消息的角色"。\n\n' +
 
     '【铁律三：微信极简字数】\n' +
-    '像真正的现代人发微信一样！\n' +
-    '每次回复只允许输出 1 到 3 句短话，总字数严禁超过 50 字。\n' +
-    '不废话，不长篇大论，不加任何修饰性旁注。\n\n' +
-    '如果你发现自己在解释、在铺垫、在堆砌修饰——\n' +
-    '立刻删除，只保留最核心的那 1-3 句话。\n\n' +
+    '单条 text 5-60 字。连续短句比长句更像真人。\n' +
+    '不需要把话说完。可以只说一个字（"嗯"）。\n' +
+    '禁止解释、铺垫、堆砌修饰。\n\n' +
+
+    '━━━ 正例（纯 JSON，无任何包装）━━━\n' +
+    '{"bubbles":[{"text":"在的在的","type":"text","delay":400},{"text":"刚在忙，怎么啦","type":"text","delay":800}],"emotion_delta":1,"relationship_delta":1}\n\n' +
+    '{"bubbles":[{"text":"嗯","type":"text","delay":600}],"emotion_delta":0,"relationship_delta":0}\n\n' +
+    '{"bubbles":[{"text":"…你管我什么时候回","type":"text","delay":1000}],"emotion_delta":-2,"relationship_delta":-1}\n\n' +
 
     '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-    '违反以上任意一条铁律 → 重写，没有例外。\n' +
+    '违反以上任意一条 → 重写，没有例外。\n' +
+    '记住：只输出 JSON，不要任何其他文字。\n' +
     '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   )
 
@@ -1477,6 +1503,78 @@ export async function sendStoryStageMessage(character, messages, affections, api
  * System Prompt 极其纯粹：角色基础人设 + 微信即时聊天格式规则。
  * 非流式输出（便于 ||| 分隔符解析）。
  */
+/**
+ * Daily v4: Parse LLM response into structured DailyMessagePacket.
+ * Priority: JSON → ||| fallback → single bubble fallback
+ */
+function parseDailyPacket(rawText) {
+  if (!rawText) return null
+
+  // Try JSON parse first (v4 primary format)
+  const cleaned = rawText.trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/, '')
+    .replace(/\s*```$/, '')
+    .trim()
+
+  try {
+    const parsed = JSON.parse(cleaned)
+    if (parsed.bubbles && Array.isArray(parsed.bubbles) && parsed.bubbles.length > 0) {
+      return {
+        bubbles: parsed.bubbles.map((b, i) => ({
+          text: String(b.text || '').trim().slice(0, 60),
+          type: ['text', 'voice_hint', 'action'].includes(b.type) ? b.type : 'text',
+          delay: Math.max(300, Math.min(2000, parseInt(b.delay) || 800)),
+        })),
+        emotion_delta: Math.max(-10, Math.min(10, parseInt(parsed.emotion_delta) || 0)),
+        relationship_delta: Math.max(-5, Math.min(5, parseInt(parsed.relationship_delta) || 0)),
+      }
+    }
+  } catch {
+    // JSON parse failed — fall through to ||| fallback
+  }
+
+  // Fallback: ||| separator (legacy format)
+  if (rawText.includes('|||')) {
+    const segments = rawText.split('|||')
+      .map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
+      .filter(s => s.length > 0)
+      .filter(s => {
+        // Filter narrative lines
+        if (/[他她它]+\s*(低头|抬头|看着|走向|转身|缓缓|轻轻|冷笑|沉默|开口|心想|说道|默默|突然|回头)/.test(s)) return false
+        if (/^[（(].*[）)]$/.test(s.trim())) return false
+        if (/^[他她]/.test(s.trim()) && s.length > 20) return false
+        return true
+      })
+    if (segments.length > 0) {
+      return {
+        bubbles: segments.map((s, i) => ({
+          text: s.slice(0, 60),
+          type: 'text',
+          delay: Math.min(500 + i * 300, 1500),
+        })),
+        emotion_delta: 0,
+        relationship_delta: 0,
+      }
+    }
+  }
+
+  // Last resort: treat entire response as single bubble
+  const clean = rawText
+    .replace(/[（(][^）)]*(?:低头|看向|转身|缓缓|轻轻|冷笑|沉默|开口|心想|说道|默默|瞥了)+[^）)]*[）)]/g, '')
+    .replace(/^[他她][^，。！？]*(?:，|。|！|？)/g, '')
+    .trim()
+    .slice(0, 60)
+
+  if (!clean) return null
+
+  return {
+    bubbles: [{ text: clean, type: 'text', delay: 800 }],
+    emotion_delta: 0,
+    relationship_delta: 0,
+  }
+}
+
 export async function sendDailyChatMessage(character, messages, affectionData, apiKey, usk, persona) {
   const model = getModel()
 
@@ -1558,14 +1656,18 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
 
       const data = await response.json()
       const message = data.choices?.[0]?.message
-      const reply = message?.content || ''
+      const reply = (message?.content || '').trim()
       const reasoningContent = message?.reasoning_content || ''
       const usage = data.usage || null
 
-      // Check forbidden words
+      // ── Daily v4: Parse structured JSON output with ||| fallback ──
+      const packet = parseDailyPacket(reply)
+
+      // Check forbidden words across all bubbles
       if (character.forbiddenWords && character.forbiddenWords.length > 0) {
         const activeWords = character.forbiddenWords.filter(w => w.trim())
-        const hit = findForbiddenWord(reply, activeWords)
+        const allText = packet ? packet.bubbles.map(b => b.text).join(' ') : reply
+        const hit = findForbiddenWord(allText, activeWords)
         if (hit) {
           lastViolation = hit
           lastError = new Error('回复包含禁止内容：' + hit)
@@ -1573,14 +1675,14 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
         }
       }
 
-      return { reply: reply.trim(), reasoningContent, usage, error: null }
+      return { reply: packet ? packet.bubbles.map(b => b.text).join(' ||| ') : reply, packet, reasoningContent, usage, error: null }
     } catch (err) {
       lastError = err
       break
     }
   }
 
-  return { reply: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
+  return { reply: null, packet: null, reasoningContent: null, usage: null, error: lastError || new Error('请求失败') }
 }
 
 /**

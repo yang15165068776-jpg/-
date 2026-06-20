@@ -8,7 +8,7 @@ import { HydrationEngine } from '../engine/hydrationEngine'
 import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
 import StatusPanel from '../components/StatusPanel'
-import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix, composeBurst, createPersonaStream } from '../runtime/personaStateEngine'
+import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix } from '../runtime/personaStateEngine'
 
 /**
  * DailyPage — DAILY MODE ONLY. Pure WeChat bubble UI. NO LONG TEXT. NO NARRATIVE.
@@ -16,70 +16,6 @@ import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix, composeBur
  *
  * Layout: CharacterSidebar (left) | Chat Bubbles (center) | StatusPanel (right)
  */
-
-function isNarrativeLine(text) {
-  // Detect 3rd-person narration patterns
-  if (/[他她它]+\s*(低头|抬头|看着|走向|转身|缓缓|轻轻|冷笑|沉默|开口|心想|说道|默默|突然|回头)/.test(text)) return true
-  if (/^[（(].*[）)]$/.test(text.trim())) return true  // Pure action descriptions in parens
-  if (/^[他她]/.test(text.trim()) && text.length > 20) return true  // Starts with 3rd person + long
-  return false
-}
-
-function stripNarrative(text) {
-  // Remove parenthetical action descriptions (novel-style)
-  let t = text.replace(/[（(][^）)]*(?:低头|看向|转身|缓缓|轻轻|冷笑|沉默|开口|心想|说道|默默|瞥了)+[^）)]*[）)]/g, '')
-  // Remove 3rd-person tagged narration at start
-  t = t.replace(/^[他她][^，。！？]*(?:，|。|！|？)/g, '')
-  return t.trim()
-}
-
-function forceSplitToSegments(text) {
-  // Force-split long text into sentence-length segments
-  const raw = text.split(/[。！？\n]+/).map(s => s.trim()).filter(s => s.length > 0)
-  const segments = []
-  for (const seg of raw) {
-    // Skip narrative-looking segments
-    if (isNarrativeLine(seg)) continue
-    // Enforce max length: split long segments further
-    if (seg.length > 40) {
-      const sub = seg.split(/[，,、]/).filter(s => s.trim().length > 0)
-      let buf = ''
-      for (const s of sub) {
-        if ((buf + s).length > 35) {
-          if (buf) segments.push(buf.trim())
-          buf = s
-        } else {
-          buf += (buf ? '，' : '') + s
-        }
-      }
-      if (buf) segments.push(buf.trim())
-    } else {
-      segments.push(seg)
-    }
-  }
-  return segments.filter(s => s.length > 0)
-}
-
-function parseCasualReply(rawText) {
-  if (!rawText) return []
-
-  // Primary: split by ||| separator
-  const hasSeparator = rawText.includes('|||')
-  if (hasSeparator) {
-    const segments = rawText.split('|||')
-      .map(s => s.trim().replace(/^\|+|\|+$/g, '').trim())
-      .filter(s => s.length > 0)
-    // Filter out narrative-looking segments
-    const clean = segments.filter(s => !isNarrativeLine(s))
-    if (clean.length > 0) return clean
-  }
-
-  // Fallback: strip narrative and force-split
-  const stripped = stripNarrative(rawText)
-  if (!stripped) return []
-
-  return forceSplitToSegments(stripped)
-}
 
 export default function DailyPage({ folderId, folderChars, onBack }) {
   const [messages, setMessages] = useState([])
@@ -159,10 +95,10 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     }
   }, [messages, saveId, folderId])
 
-  // ── Initiative Engine v2 — auto-message scheduler ──
+  // ── Initiative Engine v4 — auto-message scheduler ──
   useEffect(() => {
     if (!autoMsgEnabled || messages.length === 0) return
-    const chance = (affection * 0.005 + (emotion?.lonely || 40) * 0.004 + (tension?.unresolved_conflicts || 30) * 0.003)
+    const chance = (affection * 0.005 + (life?.lonely || 40) * 0.004 + (tension?.unresolved_conflicts || 30) * 0.003)
     const interval = 15000 + Math.random() * 25000 // 15-40s between checks
     autoMsgTimerRef.current = setInterval(() => {
       if (Math.random() < Math.min(chance, 0.15)) {
@@ -170,7 +106,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       }
     }, interval)
     return () => { if (autoMsgTimerRef.current) clearInterval(autoMsgTimerRef.current) }
-  }, [autoMsgEnabled, affection, emotion, tension, messages.length])
+  }, [autoMsgEnabled, affection, life, tension, messages.length])
 
   const generateAutoMessage = useCallback(async () => {
     if (!apiKey || loading) return
@@ -188,18 +124,25 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         contextWindow: mainChar.contextWindow || 40,
         _playerProfile: playerAcct ? { name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
       }
-      const systemCtx = { role: 'system', content: '【主动消息——角色自主发起的聊天】\n你主动给对方发了一条消息。保持自然，像真人微信聊天。不要叙事。短句。' }
+      // Initiative prompt: character reaches out proactively, very short
+      const systemCtx = { role: 'system', content: '【Daily v4 主动消息】你主动给对方发了一条微信。像突然想到对方了。只发 1 条，5-15 字。不解释自己为什么发。例："在干嘛" / "刚看到个东西" / "[表情包]"' }
       const ctxMsgs = [...messages.slice(-6), systemCtx]
       const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }
-      const { reply, error: apiError } = await sendDailyChatMessage(
+      const { reply, packet, error: apiError } = await sendDailyChatMessage(
         char, ctxMsgs, affection, apiKey, uskState,
         { characters: [{ type: 'romance', name: mainChar.name, affectionEnabled: true, affectionInitial: mainChar.affectionInitial ?? 50 }] }
       )
-      if (apiError || !reply) return
-      const segments = parseCasualReply(reply)
-      const msg = { role: 'assistant', content: reply, segments, timestamp: Date.now(), isAutonomous: true }
+      if (apiError) { alert('主动消息请求失败：' + (apiError.message || apiError)); return }
+      if (!packet || !packet.bubbles || packet.bubbles.length === 0) return
+      // Only use first bubble for initiative messages
+      const bubble = packet.bubbles[0]
+      const segments = [{ text: bubble.text, delay: bubble.delay || 600, type: bubble.type || 'text' }]
+      const msg = { role: 'assistant', content: reply || bubble.text, segments, timestamp: Date.now(), isAutonomous: true }
       setMessages(prev => [...prev, msg])
-    } catch {} finally { setIsTyping(false) }
+      // Update USK with initiative event
+      dailyTurnEnd(mainChar.name, { reply: bubble.text, emotion_delta: packet.emotion_delta || 0, relationship_delta: packet.relationship_delta || 0 })
+      refreshUSK()
+    } catch (err) { alert('主动消息异常：' + (err.message || err)) } finally { setIsTyping(false) }
   }, [apiKey, loading, mainChar, folderId, affection, relationship, emotion, tension, life, messages])
 
   // ── Scroll ──
@@ -260,7 +203,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       : newMsgs
 
     try {
-      const { reply, reasoningContent, usage, error: apiError } = await sendDailyChatMessage(
+      const { reply, packet, reasoningContent, usage, error: apiError } = await sendDailyChatMessage(
         char, sendMsgs, affection, apiKey, uskState,
         { characters: [{ type: 'romance', name: mainChar.name, affectionEnabled: true, affectionInitial: mainChar.affectionInitial ?? 50 }] }
       )
@@ -272,33 +215,60 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         return
       }
 
-      // Parse into bubbles (||| separator → burst)
-      const segments = parseCasualReply(reply)
-      // v3: persona-driven burst timing
-      const personaBurst = createPersonaStream(persona, composeBurst(behavior, segments))
-      const assistantMsg = { role: 'assistant', content: reply, segments: personaBurst.map(b => ({ text: b.text })), reasoningContent, usage, timestamp: Date.now(), _behavior: behavior }
+      // ── Daily v4: use structured packet from LLM ──
+      const bubbles = (packet && packet.bubbles && packet.bubbles.length > 0)
+        ? packet.bubbles
+        : [{ text: reply.slice(0, 60), type: 'text', delay: 800 }]
+
+      // Build segments with LLM-provided delays
+      const segments = bubbles.map((b, i) => ({
+        text: b.text,
+        delay: b.delay || (500 + i * 300),
+        type: b.type || 'text',
+      }))
+
+      const assistantMsg = {
+        role: 'assistant',
+        content: reply,
+        segments,
+        reasoningContent,
+        usage,
+        timestamp: Date.now(),
+        _behavior: behavior,
+      }
       const finalMsgs = [...newMsgs, assistantMsg]
       const msgIndex = finalMsgs.length - 1
       setMessages(finalMsgs)
 
-      // Update USK
-      dailyTurnEnd(mainChar.name, { reply, delta: 0 })
+      // Update USK with LLM-provided deltas
+      dailyTurnEnd(mainChar.name, {
+        reply,
+        emotion_delta: packet?.emotion_delta ?? 0,
+        relationship_delta: packet?.relationship_delta ?? 0,
+      })
       refreshUSK()
 
-      // Typing indicator → then burst
+      // Set affection flash for UI animation
+      const relDelta = packet?.relationship_delta
+      if (relDelta && relDelta !== 0) {
+        setAffectionFlash(relDelta > 0 ? relDelta : relDelta)
+        setTimeout(() => setAffectionFlash(null), 2500)
+      }
+
+      // Typing indicator → then burst reveal
       setIsTyping(true)
       const typingDelay = 600 + Math.random() * 1200
       setTimeout(() => {
         setIsTyping(false)
-        // Sequential reveal: persona-driven burst animation
-        setRevealing({ msgIndex, revealed: 0, total: segments.length })
+        // v4: sequential reveal with LLM-provided delays
+        const totalCount = segments.length
+        setRevealing({ msgIndex, revealedCount: 0, totalCount })
         let revealed = 0
         const revealNext = () => {
           revealed++
-          setRevealing({ msgIndex, revealedCount: revealed, totalCount: segments.length })
-          if (revealed < segments.length) {
-            // v3: use persona-driven delay if available
-            const delay = personaBurst[revealed]?.delay || (400 + Math.random() * 600)
+          setRevealing({ msgIndex, revealedCount: revealed, totalCount })
+          if (revealed < totalCount) {
+            const delay = segments[revealed]?.delay || (400 + Math.random() * 600)
             revealTimerRef.current = setTimeout(revealNext, delay)
           } else {
             revealTimerRef.current = null
@@ -551,7 +521,6 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         characterName={mainChar.name || ''}
         relationship={relationship}
         emotion={emotion}
-        tension={tension}
         life={life}
         affectionFlash={affectionFlash}
         collapsed={panelCollapsed}

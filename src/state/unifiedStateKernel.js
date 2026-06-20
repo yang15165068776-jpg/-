@@ -672,11 +672,19 @@ export function updateUSK(event, usk, charName) {
       break
 
     case 'daily_chat':
-      // Light touch: chatting builds connection gently
-      rel.affection = clamp((rel.affection || 50) + 2, 0, 100)
-      emo.curiosity = clamp((emo.curiosity || 30) - 5, 0, 100) // curiosity satisfied
+      // ── Daily v4: LLM-provided deltas → daily subspace only ──
+      const relDelta = event.relationship_delta || 0
+      const emoDelta = event.emotion_delta || 0
+      // Relationship: LLM delta (primary) or default +2 bonding
+      rel.affection = clamp((rel.affection || 50) + (relDelta !== 0 ? relDelta : 2), 0, 100)
+      // Life: emotion delta drives mood change
+      lif.mood = clamp((lif.mood || 50) + emoDelta * 0.8, 0, 100)
+      // Social need satisfied by any chat
       lif.loneliness = clamp((lif.loneliness || lif.lonely || 40) - 3, 0, 100)
       lif.lonely = lif.loneliness  // sync alias
+      // Curiosity slightly satisfied
+      emo.curiosity = clamp((emo.curiosity || 30) - Math.abs(emoDelta) * 0.3 - 2, 0, 100)
+      // ⚠️ Daily v4: do NOT write tension — that's drama-only territory
       break
 
     default:

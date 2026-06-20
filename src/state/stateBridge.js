@@ -143,10 +143,10 @@ export function dailyTurnStart(charName, userInput) {
 }
 
 /**
- * Complete a DAILY turn — apply results.
+ * Complete a DAILY turn — apply LLM-provided deltas.
  *
  * @param {string} charName
- * @param {object} result — { reply, delta }
+ * @param {object} result — { reply, emotion_delta, relationship_delta }
  */
 export function dailyTurnEnd(charName, result) {
   if (!result) return
@@ -155,6 +155,8 @@ export function dailyTurnEnd(charName, result) {
     type: 'daily_chat',
     summary: '日常聊天：' + (result.reply || '').slice(0, 40),
     mode: 'daily',
+    emotion_delta: result.emotion_delta ?? 0,
+    relationship_delta: result.relationship_delta ?? 0,
   }, charName)
 
   USK_API.tick(charName)
