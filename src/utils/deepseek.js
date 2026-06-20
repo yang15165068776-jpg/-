@@ -659,6 +659,12 @@ function buildDailySystemPrompt(character) {
     parts.push('【你的说话风格——请融入每一条消息中】\n' + character.styleRules.filter(r => r.trim()).join('\n'))
   }
 
+  // ━━━ 玩家身份（你在和谁聊天）━━━
+  const playerBlock = buildPlayerIdentityBlock(character)
+  if (playerBlock) {
+    parts.push(playerBlock)
+  }
+
   // ═══════════════════════════════════
   // IM 短格式规范
   // ═══════════════════════════════════
