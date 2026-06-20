@@ -28,6 +28,7 @@ import { getModel } from './storage'
 import writingSamplesRaw from './writing-samples.txt?raw'
 import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
 import { buildPersonaShield } from '../runtime/personaIntegrity'
+import { buildDailyGuardPrompt, dailyActionFilter } from '../runtime/dailyGuard'
 import { buildStateSnapshot, getRelationship } from '../state/unifiedStateKernel'
 import { extractEvents, extractEventsDeterministic } from '../memory/eventExtractor'
 import { initGraphFromCharacter, loadGraph, saveGraph, updateGraph } from '../memory/memoryGraph'
@@ -709,6 +710,9 @@ function buildDailySystemPrompt(character, affectionData) {
     '· 你对玩家的每一句话，都必须带有"关系倾向"\n\n' +
     buildRelationshipSummary(character, affectionData)
   )
+
+  // ━━━ Daily v5 Guard: anti-romance + relationship gate + intent ━━━
+  parts.push(buildDailyGuardPrompt(affectionData ?? character.affectionInitial ?? 50))
 
   // ═══════════════════════════════════
   // IM 短格式规范
@@ -1658,7 +1662,7 @@ function parseDailyPacket(rawText) {
     if (parsed.bubbles && Array.isArray(parsed.bubbles) && parsed.bubbles.length > 0) {
       return {
         bubbles: parsed.bubbles.map((b, i) => ({
-          text: String(b.text || '').trim().slice(0, 60),
+          text: dailyActionFilter(String(b.text || '').trim()).slice(0, 60),
           type: ['text', 'voice_hint', 'action'].includes(b.type) ? b.type : 'text',
           delay: Math.max(300, Math.min(2000, parseInt(b.delay) || 800)),
         })),
