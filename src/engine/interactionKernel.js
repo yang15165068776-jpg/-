@@ -203,7 +203,8 @@ export const InteractionKernel = {
 
     // ── Drama Orchestrator v1: init scene state ──
     if (mode === 'drama' && mainChar) {
-      this.state.scene = DramaOrchestrator.initScene(mainChar, folder)
+      const folderData = getFolder(folderId)
+      this.state.scene = DramaOrchestrator.initScene(mainChar, folderData)
     }
 
     this.state._initialized = true
