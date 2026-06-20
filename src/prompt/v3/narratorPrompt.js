@@ -186,20 +186,16 @@ function buildCharacterIdentityBlock(character, world) {
     }
   }
 
-  // Player character — from account or legacy protagonist fields
+  // Player character — from account only, never legacy protagonist fields
   const pp = character._playerProfile
-  if (pp && pp.name) {
-    lines.push('\n【玩家身份】' + pp.name +
-      (pp.gender ? '（' + pp.gender + '）' : '') + ' — ' +
-      (pp.personalityTags && pp.personalityTags.length > 0 ? pp.personalityTags.join('、') : '未设定'))
-    if (pp.description) {
-      lines.push('玩家设定：' + pp.description.slice(0, 200))
-    }
-  } else if (character.protagonistName) {
-    lines.push('\n【主角】' + character.protagonistName + ' — ' +
-      (character.protagonistPersonality || '未设定') +
-      (character.protagonistGender ? '（' + character.protagonistGender + '）' : ''))
+  const playerName = (pp && pp.name) ? pp.name : '玩家'
+  lines.push('\n【玩家身份】' + playerName +
+    (pp && pp.gender ? '（' + pp.gender + '）' : '') + ' — ' +
+    (pp && pp.personalityTags && pp.personalityTags.length > 0 ? pp.personalityTags.join('、') : '未设定'))
+  if (pp && pp.description) {
+    lines.push('玩家设定：' + pp.description.slice(0, 200))
   }
+  lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。')
 
   lines.push('')
   lines.push('⚠️ 禁止人设偏离：')

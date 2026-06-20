@@ -268,38 +268,30 @@ export function findForbiddenWord(text, words) {
  */
 function buildPlayerIdentityBlock(character) {
   const pp = character._playerProfile
-  if (pp && pp.name) {
-    const lines = []
-    lines.push('【玩家身份——你正在与之互动的人】')
-    lines.push('名字：' + pp.name)
-    if (pp.gender) lines.push('性别：' + pp.gender)
-    if (pp.personalityTags && pp.personalityTags.length > 0) {
-      lines.push('性格标签：' + pp.personalityTags.join('、'))
-    }
-    if (pp.description) {
-      lines.push('设定：' + pp.description)
-    }
-    lines.push('')
-    lines.push('以上是正在与你互动的玩家的身份信息。')
-    lines.push('角色应该认识并记住这个玩家的名字和设定，并据此做出反应。')
-    lines.push('玩家通过输入文字扮演这个身份与世界互动。')
-    lines.push('记住：你绝不能替' + pp.name + '做任何动作或说任何话。')
-    return lines.join('\n')
-  }
 
-  // Fallback: legacy protagonist fields
-  if (character.protagonistName) {
-    return '【主角设定（用户扮演的角色）】\n' +
-      '故事主角是' + character.protagonistName +
-      (character.protagonistGender ? '，' + character.protagonistGender : '') +
-      '。\n' +
-      (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
-      (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
-      '用户扮演这个角色与世界互动。\n' +
-      '记住：你绝不能替' + character.protagonistName + '做任何动作或说任何话。'
-  }
+  // Player name: account name > "玩家"
+  const playerName = (pp && pp.name) ? pp.name : '玩家'
 
-  return ''
+  const lines = []
+  lines.push('【玩家身份——你正在与之互动的人】')
+  lines.push('名字：' + playerName)
+  if (pp && pp.gender) lines.push('性别：' + pp.gender)
+  if (pp && pp.personalityTags && pp.personalityTags.length > 0) {
+    lines.push('性格标签：' + pp.personalityTags.join('、'))
+  }
+  if (pp && pp.description) {
+    lines.push('设定：' + pp.description)
+  }
+  lines.push('')
+  lines.push('以上是正在与你互动的玩家的身份信息。')
+  lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。')
+  lines.push('角色应该认识并记住这个玩家的名字和设定，并据此做出反应。')
+  lines.push('玩家通过输入文字扮演这个身份与世界互动。')
+  lines.push('记住：你绝不能替' + playerName + '做任何动作或说任何话。')
+
+  // ⚠️ Never fall back to character.protagonistName —
+  // that's deprecated character data, not the player's identity.
+  return lines.join('\n')
 }
 
 function buildGMPrompt(character, affections) {
