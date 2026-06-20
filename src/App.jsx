@@ -104,15 +104,7 @@ export default function App() {
       NavigationEngine.push('dailyPage', { folder: folderWithChars })
     },
     back: () => {
-      // safeGoBack: prevent navigation to dead/broken pages
-      const historyDepth = NavigationEngine.history?.length || 0
-      if (historyDepth <= 1) {
-        // No history — go to entry as safe fallback
-        setSelectedFolder(null)
-        NavigationEngine.replace('entry')
-        return
-      }
-      // Peek to restore folder context
+      // Peek to restore folder context before popping
       const prev = NavigationEngine.peekBack()
       if (prev?.params?.folder) {
         setSelectedFolder(prev.params.folder)
@@ -120,6 +112,11 @@ export default function App() {
         setSelectedFolder(null)
       }
       NavigationEngine.back()
+      // If stack was empty, back() already goes to entry.
+      // Sync selectedFolder if we landed on entry.
+      if (!NavigationEngine.canGoBack()) {
+        setSelectedFolder(null)
+      }
     },
   }
 
