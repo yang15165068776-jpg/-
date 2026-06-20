@@ -31,6 +31,7 @@ import {
 } from '../state/folderStore'
 import { HydrationEngine } from './hydrationEngine'
 import { AgentDecisionLayer } from './agentDecisionLayer'
+import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -636,6 +637,15 @@ export const InteractionKernel = {
       let cleanReply = result.reply
       if (typeof cleanReply === 'string') {
         cleanReply = cleanReply.replace(/<affection>[\s\S]*?<\/affection>/g, '').trim()
+      }
+
+      // 5.5. Anti-Smoothing v2 — post-process to prevent personality collapse
+      if (cleanReply && mainCharName) {
+        const uskState = getFolderUIState(mainCharName)
+        cleanReply = AntiSmoothingV2.apply(cleanReply, {
+          uskState,
+          character,
+        })
       }
 
       // 6. Add assistant message + reset passive turns
