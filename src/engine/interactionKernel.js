@@ -29,6 +29,7 @@ import {
   saveSaveMessages,
 } from '../state/folderStore'
 import { HydrationEngine } from './hydrationEngine'
+import { AgentDecisionLayer } from './agentDecisionLayer'
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -61,6 +62,7 @@ export const InteractionKernel = {
     tension: 30,
     lifecycle: {
       turnCount: 0,
+      passiveTurns: 0,
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
       totalCacheHitTokens: 0,
@@ -174,6 +176,7 @@ export const InteractionKernel = {
     this.state.tension = 30
     this.state.lifecycle = {
       turnCount: 0,
+      passiveTurns: 0,
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
       totalCacheHitTokens: 0,
@@ -407,6 +410,37 @@ export const InteractionKernel = {
   },
 
   // ═══════════════════════════════════════════════════
+  // 4.5. Agent Decision Layer Bridge
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Get the agent's autonomous decision for the current state.
+   * Called by UI to know what the character "wants" to do.
+   *
+   * @returns {object} decision { type, intensity, burst, emotion, reason, urgency }
+   */
+  getDecision() {
+    if (!this.state._initialized) return null
+    const mainCharName = Object.keys(this.state.affections)[0]
+    if (!mainCharName) return null
+
+    return AgentDecisionLayer.decideFromFolder(
+      mainCharName,
+      this.state.messages,
+      this.state.mode || 'drama',
+      this.state.lifecycle.turnCount,
+      this.state.lifecycle.passiveTurns,
+    )
+  },
+
+  /**
+   * Increment passive turns counter (called on idle / no user input).
+   */
+  incrementPassiveTurns() {
+    this.state.lifecycle.passiveTurns++
+  },
+
+  // ═══════════════════════════════════════════════════
   // 5. Turn Execution (core integration point)
   // ═══════════════════════════════════════════════════
 
@@ -424,7 +458,7 @@ export const InteractionKernel = {
    * @returns {Promise<object>} result {
    *   reply, reasoningContent, usage, error,
    *   messages, updatedAffections, affectionFlash,
-   *   affection, tension, turnReport, worldState,
+   *   affection, tension, decision, turnReport, worldState,
    * }
    */
   async executeTurn(userText, apiKey, onStreamToken, character, folder) {
@@ -445,6 +479,18 @@ export const InteractionKernel = {
 
       // 2. Get USK snapshot for coordinator
       const usk = getRawFolderUSK()
+
+      // 2.5. Run agent decision layer
+      const mainCharName = character.name
+      const decision = mainCharName
+        ? AgentDecisionLayer.decideFromFolder(
+            mainCharName,
+            this.state.messages,
+            this.state.mode || 'drama',
+            this.state.lifecycle.turnCount,
+            this.state.lifecycle.passiveTurns,
+          )
+        : null
 
       // 3. Call agent coordinator
       const result = await runAgentTurn(
@@ -473,7 +519,7 @@ export const InteractionKernel = {
         cleanReply = cleanReply.replace(/<affection>[\s\S]*?<\/affection>/g, '').trim()
       }
 
-      // 6. Add assistant message
+      // 6. Add assistant message + reset passive turns
       const assistantMsg = {
         id: generateMsgId(),
         role: 'assistant',
@@ -483,6 +529,8 @@ export const InteractionKernel = {
         timestamp: Date.now(),
       }
       this.state.messages.push(assistantMsg)
+      // Character has interacted — reset passive turns
+      this.state.lifecycle.passiveTurns = 0
 
       // 7. Track token usage
       if (result.usage) {
@@ -509,7 +557,6 @@ export const InteractionKernel = {
       }
 
       // 10. Write affection deltas + NPC actions to USK via stateBridge
-      const mainCharName = character.name
       if (mainCharName) {
         dramaTurnEnd(mainCharName, result)
       }
@@ -538,6 +585,7 @@ export const InteractionKernel = {
         affectionFlash,
         affection: this.state.affection,
         tension: this.state.tension,
+        decision,
         turnReport: result.turnReport || null,
         worldState: result.worldState || null,
       }
