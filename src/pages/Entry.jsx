@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getAllFolders } from '../state/folderStore'
+import { getAllFolders, deleteFolder } from '../state/folderStore'
 import { getPlayerProfile } from '../utils/storage'
 
 /**
@@ -88,10 +88,29 @@ export default function Entry({
                     marginBottom: '6px',
                     cursor: 'pointer',
                     transition: 'background 0.12s',
+                    position: 'relative',
                   }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg3)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'var(--bg)'}
                 >
+                  {/* Delete button — stop propagation so click doesn't enter folder */}
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      if (confirm(`确定删除世界"${f.name}"？\n所有存档将被永久删除。`)) {
+                        deleteFolder(f.id)
+                        setFolders(getAllFolders())
+                      }
+                    }}
+                    style={{
+                      position: 'absolute', top: '4px', right: '4px',
+                      width: '18px', height: '18px', borderRadius: '50%',
+                      border: 'none', background: 'transparent',
+                      color: 'var(--text3)', fontSize: '11px', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}
+                    title="删除世界"
+                  >×</button>
                   <div style={{
                     fontSize: '12px',
                     fontWeight: 600,

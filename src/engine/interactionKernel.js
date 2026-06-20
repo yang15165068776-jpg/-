@@ -100,15 +100,21 @@ export const InteractionKernel = {
 
     if (cached && cached.messages && cached.messages.length > 0) {
       messages = cached.messages
+      // Ensure saveId is set even when loading from cache
+      const save = getOrCreateDefaultSave(folderId)
+      if (save) this.state.saveId = save.id
     } else {
       const save = getOrCreateDefaultSave(folderId)
       if (save) {
         this.state.saveId = save.id
         messages = getSaveMessages(save.id, folderId, mode === 'drama' ? 'drama' : 'daily')
       }
+    }
 
-      // Inject opening scene for drama mode on fresh starts
-      if (messages.length === 0 && mode === 'drama') {
+    // Inject opening scene for drama mode if missing (handles both fresh + cache w/o opening)
+    if (mode === 'drama') {
+      const hasOpening = messages.some(m => m.isOpening)
+      if (!hasOpening) {
         const mainChar = characters[0]
         if (mainChar && mainChar.openingScenario) {
           messages = [{
@@ -118,7 +124,7 @@ export const InteractionKernel = {
             timestamp: Date.now(),
             isOpening: true,
             immutable: true,
-          }]
+          }, ...messages]
           // Persist immediately
           if (this.state.saveId) {
             saveSaveMessages(this.state.saveId, folderId, 'drama', messages)
@@ -607,12 +613,19 @@ export const InteractionKernel = {
         dramaTurnEnd(mainCharName, result)
       }
 
-      // 11. Sync affection / tension from USK back into kernel
+      // 11. Sync affection / tension from USK back into kernel (all chars)
       if (mainCharName) {
         const uiState = getFolderUIState(mainCharName)
         if (uiState) {
           this.state.affection = uiState.relationship?.affection ?? this.state.affection
           this.state.tension = uiState.tension?.unresolved_conflicts ?? this.state.tension
+        }
+        // Also re-sync all character affections from USK (SSOT)
+        for (const charName of Object.keys(this.state.affections)) {
+          const charState = getFolderUIState(charName)
+          if (charState?.relationship?.affection != null) {
+            this.state.affections[charName] = charState.relationship.affection
+          }
         }
       }
 
@@ -716,6 +729,9 @@ export const InteractionKernel = {
     if (!this.state.saveId || !this.state.folderId) return
     const modeKey = this.state.mode === 'drama' ? 'drama' : 'daily'
     saveSaveMessages(this.state.saveId, this.state.folderId, modeKey, this.state.messages)
+    // Also sync hydration cache so edit/delete/rollback don't create cache staleness
+    const usk = getRawFolderUSK()
+    HydrationEngine.save(this.state.folderId, this.state.mode || 'drama', this.state.messages, usk)
   },
 
   /** @private */

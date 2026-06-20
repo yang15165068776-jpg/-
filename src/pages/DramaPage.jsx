@@ -168,6 +168,8 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const handleDeleteLast = () => {
     const msgs = InteractionKernel.deleteLastPair()
     setMessages(msgs)
+    setAffection(InteractionKernel.getAffection())
+    setTension(InteractionKernel.getState().tension)
   }
 
   // ── Paragraph renderer (NO BUBBLES) ──
@@ -284,8 +286,37 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
       {/* ── Progress Bars ── */}
       <div style={{ padding: '8px 16px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
-        <ProgressBar label="好感度" value={affection} color="var(--purple)" height={4} flash={affFlashSingle} />
-        <ProgressBar label="张力" value={tension} color="var(--coral)" height={3} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <ProgressBar label="好感度" value={affection} color="var(--purple)" height={4} flash={affFlashSingle} />
+          </div>
+          <button
+            onClick={() => {
+              const newVal = InteractionKernel.manualAffectionAdjust(mainCharName || '角色', -2)
+              setAffection(newVal)
+              setAffections(InteractionKernel.getAffections())
+            }}
+            style={{
+              width: '24px', height: '24px', borderRadius: '6px', border: '0.5px solid var(--border)',
+              background: 'var(--bg)', color: 'var(--coral)', fontSize: '13px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+            title="好感 -2"
+          >−</button>
+          <button
+            onClick={() => {
+              const newVal = InteractionKernel.manualAffectionAdjust(mainCharName || '角色', 2)
+              setAffection(newVal)
+              setAffections(InteractionKernel.getAffections())
+            }}
+            style={{
+              width: '24px', height: '24px', borderRadius: '6px', border: '0.5px solid var(--border)',
+              background: 'var(--bg)', color: 'var(--teal)', fontSize: '13px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+            title="好感 +2"
+          >+</button>
+        </div>
         {/* Decision indicator */}
         {lastDecision && lastDecision.type !== 'normal_reply' && (
           <div style={{
@@ -307,6 +338,25 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
             {lastDecision.reason}
           </div>
         )}
+        {/* Token + Compress row */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
+          <span style={{ fontSize: '9px', color: 'var(--text3)' }}>
+            🪙 {(() => { const t = InteractionKernel.getTokenUsage(); return `${t.totalTokens} tokens (${t.turnCount}轮)` })()}
+          </span>
+          <button
+            onClick={() => {
+              const result = InteractionKernel.compressMessages()
+              if (result.summary) {
+                setMessages([{ id: 'summary-' + Date.now(), role: 'system', content: '📋 摘要：' + result.summary, timestamp: Date.now() }])
+              }
+            }}
+            style={{
+              fontSize: '9px', padding: '2px 8px', borderRadius: '6px',
+              border: '0.5px solid var(--border)', background: 'var(--bg)',
+              color: 'var(--text3)', cursor: 'pointer',
+            }}
+          >压缩</button>
+        </div>
       </div>
 
       {/* ── Narrative Area ── */}
