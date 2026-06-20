@@ -24,6 +24,7 @@ import {
   dailyTurnEnd,
 } from '../state/stateBridge'
 import {
+  getFolder,
   getOrCreateDefaultSave,
   getSaveMessages,
   saveSaveMessages,
@@ -116,11 +117,13 @@ export const InteractionKernel = {
       const hasOpening = messages.some(m => m.isOpening)
       if (!hasOpening) {
         const mainChar = characters[0]
-        if (mainChar && mainChar.openingScenario) {
+        const folder = getFolder(folderId)
+        const openingText = mainChar?.openingScenario || folder?.story_intro || ''
+        if (openingText) {
           messages = [{
             id: 'opening-' + generateMsgId(),
             role: 'assistant',
-            content: mainChar.openingScenario,
+            content: openingText,
             timestamp: Date.now(),
             isOpening: true,
             immutable: true,

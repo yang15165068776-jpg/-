@@ -66,6 +66,14 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       chatStyle: 'story',
       worldSetting: mergedWorldSetting,
       openingScenario: mergedOpening,
+      behavior: mainChar.behavior || '',
+      personality: mainChar.personality || '',
+      background: mainChar.background || '',
+      speakingStyle: mainChar.speakingStyle || '',
+      styleRules: mainChar.styleRules || [],
+      forbiddenWords: mainChar.forbiddenWords || [],
+      activeMessageEnabled: mainChar.activeMessageEnabled || false,
+      activePrompt: mainChar.activePrompt || '',
       romanceCharacters: mainChar.romanceCharacters || [{
         id: mainChar.id, name: mainChar.name,
         background: mainChar.background || '',
@@ -76,8 +84,10 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
         affectionEnabled: mainChar.affectionEnabled !== false,
         affectionInitial: mainChar.affectionInitial ?? 50,
         affectionStages: mainChar.affectionStages || [],
+        behavior: mainChar.behavior || '',
       }],
       npcs: mainChar.npcs || [],
+      affectionStages: mainChar.affectionStages || [],
       temperature: mainChar.temperature ?? 0.9,
       topP: mainChar.topP ?? 0.95,
       thinkingEnabled: mainChar.thinkingEnabled || false,
@@ -174,8 +184,18 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
   // ── Paragraph renderer (NO BUBBLES) ──
   const renderParagraph = (msg, i) => {
-    // System messages: silent, interrupt context
+    // System messages: summary, silent, interrupt context
     if (msg.role === 'system') {
+      if (msg.isSummary) {
+        return (
+          <div key={i} style={{ marginBottom: '16px', padding: '10px 12px', background: 'var(--bg3)', borderRadius: '10px', border: '0.5px solid var(--border)' }}>
+            <div style={{ fontSize: '10px', color: 'var(--text3)', marginBottom: '4px' }}>📋 前情摘要</div>
+            <div style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+              {msg.content.replace(/^📋 前情摘要：\n?/, '')}
+            </div>
+          </div>
+        )
+      }
       if (msg.silent) {
         return (
           <div key={i} style={{ textAlign: 'center', marginBottom: '20px', padding: '12px' }}>
@@ -221,14 +241,6 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
           <div style={{ textAlign: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '10px', color: 'var(--purple)', background: 'var(--purple-l)', padding: '2px 8px', borderRadius: '8px' }}>开场剧情</span>
           </div>
-        )}
-        {msg.reasoningContent && (
-          <details style={{ marginBottom: '6px', cursor: 'pointer' }}>
-            <summary style={{ fontSize: '10px', color: 'var(--text3)' }}>思考过程</summary>
-            <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '8px', background: 'var(--bg3)', borderRadius: '8px', marginTop: '4px', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-              {msg.reasoningContent}
-            </div>
-          </details>
         )}
         {sections.length <= 1 ? (
           <div style={{
@@ -345,10 +357,26 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
           </span>
           <button
             onClick={() => {
-              const result = InteractionKernel.compressMessages()
-              if (result.summary) {
-                setMessages([{ id: 'summary-' + Date.now(), role: 'system', content: '📋 摘要：' + result.summary, timestamp: Date.now() }])
+              const KEEP = 6
+              const all = InteractionKernel.getState().messages
+              if (all.length <= KEEP) return
+              const toKeep = all.slice(-KEEP)
+              const old = all.slice(0, -KEEP)
+              const lines = old
+                .filter(m => m.role === 'user' || (m.role === 'assistant' && !m.isOpening))
+                .map(m => (m.role === 'user' ? '主角' : '角色') + '：' + (m.content || '').slice(0, 100))
+              const summary = lines.join('\n').slice(0, 600)
+              const summaryMsg = {
+                id: 'summary-' + Date.now(),
+                role: 'system',
+                content: '📋 前情摘要：\n' + (summary || '(无)'),
+                timestamp: Date.now(),
+                isSummary: true,
               }
+              const newMessages = [summaryMsg, ...toKeep]
+              InteractionKernel.state.messages = newMessages
+              InteractionKernel.persistMessages()
+              setMessages(newMessages)
             }}
             style={{
               fontSize: '9px', padding: '2px 8px', borderRadius: '6px',
