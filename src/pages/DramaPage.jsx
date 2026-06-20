@@ -365,7 +365,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       <div style={{ padding: '8px 16px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <ProgressBar label="好感度" value={affection} color="var(--purple)" height={4} flash={affFlashSingle} />
+            <ProgressBar label="好感度" value={affection} color="var(--purple)" height={4} flash={affFlashSingle} showValue />
           </div>
           <button
             onClick={() => {
