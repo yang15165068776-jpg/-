@@ -1,4 +1,4 @@
-# JSJG Character OS v6
+# JSJG Character OS v6.3
 
 > 最后更新：2026-06-20
 > 仓库：https://github.com/yang15165068776-jpg/-.git
@@ -13,328 +13,271 @@
 
 ---
 
-## 1. 完整导航路由树
+## 1. 完整系统架构（7 层引擎）
+
+```
+Character Profile (角色设定)
+        ↓
+StabilityCompiler     ← 人格编译锁死
+        ↓
+AgentDecisionLayer    ← 行为决策（打断/沉默/主动搭话）
+        ↓
+coordinator (LLM)     ← AI 生成回复
+        ↓
+AntiSmoothingV2       ← 输出后修正（防变温柔/反对齐）
+        ↓
+MemoryInterpreter     ← 双视角解释（同一事实/不同模式）
+        ↓
+CausalEngine          ← 因果叙事（数值变化→为什么）
+        ↓
+InteractionKernel     ← 执行与记忆（消息/好感/token/turn）
+        ↓
+UI（DramaPage / DailyPage）
+```
+
+---
+
+## 2. 导航路由树
 
 ```
 App.jsx (430px 手机壳 + StatusBar + BottomSafeArea)
 │
-├── [page='entry']           → Entry.jsx              ← 默认首页
+├── [page='entry']           → Entry.jsx              ← 双栏布局：左工具栏/右主显示
 ├── [page='profile']         → PlayerProfile.jsx
 ├── [page='createFolder']    → CreateFolder.jsx        ← AI生成 + 角色编辑
 ├── [page='folder']          → FolderInterior.jsx      ← 存档大厅（两级流程）
-├── [page='dramaPage']       → DramaPage.jsx           ← 独立剧情页（段落叙事）
-├── [page='dailyPage']       → DailyPage.jsx           ← 独立日常页（微信气泡）
+├── [page='dramaPage']       → DramaPage.jsx           ← 剧情模式（段落叙事+流式）
+├── [page='dailyPage']       → DailyPage.jsx           ← 日常模式（微信气泡+人格驱动）
 ├── [page='characterEditor'] → CharacterEditor.jsx     ← 角色编辑器
 ├── [page='settings']        → Settings.jsx            ← API Key 设置
 │
-├── [LEGACY, LEGACY_ENABLED=false, 均已封锁]
-│   ├── page='list'     → StoryCharacterList / DailyCharacterList
-│   ├── page='form'     → StoryCharacterForm / DailyCharacterForm
-│   ├── page='character'→ CharacterHome → ChatRoom
-│   └── page='direct'   → DirectChat
-│
-└── 全局组件
-    ├── StatusBar.jsx         ← 手机顶栏（时间/信号/电池）
-    ├── Toast.jsx             ← 自动消失提示
-    └── BottomSafeArea        ← 内联在 App.jsx
+└── [LEGACY, LEGACY_ENABLED=false, 均已封锁]
 ```
 
-### 导航流
-
+导航流：
 ```
-Entry（三栏：左卡片/中头像/右按钮）
+Entry（双栏：左工具栏/右主显示）
+  ├── 左栏（84px）：玩家缩略图 → 世界卡片(横条+名称) → 账号+设置图标
+  ├── 右栏：大头像 + 世界观预览 + 创建按钮 + 进入按钮
   ├── 👤 头像 → PlayerProfile
   ├── ⚙ 设置 → Settings
-  ├── + 创建 → CreateFolder
-  │     ├── 🤖 AI生成 → 自动填充全部角色字段
-  │     ├── 手动编辑每个角色（可展开卡片）
-  │     └── 创建 → FolderInterior
-  └── 世界卡片 → FolderInterior（存档列表）
-        ├── 点击存档 → 底部弹出模式选择
-        │     ├── 📖 剧情 → DramaPage
-        │     └── 💬 日常 → DailyPage
-        └── ✎ 编辑 → CharacterEditor
+  ├── + 创建 → CreateFolder → FolderInterior
+  └── 世界卡片 → FolderInterior（选存档→选模式）
+        ├── 📖 剧情 → DramaPage
+        └── 💬 日常 → DailyPage
 ```
 
 ---
 
-## 2. 系统架构
+## 3. 文件树
 
 ```
 src/
-├── engine/                     ← v6 新建：导航 + 状态恢复
-│   ├── navigationEngine.js     ← push/pop/back 路由栈，NAV_CHANGE 事件
-│   └── hydrationEngine.js      ← 内存缓存 + 存档加载，save/get/hydrate
+├── engine/                          # 引擎层
+│   ├── navigationEngine.js          # 路由栈 push/pop/back + CustomEvent
+│   ├── hydrationEngine.js           # 内存缓存 save/get/hydrate
+│   ├── interactionKernel.js         # ⭐ 交互内核：消息/好感/token/turn 状态机
+│   └── agentDecisionLayer.js        # ⭐ 角色决策层：规则评分→行为选择
 │
-├── state/                      ← 状态层
-│   ├── unifiedStateKernel.js   ← USK：4层20维 + global_state + 文件夹USK
-│   ├── uskApi.js               ← USK 访问控制（init/read/write/patch/tick）
-│   ├── stateBridge.js          ← UI↔USK 桥接（支持文件夹USK）
-│   └── folderStore.js          ← Folder/Save/PlayerProfile CRUD
+├── state/                           # 状态层
+│   ├── unifiedStateKernel.js        # USK：4层20维 + 文件夹USK
+│   ├── uskApi.js                    # USK 访问控制
+│   ├── stateBridge.js               # UI↔USK 桥接
+│   └── folderStore.js               # Folder/Save/PlayerProfile CRUD
 │
-├── pages/                      ← 页面（全部 v6 新建，除 Settings）
-│   ├── Entry.jsx               ← 开场页（三栏布局）
-│   ├── PlayerProfile.jsx       ← 玩家设定
-│   ├── CreateFolder.jsx        ← 创建世界（AI + 角色编辑器）
-│   ├── FolderInterior.jsx      ← 存档大厅（两级流程）
-│   ├── DramaPage.jsx           ← 剧情模式（段落叙事, 0气泡）
-│   ├── DailyPage.jsx           ← 日常模式（微信气泡, 0叙事）
-│   ├── CharacterEditor.jsx     ← 角色编辑器（全字段）
-│   ├── CharacterHome.jsx       ← 旧角色主页（仅 legacy, 已封锁）
-│   ├── ChatRoom.jsx            ← 旧聊天核心（仅 legacy, 已封锁）
-│   ├── ArchiveList.jsx         ← 旧存档列表（仅 legacy, 已封锁）
-│   ├── CharacterForm.jsx       ← 旧日常角色表单（仅 legacy）
-│   ├── Settings.jsx            ← 设置页（API Key/Model）
-│   ├── DirectChat.jsx          ← 直接对话（仅 legacy）
-│   ├── story/
-│   │   ├── StoryCharacterForm.jsx  ← 旧剧情角色表单
-│   │   └── CharacterList.jsx       ← 旧剧情角色列表
-│   └── daily/
-│       ├── CharacterForm.jsx       ← 旧日常角色表单包装
-│       └── CharacterList.jsx       ← 旧日常角色列表
+├── pages/                           # 页面
+│   ├── Entry.jsx                    # ⭐ 双栏首页（左84px工具栏/右主显示）
+│   ├── DramaPage.jsx                # ⭐ 剧情模式（编辑/删除/重刷/压缩/好感±2/token）
+│   ├── DailyPage.jsx                # ⭐ 日常模式（人格驱动+burst流+自动消息）
+│   ├── PlayerProfile.jsx            # 玩家设定
+│   ├── CreateFolder.jsx             # 创建世界（AI生成+角色编辑器）
+│   ├── FolderInterior.jsx           # 存档大厅
+│   ├── CharacterEditor.jsx          # 角色编辑器（思考层已移除）
+│   └── Settings.jsx                 # API Key/Model
 │
-├── components/                 ← UI 组件
-│   ├── StatusBar.jsx           ← v6 手机顶栏
-│   ├── ProgressBar.jsx         ← v6 进度条（好感/张力/信任）
-│   ├── EventActionPanel.jsx    ← v6 剧情浮动面板（🎲✏️🗑）
-│   ├── StatusPanel.jsx         ← v6 日常右侧状态面板
-│   ├── ChatHeader.jsx          ← 旧聊天头部（仅 legacy）
-│   ├── DailyRenderer.jsx       ← 旧气泡渲染（仅 legacy）
-│   ├── DramaRenderer.jsx       ← 旧叙事渲染（仅 legacy）
-│   ├── ChatInput.jsx           ← 旧输入框（仅 legacy）
-│   ├── TypingIndicator.jsx     ← 旧 typing 动画（仅 legacy）
-│   └── Toast.jsx               ← 全局提示
+├── components/                      # UI 组件
+│   ├── StatusBar.jsx                # 手机顶栏
+│   ├── ProgressBar.jsx              # 进度条（支持 showValue 数字显示）
+│   ├── EventActionPanel.jsx         # 剧情浮动面板（右侧垂直居中圆形图标）
+│   ├── StatusPanel.jsx              # 日常右侧状态面板
+│   └── Toast.jsx                    # 全局提示
 │
-├── runtime/                    ← 引擎层（不可改动）
-│   ├── alignmentSuppression.js ← ASL 对齐泄露检测
-│   ├── antiSmoothing.js        ← EPI 极端人格稳定
-│   ├── conflictPersistence.js  ← CPS 冲突持续
-│   ├── powerDynamics.js        ← 权力动力学
-│   ├── personaIntegrity.js     ← 人设完整性盾
-│   ├── modeTranslator.js       ← 模式翻译器
-│   ├── affectionRules.js       ← 好感度规则
-│   ├── affectionTrigger.js     ← 好感度触发
-│   ├── tokenBudget.js          ← Token 预算
-│   └── llmState.js             ← LLM 运行时状态
+├── runtime/                         # 运行时引擎
+│   ├── stabilityCompiler.js         # ⭐ 人格稳定编译器（pre-generation lock）
+│   ├── antiSmoothingV2.js           # ⭐ 输出后修正（防变温柔/反对齐）
+│   ├── personaStateEngine.js        # ⭐ Daily v3 人格状态引擎
+│   ├── causalEngine.js              # ⭐ 因果叙事引擎（数值→故事）
+│   ├── affectionRules.js            # v4 好感度规则（LLM-primary judge）
+│   ├── affectionTrigger.js          # 好感度触发判断
+│   ├── conflictPersistence.js       # CPS 冲突持续
+│   ├── powerDynamics.js             # 权力动力学
+│   ├── antiSmoothing.js             # EPI 极端人格稳定（v1 prompt侧）
+│   ├── alignmentSuppression.js      # ASL 对齐泄露检测
+│   ├── personaIntegrity.js          # 人设完整性盾
+│   └── tokenBudget.js               # Token 预算
 │
-├── agents/                     ← 智能体
-│   ├── coordinator.js          ← v3 每轮编排
-│   └── npcAgent.js             ← NPC 并行处理
+├── memory/                          # 记忆系统
+│   ├── memoryInterpreter.js         # ⭐ 双视角解释引擎（同一事实/不同模式）
+│   ├── memoryGraph.js               # 事件原生图
+│   ├── contextBuilder.js            # 上下文构建
+│   ├── workingMemory.js             # 工作记忆
+│   └── episodeSummarizer.js         # 情节摘要
 │
-├── memory/                     ← 记忆系统
-│   ├── memoryGraph.js          ← 事件原生图存储
-│   ├── contextBuilder.js       ← 上下文构建
-│   ├── workingMemory.js        ← 工作记忆
-│   ├── episodeSummarizer.js    ← 情节摘要
-│   └── eventExtractor.js       ← 事件提取
+├── agents/                          # 智能体
+│   ├── coordinator.js               # v3 每轮编排
+│   └── npcAgent.js                  # NPC 意图决策（9种意图）
 │
-├── world/                      ← 世界引擎
-│   ├── worldEngine.js          ← 世界状态模拟
-│   └── eventBus.js             ← 事件总线
+├── world/                           # 世界引擎
+│   ├── worldEngine.js               # 世界状态模拟
+│   └── eventBus.js                  # 事件总线
 │
-├── persona/                    ← 人设核心
-│   └── personaCore.js          ← 统一人设（双模式单人格）
+├── prompt/                          # 提示词
+│   ├── cachePrefix.js               # 核心系统前缀（含反幻觉规则）
+│   └── narratorPrompt.js            # 叙事者提示词（含反幻觉+禁止人设偏离）
 │
-├── prompt/                     ← 提示词
-│   ├── cachePrefix.js
-│   └── narratorPrompt.js
+├── utils/
+│   ├── deepseek.js                  # DeepSeek API（含结构化压缩/日常prompt）
+│   └── storage.js                   # localStorage 存取
 │
-├── hooks/
-│   └── useAutoMessage.js       ← USK 驱动自动消息
-│
-└── utils/
-    ├── deepseek.js             ← API 调用（sendDailyChatMessage / sendStoryStageMessage / extractStoryFromText）
-    └── storage.js              ← localStorage 存取（含 PlayerProfile + Legacy helpers）
+└── hooks/
+    └── useAutoMessage.js            # legacy 自动消息
 ```
 
 ---
 
-## 3. 数据模型
-
-### Folder（世界容器）
-```js
-Folder = {
-  id, name, worldview, story_intro,
-  characterIds: [],       // legacy 角色引用
-  characterData: [        // 文件夹内原生角色
-    {
-      id, name, avatar,
-      personality, background, speakingStyle,
-      styleRules: [], forbiddenWords: [],
-      protagonistName, protagonistGender, protagonistBackground, protagonistPersonality,
-      worldSetting, openingScenario, storyTone,
-      affectionEnabled, affectionInitial,
-      affectionStages: [{ name, min, max, behavior, coreState, playerStrategy, ... }],
-      transitionTriggers, irreversibleMoment, erosionCondition, anchorSuppression,
-      thinkingEnabled, thinkingPrompt,
-      activeMessageEnabled, activePrompt,
-      nickname, contextWindow, showTimestamp, temperature, topP,
-      npcs: [{ name, relationship, personality }],
-    }
-  ],
-  saveIds: [],
-  createdAt, updatedAt,
-}
-```
-存储 key: `jsjg_folders`
-
-### Save（时间点存档）
-```js
-Save = {
-  id, folderId, name,
-  dramaMessages: [],     // DRAMA 独占（完全隔离）
-  dailyMessages: [],     // DAILY 独占（完全隔离）
-  createdAt, updatedAt,
-}
-```
-存储 key: `jsjg_folder_saves_<folderId>`
-
-### USK（统一状态核心）
-```js
-USK = {
-  version: 1, folderId,
-  characters: {
-    [name]: {
-      relationship: { affection, trust, dependency, respect, fear, possessiveness },
-      emotion: { anger, sadness, jealousy, anxiety, curiosity, excitement },
-      tension: { unresolved_conflicts, emotional_pressure, attraction_tension, power_imbalance },
-      life: { busy, tired, lonely, social_need, mood, initiative_score },
-    }
-  },
-  global_state: { world_tension, folder_mood },
-  global: { currentMode, lastModeSwitch, turnCount, lastInteractionAt },
-  event_memory: [],
-  initiative: { score, lastActiveMessageAt, consecutivePassiveTurns },
-}
-```
-存储 key: `jsjg_folder_usk_<folderId>` (v6) / `jsjg_usk_<characterId>` (legacy)
-
-### PlayerProfile
-```js
-{ name, avatar, gender, personalityTags: [] }
-```
-存储 key: `jsjg_player_profile`
-
----
-
-## 4. 存储 Key 总览
-
-| Key | 内容 | 系统 |
-|---|---|---|
-| `jsjg_folders` | Folder[] | v6 |
-| `jsjg_folder_saves_<id>` | { [saveId]: Save } | v6 |
-| `jsjg_folder_usk_<id>` | 文件夹 USK | v6 |
-| `jsjg_player_profile` | PlayerProfile | v6 |
-| `rp_settings` | { apiKey, model, userAvatar } | 共享 |
-| `story_characters` | legacy 角色[] | legacy |
-| `daily_characters` | legacy 角色[] | legacy |
-| `story_chat_archives` | legacy 存档 | legacy |
-| `daily_chat_archives` | legacy 存档 | legacy |
-| `jsjg_usk_<characterId>` | legacy USK | legacy |
-
----
-
-## 5. DRAMA/DAILY 隔离设计
-
-```
-DRAMA 模式：
-  ├── 数据流：Save.dramaMessages[]（独占，不可读 dailyMessages）
-  ├── UI：段落叙事 + 左边框 + 角色标注 + 流式光标
-  ├── 禁止：气泡 · 时间戳 · 微信样式 · 短消息
-  └── 页面：DramaPage.jsx（独立，0 旧代码）
-
-DAILY 模式：
-  ├── 数据流：Save.dailyMessages[]（独占，不可读 dramaMessages）
-  ├── UI：微信气泡 + typing 动画 + message burst + 时间戳
-  ├── 禁止：长段文本 · 叙事 · 旁白
-  └── 页面：DailyPage.jsx（独立，0 旧代码）
-
-隔离保证：
-  ├── folderStore: getSaveMessages(saveId, folderId, mode)
-  ├── folderStore: saveSaveMessages(saveId, folderId, mode, messages)
-  └── 物理隔离：两个独立的 page 组件，无共享 UI
-```
-
----
-
-## 6. CSS 设计系统（锁定）
+## 4. CSS 设计系统
 
 ```css
 :root {
-  --bg: #ffffff;
-  --bg2: #f5f4f0;
-  --bg3: #ebebeb;
-  --card: #f5f5f5;
-  --text: #222222;
-  --text2: #666666;
-  --text3: #999999;
-  --border: #e6e6e6;
-  --border2: rgba(0,0,0,0.06);
-  --purple: #7F77DD;    --purple-l: #EEEDFE;
-  --teal: #1D9E75;      --teal-l: #E1F5EE;
-  --coral: #D85A30;     --coral-l: #FAECE7;
+  --bg: #ffffff;        --bg2: #f6f5f3;       --bg3: #ebeae6;
+  --text: #2b2b2b;      --text2: #6b6b6b;      --text3: #a3a3a3;
+  --border: #e3e2de;    --border2: rgba(0,0,0,0.05);
+  --purple: #7F77DD;    --purple-l: #EEEDFE;   /* 好感度 */
+  --teal: #1D9E75;      --teal-l: #E1F5EE;     /* 正面 */
+  --coral: #D85A30;     --coral-l: #FAECE7;    /* 负面/张力 */
 }
 ```
-- 暗黑模式已禁用
-- 圆角：8-14px
-- 无霓虹色、无渐变、无阴影（仅极轻 box-shadow）
-- 字体：-apple-system, BlinkMacSystemFont, system-ui
+
+- 禁止 Tailwind class、暗黑模式、霓虹色、渐变、阴影
+- 圆角：12-16px，字体：-apple-system, BlinkMacSystemFont, system-ui
+- 所有页面在 430px 宽度手机壳内渲染
 
 ---
 
-## 7. Kill Switch v2
+## 5. 数据模型
 
+### Folder → localStorage['jsjg_folders']
+### Save → localStorage['jsjg_folder_saves_(id)']
+### USK → localStorage['jsjg_folder_usk_(id)']
+### PlayerProfile → localStorage['jsjg_player_profile']
+### Settings → localStorage['rp_settings']
+
+---
+
+## 6. DRAMA/DAILY 隔离
+
+- DRAMA：Save.dramaMessages[]，段落叙事+流式光标
+- DAILY：Save.dailyMessages[]，微信气泡+burst流+人格驱动
+- 好感度/USK 共享（同一 `jsjg_folder_usk_<id>`）
+- MemoryInterpreter 提供双视角解释
+
+---
+
+## 7. 核心引擎 API
+
+### InteractionKernel
 ```js
-V6_ROUTES = ['entry', 'profile', 'createFolder', 'folder', 'dramaPage', 'dailyPage', 'characterEditor', 'settings']
-LEGACY_ENABLED = false  // ChatRoom/CharacterHome/DirectChat 永不挂载
-window.__LEGACY_LOCK__ = true
+init(folderId, chars, mode)        // 初始化→state snapshot
+executeTurn(text, apiKey, cb, char)// 完整一轮→result
+getDecision()                      // 当前决策
+getTokenUsage()                    // token统计
+manualAffectionAdjust(name, delta) // 手动±好感
+compressMessages()                 // 压缩
+// 消息CRUD: getLastUserMessage/rollbackTo/deleteLastPair/
+//           deleteMessageAtIndex/editMessageAtIndex/getUserMsgBefore
+```
 
-// 安全路由：safeSetPage → 所有非 v6 路由 → bounce to entry
-// CSS 封锁：.legacy-ui, .chat-room, .character-home → display:none !important
+### AgentDecisionLayer
+```js
+decide({ uskState, messages, mode, turnCount, passiveTurns })
+  → { type, intensity, burst, emotion, reason, urgency }
+// types: normal_reply | interrupt | emotional_burst | initiate_chat | silent
+```
+
+### PersonaStateEngine (Daily v3)
+```js
+buildPersonaFromUSK(uskState) → persona
+decideBehavior(persona) → 'cold_short_reply' | 'resist_or_push_back' | ...
+composeBurst(intent, segments) → timed burst
+getPersonaPromptSuffix(persona, behavior) → prompt injection
+```
+
+### StabilityCompiler
+```js
+compile(character) → { persona, constraints, invariants }
+validate(runtimeState, compiled) → { valid, corrections }
+buildPromptInjection(compiled) → LLM constraint block
+```
+
+### CausalEngine
+```js
+analyze(prevUSK, nextUSK, mode, context) → { diff, causes, narrative }
+```
+
+### MemoryInterpreter
+```js
+interpret(event, mode, context) → { meaning, weight, tension_delta, affection_delta }
+// Drama View: conflict amplification
+// Daily View: emotional amplification
 ```
 
 ---
 
-## 8. 引擎层
+## 8. DailyPage v3 特性
 
-### NavigationEngine (`src/engine/navigationEngine.js`)
-```js
-NavigationEngine.push(page, params)   // 推入栈 + 导航
-NavigationEngine.back()               // 出栈 + 返回上一页
-NavigationEngine.replace(page)        // 替换当前，不改栈
-NavigationEngine.peekBack()           // 查看栈顶
-NavigationEngine.current              // 当前页面名
-NavigationEngine.currentParams        // 当前参数
-```
-事件：`NAV_CHANGE` (CustomEvent)，App.jsx 监听并同步 React state
-
-### HydrationEngine (`src/engine/hydrationEngine.js`)
-```js
-HydrationEngine.save(folderId, mode, messages, usk)    // 缓存当前状态
-HydrationEngine.get(folderId, mode)                     // 取缓存
-HydrationEngine.hydrate(folderId, saveId, mode)         // 从存档加载
-HydrationEngine.has(folderId, mode)                     // 检查缓存
-HydrationEngine.clear()                                  // 清空
-```
+- **人格驱动**：PersonaStateEngine 根据 USK 状态选择 7 种行为策略
+- **Burst 流**：`|||` 分隔多条气泡，人格驱动延迟（冷淡1200ms/依赖250ms）
+- **自动消息**：Header "自动"开关，15-40s 间隔检查，概率=好感×0.5%+孤独×0.4%+张力×0.3%
+- **反叙事污染**：parseCasualReply v2 强制拆分+剥离第三人称
+- **角色侧边栏**：56px 宽，40px 圆形头像，紫色选中边框，未读角标
 
 ---
 
-## 9. 已知问题
+## 9. DramaPage v6 特性
 
-1. **ChatRoom USK 状态覆盖**：`dailyTurnEnd` 返回单角色 flat snapshot，覆盖完整 USK → 下一轮 LLM 缺少 state snapshot。不影响功能（状态持久化正常），仅影响 LLM prompt 中的状态摘要。
-
-2. **Settings 页面为旧 UI**：Settings.jsx 仍使用部分 Tailwind 类名，与 v6 CSS 变量风格不完全一致。
-
-3. **CharacterEditor 独立页面与 CreateFolder 内编辑器并存**：两个地方都可以编辑角色，存在代码重复。
+- **每条消息悬停按钮**：✏️编辑（回输入栏）、🗑删除、🔄重刷
+- **编辑非破坏性**：点编辑只回填文本，取消编辑恢复原样
+- **压缩**：AI 结构化压缩（events/relationships/skeleton/last_scene）
+- **好感度**：±2 手动按钮 + 数值显示
+- **Token 显示**：进度条下方实时统计
+- **决策指示器**：进度条下方显示当前角色行为决策
 
 ---
 
-## 10. 开发规则
+## 10. 好感度系统 v4
 
-- **引擎层不可动**：`src/runtime/`、`src/agents/`、`src/memory/`、`src/world/`、`src/persona/`、`src/prompt/`
-- **状态层谨慎改动**：`src/state/`（USK/USK_API/StateBridge 改动需测试）
-- **UI 层随意改**：`src/pages/`、`src/components/`（遵循 CSS 变量系统）
-- **数值输入**：必须用 `safeInt()`/`safeFloat()`，禁止 `parseInt || fallback`（0 是 falsy）
-- **禁止复用 legacy 组件**：新页面不允许 import ChatRoom/CharacterHome/DirectChat/DailyRenderer/DramaRenderer
-- **DRAMA/DAILY 消息隔离**：用 `getSaveMessages(id, folderId, mode)` / `saveSaveMessages()`，不直接读写 messages 数组
-- **Debug**：用 `alert()` 不用 `console.log`（用户偏好）
+- **LLM-primary judge**：每3轮+高信号+关键词→LLM裁判裁决
+- **规则兜底**：锚点压制场景锁死（不调LLM）
+- **冷却机制**：中性回合跳过，不浪费API
+- **手动±2**：进度条旁按钮，写入USK
+
+---
+
+## 11. 反幻觉规则
+
+- **narratorPrompt.js**：🚫 禁止编造NPC/配角/地点/物品/事件
+- **cachePrefix.js**：Priority 0 ANTI-HALLUCINATION 检查
+- **AntiSmoothingV2**：输出后剥离30+种"变乖"语言模式
+
+---
+
+## 12. 开发规则
+
+- **引擎层**：runtime/ agents/ memory/ world/ prompt/ — 不可动
+- **新建引擎**：interactionKernel/ agentDecisionLayer/ stabilityCompiler/ antiSmoothingV2/ personaStateEngine/ causalEngine/ memoryInterpreter — 可扩展
+- **状态层**：state/ — 谨慎改动
+- **UI 层**：pages/ components/ — 随意改（遵循CSS变量）
+- **数值输入**：safeInt()/safeFloat()，禁止 parseInt||50（0是falsy）
+- **禁止复用 legacy 组件**
+- **消息隔离**：getSaveMessages(id, folderId, mode) / saveSaveMessages()
+- **Debug**：alert() 不用 console.log
