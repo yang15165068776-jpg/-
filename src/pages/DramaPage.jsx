@@ -25,6 +25,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const [diceRolling, setDiceRolling] = useState(false)
   const [saveId, setSaveId] = useState(null)
   const [lastDecision, setLastDecision] = useState(null)
+  const [editingIndex, setEditingIndex] = useState(null) // non-null = editing this msg
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -103,6 +104,13 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     setInput('')
     setStreamingText('')
 
+    // If editing: truncate at the message being edited, then send
+    const editIdx = editingIndex
+    if (editIdx != null) {
+      InteractionKernel.rollbackTo(editIdx - 1)
+      setEditingIndex(null)
+    }
+
     const char = buildCharacterForLLM()
 
     const result = await InteractionKernel.executeTurn(
@@ -146,12 +154,17 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     }
     setAffection(result.affection)
     setTension(result.tension)
-  }, [apiKey, buildCharacterForLLM])
+  }, [apiKey, buildCharacterForLLM, editingIndex])
 
   const handleSend = () => {
     const text = input.trim()
     if (!text || loading) return
     doSend(text)
+  }
+
+  const handleCancelEdit = () => {
+    setEditingIndex(null)
+    setInput('')
   }
 
   const handleDice = () => {
@@ -163,13 +176,17 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     }
   }
 
+  const cancelEdit = () => {
+    setEditingIndex(null)
+    setInput('')
+  }
+
   // ── Per-message handlers ──
   const handleEditMessage = (idx) => {
     const msg = InteractionKernel.getState().messages[idx]
     if (!msg || msg.role !== 'user') return
-    // Truncate everything from this message onward, put text back in input
-    InteractionKernel.rollbackTo(idx - 1)
-    setMessages(InteractionKernel.getState().messages)
+    // Just put text in input, mark editing — don't truncate yet
+    setEditingIndex(idx)
     setInput(msg.content)
   }
 
@@ -190,17 +207,15 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const handleRegenerate = (assistantIdx) => {
     const userMsg = InteractionKernel.getUserMsgBefore(assistantIdx)
     if (!userMsg) return
-    // Truncate to before the user message, put the text back in input
-    InteractionKernel.rollbackTo(userMsg._index - 1)
-    setMessages(InteractionKernel.getState().messages)
+    // Mark the user message that triggered this assistant for editing
+    setEditingIndex(userMsg._index)
     setInput(userMsg.content)
   }
 
   const handleEditLast = () => {
     const last = InteractionKernel.getLastUserMessage()
     if (!last) return
-    InteractionKernel.rollbackTo(last._index - 1)
-    setMessages(InteractionKernel.getState().messages)
+    setEditingIndex(last._index)
     setInput(last.content)
   }
 
@@ -499,7 +514,15 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       />
 
       {/* ── Input ── */}
-      <div style={{ padding: '10px 12px', borderTop: '0.5px solid var(--border)', flexShrink: 0, display: 'flex', gap: '8px' }}>
+      <div style={{ padding: '10px 12px', borderTop: '0.5px solid var(--border)', flexShrink: 0 }}>
+        {/* Editing indicator */}
+        {editingIndex != null && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', padding: '4px 8px', borderRadius: '8px', background: 'var(--purple-l)', fontSize: '11px', color: 'var(--purple)' }}>
+            <span>✏️ 正在编辑消息 — 修改后点发送，不发送请点取消</span>
+            <button onClick={handleCancelEdit} style={{ padding: '2px 10px', borderRadius: '6px', border: 'none', background: 'var(--bg)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer' }}>取消编辑</button>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
         <textarea
           ref={inputRef}
           value={input}
@@ -530,6 +553,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
         >
           发送
         </button>
+        </div>
       </div>
 
       {/* ── Dice Modal ── */}
