@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { parseMultiCharacterMessage, findCharacterAvatar } from '../utils/deepseek'
+import { parseMultiCharacterMessage, findCharacterAvatar, compressChatHistory } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { getFolder } from '../state/folderStore'
 import { InteractionKernel } from '../engine/interactionKernel'
@@ -26,6 +26,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const [saveId, setSaveId] = useState(null)
   const [lastDecision, setLastDecision] = useState(null)
   const [editingIndex, setEditingIndex] = useState(null) // non-null = editing this msg
+  const [compressing, setCompressing] = useState(false)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -421,7 +422,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
             🪙 {(() => { const t = InteractionKernel.getTokenUsage(); return `${t.totalTokens} tokens (${t.turnCount}轮)` })()}
           </span>
           <button
-            onClick={() => {
+            onClick={async () => {
               const KEEP = 4
               const all = InteractionKernel.getState().messages
               const compressible = all.filter(m => m.role === 'user' || (m.role === 'assistant' && !m.isOpening))
@@ -429,30 +430,38 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
                 alert('消息太少，不需要压缩（至少需要 ' + (KEEP + 3) + ' 条）')
                 return
               }
-              const toKeep = all.slice(-KEEP)
-              const old = all.slice(0, -KEEP)
-              const lines = old
-                .filter(m => m.role === 'user' || (m.role === 'assistant' && !m.isOpening))
-                .map(m => (m.role === 'user' ? '主角' : '角色') + '：' + (m.content || '').slice(0, 100))
-              const summary = lines.join('\n').slice(0, 600)
-              const summaryMsg = {
-                id: 'summary-' + Date.now(),
-                role: 'system',
-                content: '📋 前情摘要：\n' + (summary || '(无)'),
-                timestamp: Date.now(),
-                isSummary: true,
+              if (!apiKey) { alert('请先配置 API Key'); return }
+              setCompressing(true)
+              try {
+                const toKeep = all.slice(-KEEP)
+                const old = all.slice(0, -KEEP)
+                const result = await compressChatHistory(old, apiKey, '', '')
+                const summary = result.summary || JSON.stringify(result)
+                const summaryMsg = {
+                  id: 'summary-' + Date.now(),
+                  role: 'system',
+                  content: '📋 前情摘要（结构化压缩）：\n' + summary,
+                  timestamp: Date.now(),
+                  isSummary: true,
+                }
+                const newMessages = [summaryMsg, ...toKeep]
+                InteractionKernel.state.messages = newMessages
+                InteractionKernel.persistMessages()
+                setMessages(newMessages)
+              } catch (e) {
+                alert('压缩失败：' + (e.message || '未知错误'))
+              } finally {
+                setCompressing(false)
               }
-              const newMessages = [summaryMsg, ...toKeep]
-              InteractionKernel.state.messages = newMessages
-              InteractionKernel.persistMessages()
-              setMessages(newMessages)
             }}
+            disabled={compressing}
             style={{
               fontSize: '9px', padding: '2px 8px', borderRadius: '6px',
               border: '0.5px solid var(--border)', background: 'var(--bg)',
-              color: 'var(--text3)', cursor: 'pointer',
+              color: compressing ? 'var(--text3)' : 'var(--text3)',
+              cursor: compressing ? 'default' : 'pointer', opacity: compressing ? 0.5 : 1,
             }}
-          >压缩</button>
+          >{compressing ? '压缩中…' : '压缩'}</button>
         </div>
       </div>
 
