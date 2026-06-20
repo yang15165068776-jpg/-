@@ -95,6 +95,9 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   const [saveId, setSaveId] = useState(null)
   const [revealing, setRevealing] = useState(null)
   const [activeCharIndex, setActiveCharIndex] = useState(0)
+  const [autoMsgEnabled, setAutoMsgEnabled] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
+  const autoMsgTimerRef = useRef(null)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -153,6 +156,47 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       saveSaveMessages(saveId, folderId, 'daily', messages)
     }
   }, [messages, saveId, folderId])
+
+  // ── Initiative Engine v2 — auto-message scheduler ──
+  useEffect(() => {
+    if (!autoMsgEnabled || messages.length === 0) return
+    const chance = (affection * 0.005 + (emotion?.lonely || 40) * 0.004 + (tension?.unresolved_conflicts || 30) * 0.003)
+    const interval = 15000 + Math.random() * 25000 // 15-40s between checks
+    autoMsgTimerRef.current = setInterval(() => {
+      if (Math.random() < Math.min(chance, 0.15)) {
+        generateAutoMessage()
+      }
+    }, interval)
+    return () => { if (autoMsgTimerRef.current) clearInterval(autoMsgTimerRef.current) }
+  }, [autoMsgEnabled, affection, emotion, tension, messages.length])
+
+  const generateAutoMessage = useCallback(async () => {
+    if (!apiKey || loading) return
+    setIsTyping(true)
+    try {
+      const folder = getFolder(folderId)
+      const mergedBg = mainChar.background || (folder ? folder.worldview : '') || ''
+      const char = {
+        id: mainChar.id || folderId, name: mainChar.name, chatStyle: 'casual',
+        background: mergedBg, personality: mainChar.personality || '',
+        speakingStyle: mainChar.speakingStyle || '',
+        styleRules: mainChar.styleRules || [], forbiddenWords: mainChar.forbiddenWords || [],
+        temperature: mainChar.temperature ?? 0.9, topP: mainChar.topP ?? 0.95,
+        contextWindow: mainChar.contextWindow || 40,
+      }
+      const systemCtx = { role: 'system', content: '【主动消息——角色自主发起的聊天】\n你主动给对方发了一条消息。保持自然，像真人微信聊天。不要叙事。短句。' }
+      const ctxMsgs = [...messages.slice(-6), systemCtx]
+      const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }
+      const { reply, error: apiError } = await sendDailyChatMessage(
+        char, ctxMsgs, affection, apiKey, uskState,
+        { characters: [{ type: 'romance', name: mainChar.name, affectionEnabled: true, affectionInitial: mainChar.affectionInitial ?? 50 }] }
+      )
+      if (apiError || !reply) return
+      const segments = parseCasualReply(reply)
+      const msg = { role: 'assistant', content: reply, segments, timestamp: Date.now(), isAutonomous: true }
+      setMessages(prev => [...prev, msg])
+    } catch {} finally { setIsTyping(false) }
+  }, [apiKey, loading, mainChar, folderId, affection, relationship, emotion, tension, life, messages])
 
   // ── Scroll ──
   useEffect(() => {
@@ -223,20 +267,26 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       dailyTurnEnd(mainChar.name, { reply, delta: 0 })
       refreshUSK()
 
-      // Sequential reveal: burst animation
-      setRevealing({ msgIndex, revealed: 0, total: segments.length })
-      let revealed = 0
-      const revealNext = () => {
-        revealed++
-        setRevealing({ msgIndex, revealedCount: revealed, totalCount: segments.length })
-        if (revealed < segments.length) {
-          revealTimerRef.current = setTimeout(revealNext, 500 + Math.random() * 700)
-        } else {
-          revealTimerRef.current = null
-          setRevealing(null)
+      // Typing indicator → then burst
+      setIsTyping(true)
+      const typingDelay = 600 + Math.random() * 1200
+      setTimeout(() => {
+        setIsTyping(false)
+        // Sequential reveal: burst animation
+        setRevealing({ msgIndex, revealed: 0, total: segments.length })
+        let revealed = 0
+        const revealNext = () => {
+          revealed++
+          setRevealing({ msgIndex, revealedCount: revealed, totalCount: segments.length })
+          if (revealed < segments.length) {
+            revealTimerRef.current = setTimeout(revealNext, 400 + Math.random() * 600)
+          } else {
+            revealTimerRef.current = null
+            setRevealing(null)
+          }
         }
-      }
-      revealTimerRef.current = setTimeout(revealNext, 400 + Math.random() * 500)
+        revealTimerRef.current = setTimeout(revealNext, 300 + Math.random() * 400)
+      }, typingDelay)
     } catch (e) {
       setLoading(false)
       setError(e.message)
@@ -381,6 +431,11 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
           <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>{mainChar.name || '角色'} · 日常</span>
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: '12px', color: 'var(--purple)', fontWeight: 500 }}>♥ {affection}</span>
+          <button onClick={() => setAutoMsgEnabled(v => !v)} title={autoMsgEnabled ? '关闭主动消息' : '开启主动消息'} style={{
+            marginLeft: '8px', padding: '2px 10px', borderRadius: '10px', border: autoMsgEnabled ? '1px solid var(--purple)' : '0.5px solid var(--border)',
+            background: autoMsgEnabled ? 'var(--purple-l)' : 'var(--bg)', color: autoMsgEnabled ? 'var(--purple)' : 'var(--text3)',
+            fontSize: '10px', cursor: 'pointer', fontWeight: autoMsgEnabled ? 500 : 400,
+          }}>{autoMsgEnabled ? '自动 ✓' : '自动'}</button>
         </div>
 
         {/* Thin affection bar */}
@@ -401,7 +456,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
           {messages.map((msg, i) => renderBubble(msg, i))}
 
           {/* Typing indicator */}
-          {loading && (
+          {(loading || isTyping) && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 0', animation: 'fadeIn 0.2s ease-out' }}>
               <div style={{
                 width: '32px', height: '32px', borderRadius: '8px',
