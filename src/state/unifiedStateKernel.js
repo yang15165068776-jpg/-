@@ -1031,10 +1031,10 @@ export function createFolderUSK(folderId, charactersData = [], options = {}) {
  * @param {object} usk
  * @returns {boolean}
  */
-export function saveFolderUSK(folderId, usk) {
+export function saveFolderUSK(folderId, usk, saveId) {
   try {
     if (!folderId || !usk) return false
-    const key = FOLDER_USK_PREFIX + folderId
+    const key = saveId ? FOLDER_USK_PREFIX + folderId + '_' + saveId : FOLDER_USK_PREFIX + folderId
     localStorage.setItem(key, JSON.stringify(usk))
     return true
   } catch (e) {
@@ -1048,9 +1048,9 @@ export function saveFolderUSK(folderId, usk) {
  * @param {string} folderId
  * @returns {object|null}
  */
-export function loadFolderUSK(folderId) {
+export function loadFolderUSK(folderId, saveId) {
   try {
-    const key = FOLDER_USK_PREFIX + folderId
+    const key = saveId ? FOLDER_USK_PREFIX + folderId + '_' + saveId : FOLDER_USK_PREFIX + folderId
     const raw = localStorage.getItem(key)
     if (!raw) return null
     const parsed = JSON.parse(raw)
@@ -1070,10 +1070,37 @@ export function loadFolderUSK(folderId) {
  * @returns {object} USK
  */
 export function loadOrCreateFolderUSK(folderId, charactersData = [], options = {}) {
-  let usk = loadFolderUSK(folderId)
+  const saveId = options.saveId || ''
+  let usk = null
+
+  // v6.x: Per-save USK isolation — each save has its own USK
+  if (saveId) {
+    usk = loadFolderUSK(folderId, saveId)
+    if (!usk) {
+      // Migration: copy folder-level USK if it exists
+      const folderUSK = loadFolderUSK(folderId)
+      if (folderUSK) {
+        usk = JSON.parse(JSON.stringify(folderUSK)) // deep clone
+        usk.meta = usk.meta || {}
+        usk.meta.saveId = saveId
+        usk.meta.migratedFromFolder = true
+        usk.meta.migratedAt = Date.now()
+      }
+    }
+  }
+
+  // Fallback: folder-level USK (backward compat)
+  if (!usk) {
+    usk = loadFolderUSK(folderId)
+  }
 
   if (!usk) {
     usk = createFolderUSK(folderId, charactersData, options)
+  }
+
+  // Stamp saveId into meta for persist()
+  if (saveId && usk.meta) {
+    usk.meta.saveId = saveId
   }
 
   // Ensure all provided characters have state entries

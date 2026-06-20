@@ -28,6 +28,27 @@ const LEGACY_REDIRECT = new Set(['list', 'form'])
 const LEGACY_BLOCKED = new Set(['character', 'direct'])
 const LEGACY_ENABLED = false
 
+// ── Error boundary: catch render crashes ──
+class AppErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null } }
+  static getDerivedStateFromError(e) { return { err: e } }
+  componentDidCatch(e, info) { alert('页面渲染崩溃:\n' + e.message + '\n\n' + (info?.componentStack || '').slice(0, 500)) }
+  render() {
+    if (this.state.err) {
+      return (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', color: 'var(--text)', fontFamily: 'system-ui', padding: '24px' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+          <div style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>页面出错了</div>
+          <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '24px', textAlign: 'center', maxWidth: '300px' }}>{this.state.err.message}</div>
+          <button onClick={() => { this.setState({ err: null }); NavigationEngine.reset() }} style={{ padding: '12px 32px', borderRadius: '14px', border: 'none', background: 'var(--purple)', color: '#fff', fontSize: '14px', cursor: 'pointer' }}>返回首页</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+import React from 'react'
+
 export default function App() {
   // React listens to NavigationEngine events, not raw setPage
   const [page, setPage] = useState(NavigationEngine.current)
@@ -162,6 +183,7 @@ export default function App() {
   const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isCharacterEditor || isSettings || isBlocked
 
   return (
+    <AppErrorBoundary>
     <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
       <StatusBar />
 
@@ -252,5 +274,6 @@ export default function App() {
       <Toast message={toast.message} type={toast.type} visible={toast.visible} onHide={() => setToast(t => ({ ...t, visible: false }))} />
       <div style={{ height: 'env(safe-area-inset-bottom, 8px)', minHeight: '4px', flexShrink: 0, background: 'var(--bg)' }} />
     </div>
+    </AppErrorBoundary>
   )
 }

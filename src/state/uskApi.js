@@ -298,9 +298,10 @@ export function getPromptEvents(maxEvents = 10) {
 function persist() {
   if (!_usk) return
 
-  // v6: folder-scoped USK persistence
+  // v6: folder-scoped USK persistence (save-specific when available)
   if (_folderId) {
-    saveFolderUSK(_folderId, _usk)
+    const saveId = _usk.meta?.saveId || ''
+    saveFolderUSK(_folderId, _usk, saveId)
     return
   }
 

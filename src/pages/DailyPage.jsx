@@ -76,9 +76,9 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       setMessages(msgs)
     }
 
-    // 3. Init folder USK
+    // 3. Init folder USK (per-save isolation)
     const charsForUSK = folderChars.map(c => ({ id: c.name, name: c.name, affectionInitial: c.affectionInitial ?? 50 }))
-    initBridgeForFolder(folderId, charsForUSK, 'daily')
+    initBridgeForFolder(folderId, charsForUSK, 'daily', save?.id)
     refreshUSK()
   }, [folderId])
 
@@ -160,11 +160,6 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  // ── Cleanup reveal timer ──
-  useEffect(() => {
-    return () => { if (revealTimerRef.current) clearTimeout(revealTimerRef.current) }
-  }, [])
 
   // ── Send ──
   const doSend = useCallback(async (userText) => {

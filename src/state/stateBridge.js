@@ -224,9 +224,9 @@ let _folderId = null
  * @param {string} initialMode — 'drama' | 'daily'
  * @returns {{ state: object, characters: object[] }}
  */
-export function initBridgeForFolder(folderId, charactersData, initialMode) {
+export function initBridgeForFolder(folderId, charactersData, initialMode, saveId) {
   _folderId = folderId
-  _folderUSK = loadOrCreateFolderUSK(folderId, charactersData, { sourceMode: initialMode })
+  _folderUSK = loadOrCreateFolderUSK(folderId, charactersData, { sourceMode: initialMode, saveId: saveId || '' })
 
   // Sync to legacy USK_API for backward compat in engine calls
   USK_API._unsafe_setFolderUSK(_folderUSK, folderId)

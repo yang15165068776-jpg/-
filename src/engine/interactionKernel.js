@@ -151,7 +151,7 @@ export const InteractionKernel = {
       name: c.name || '',
       affectionInitial: c.affectionInitial ?? 50,
     }))
-    initBridgeForFolder(folderId, charsForUSK, mode)
+    initBridgeForFolder(folderId, charsForUSK, mode, this.state.saveId)
 
     // ── Fresh session: override USK with character's affectionInitial ──
     // If no messages exist (beyond opening), the user's character settings
