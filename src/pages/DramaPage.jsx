@@ -233,10 +233,20 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     if (msg.role === 'system') {
       if (msg.isSummary) {
         return (
-          <div key={i} style={{ marginBottom: '16px', padding: '10px 12px', background: 'var(--bg3)', borderRadius: '10px', border: '0.5px solid var(--border)' }}>
-            <div style={{ fontSize: '10px', color: 'var(--text3)', marginBottom: '4px' }}>📋 前情摘要</div>
+          <div key={i} style={{ marginBottom: '16px', padding: '10px 12px', background: 'var(--bg3)', borderRadius: '10px', border: '0.5px solid var(--border)', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <span style={{ fontSize: '10px', color: 'var(--text3)' }}>📋 前情摘要</span>
+              <button onClick={() => {
+                const newText = prompt('编辑摘要：', msg.content.replace(/^📋 前情摘要（结构化压缩）：\n?/, ''))
+                if (newText != null) {
+                  msg.content = '📋 前情摘要（结构化压缩）：\n' + newText
+                  InteractionKernel.persistMessages()
+                  setMessages([...InteractionKernel.getState().messages])
+                }
+              }} style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', border: '0.5px solid var(--border)', background: 'var(--bg)', color: 'var(--text3)', cursor: 'pointer' }}>✏️ 编辑</button>
+            </div>
             <div style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-              {msg.content.replace(/^📋 前情摘要：\n?/, '')}
+              {msg.content.replace(/^📋 前情摘要.*：\n?/, '')}
             </div>
           </div>
         )
@@ -435,7 +445,12 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
               try {
                 const toKeep = all.slice(-KEEP)
                 const old = all.slice(0, -KEEP)
-                const result = await compressChatHistory(old, apiKey, '', '')
+                // Find existing summary to merge into new compression
+                const existingSummary = all.find(m => m.isSummary)
+                const existingMemory = existingSummary
+                  ? existingSummary.content.replace(/^📋 前情摘要.*：\n?/, '')
+                  : ''
+                const result = await compressChatHistory(old, apiKey, '', existingMemory)
                 const summary = result.summary || JSON.stringify(result)
                 const summaryMsg = {
                   id: 'summary-' + Date.now(),
