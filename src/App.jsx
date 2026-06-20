@@ -149,8 +149,9 @@ export default function App() {
   const isDramaPage = page === 'dramaPage'
   const isDailyPage = page === 'dailyPage'
   const isCharacterEditor = page === 'characterEditor'
+  const isSettings = page === 'settings'
   const isBlocked = LEGACY_BLOCKED.has(page) || (!V6_ROUTES.has(page) && !LEGACY_REDIRECT.has(page))
-  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isCharacterEditor || isBlocked
+  const hasOwnHeader = isEntry || isProfile || isCreateFolder || isFolder || isDramaPage || isDailyPage || isCharacterEditor || isSettings || isBlocked
 
   return (
     <div style={{ maxWidth: '430px', height: '100dvh', margin: '0 auto', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
