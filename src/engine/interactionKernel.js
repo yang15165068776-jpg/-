@@ -15,7 +15,6 @@
  *   - 通过 HydrationEngine 缓存导航恢复
  */
 
-import { runAgentTurn } from '../agents/coordinator'
 import {
   initBridgeForFolder,
   getFolderUIState,
@@ -32,6 +31,7 @@ import {
 import { HydrationEngine } from './hydrationEngine'
 import { AgentDecisionLayer } from './agentDecisionLayer'
 import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
+import { runAgentTurn, resetAgentTurn } from '../agents/coordinator'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
 import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 import { CausalEngine } from '../runtime/causalEngine'
@@ -97,6 +97,8 @@ export const InteractionKernel = {
    */
   init(folderId, characters, mode, hydrateData) {
     this.reset()
+    // Reset coordinator world state so old folder's affection doesn't leak in
+    resetAgentTurn()
     this.state.folderId = folderId
     this.state.mode = mode
 

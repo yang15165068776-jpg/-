@@ -341,7 +341,12 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     // Assistant — can be multiple bubbles (burst)
     const segments = msg.segments || (msg.content ? [{ text: msg.content }] : [])
     const isRevealing = revealing && revealing.msgIndex === i
-    const visibleSegments = isRevealing ? segments.slice(0, revealing.revealedCount) : segments
+    const isLastMsg = i === messages.length - 1
+    // Don't flash all segments before reveal starts: if this is the newest message
+    // with segments and reveal hasn't started yet, show nothing
+    const visibleSegments = isRevealing
+      ? segments.slice(0, revealing.revealedCount)
+      : (!isLastMsg || revealing !== null ? segments : [])
 
     return (
       <div key={i} style={{ display: 'flex', marginBottom: '8px', animation: 'fadeIn 0.25s ease-out' }}>
