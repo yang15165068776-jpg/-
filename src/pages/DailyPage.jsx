@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { sendDailyChatMessage } from '../utils/deepseek'
+import { sendDailyChatMessage, judgeDailyAffection } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { initBridgeForFolder, getFolderUIState, dailyTurnStart, dailyTurnEnd } from '../state/stateBridge'
 import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, getFolder } from '../state/folderStore'
@@ -233,18 +233,23 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         ? packet.bubbles
         : [{ text: reply.slice(0, 60), type: 'text', delay: 800 }]
 
-      // Update USK with LLM-provided deltas
+      // ── Daily v4 Affection Judge: independent LLM scoring ──
+      const judgeResult = await judgeDailyAffection(
+        char, affection, userText, reply, apiKey
+      ).catch(() => ({ delta: 0 }))
+      const judgedDelta = judgeResult.delta || 0
+
+      // Update USK with JUDGE's delta (NOT LLM's self-report)
       dailyTurnEnd(mainChar.name, {
         reply,
         emotion_delta: packet?.emotion_delta ?? 0,
-        relationship_delta: packet?.relationship_delta ?? 0,
+        relationship_delta: judgedDelta,
       })
       refreshUSK()
 
       // Set affection flash for UI animation
-      const relDelta = packet?.relationship_delta
-      if (relDelta && relDelta !== 0) {
-        setAffectionFlash(relDelta > 0 ? relDelta : relDelta)
+      if (judgedDelta !== 0) {
+        setAffectionFlash(judgedDelta > 0 ? judgedDelta : judgedDelta)
         setTimeout(() => setAffectionFlash(null), 2500)
       }
 

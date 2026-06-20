@@ -1269,6 +1269,99 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
   }
 }
 
+/**
+ * Daily v4 Affection Judge — lightweight LLM call to score affection change.
+ * Unlike judgeAffectionDelta (which needs romanceCharacters with stage rules),
+ * this works for daily mode's flat character structure.
+ *
+ * @param {object} character — daily character object
+ * @param {number} currentAffection
+ * @param {string} userInput — what the player said
+ * @param {string} aiReply — what the character replied
+ * @param {string} apiKey
+ * @returns {Promise<{ delta: number, error: string|null }>}
+ */
+export async function judgeDailyAffection(character, currentAffection, userInput, aiReply, apiKey) {
+  if (!apiKey || !aiReply) return { delta: 0, error: null }
+
+  const name = character.name || '角色'
+  const rules = []
+
+  if (character.affectionUpRules && character.affectionUpRules.trim()) {
+    rules.push('上涨条件：\n' + character.affectionUpRules.trim())
+  }
+  if (character.affectionDownRules && character.affectionDownRules.trim()) {
+    rules.push('减少条件：\n' + character.affectionDownRules.trim())
+  }
+  if (character.personality) {
+    rules.push('角色性格：' + character.personality)
+  }
+  if (character.background) {
+    rules.push('角色背景（摘要）：' + character.background.slice(0, 200))
+  }
+
+  const userMessage =
+    '你在和' + name + '微信聊天。\n' +
+    '当前好感度：' + currentAffection + '\n\n' +
+    (rules.length > 0 ? rules.join('\n') + '\n\n' : '') +
+    '---\n' +
+    '本轮玩家说：' + (userInput || '').slice(0, 300) + '\n' +
+    '本轮' + name + '回复：' + (aiReply || '').slice(0, 300) + '\n' +
+    '---\n\n' +
+    '根据以上对话判断好感度变化。\n' +
+    '规则：\n' +
+    '· 日常聊天通常变化很小，±0 或 ±1\n' +
+    '· 对方说了暖心/有趣/让' + name + '感到被在乎的话 → +1 或 +2\n' +
+    '· 对方冷淡/敷衍/冒犯 → -1 或 -2\n' +
+    '· 非常强烈的情绪冲击 → ±3（极少）\n' +
+    '· 普通闲聊、没特别情绪波动的对话 → 0\n' +
+    '· 上涨必须要有明确原因，没有理由就給0\n' +
+    '· 控制好感度增长速率，不要太快\n\n' +
+    '输出一行严格格式：[最终得分: X]，X 是 -3 到 +3 的整数。'
+
+  try {
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: '你是好感度裁判。只输出一行：[最终得分: X]，X 是 -3 到 +3 的整数。不要解释。' },
+          { role: 'user', content: userMessage },
+        ],
+        max_tokens: 32,
+        temperature: 0.3,
+        stream: false,
+      }),
+    })
+
+    if (!response.ok) return { delta: 0, error: 'API error: ' + response.status }
+
+    const data = await response.json()
+    const text = data.choices?.[0]?.message?.content || ''
+
+    // Parse [最终得分: X]
+    const match = text.match(/\[最终得分:\s*([-+]?\d+)\]/)
+    if (match) {
+      return { delta: Math.max(-3, Math.min(3, parseInt(match[1], 10))), error: null }
+    }
+
+    // Fallback: extract any number
+    const numMatch = text.match(/[-+]?\d+/)
+    if (numMatch) {
+      return { delta: Math.max(-3, Math.min(3, parseInt(numMatch[0], 10))), error: null }
+    }
+
+    return { delta: 0, error: null }
+  } catch (err) {
+    console.warn('[Daily好感度裁判] 异常:', err.message)
+    return { delta: 0, error: err.message }
+  }
+}
+
 export async function* streamCompletion(messages, apiKey, model, temperature, topP, thinkingEnabled) {
   const controller = new AbortController()
   const timeout = setTimeout(() => {
