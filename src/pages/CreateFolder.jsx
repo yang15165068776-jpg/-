@@ -154,7 +154,7 @@ export default function CreateFolder({ onBack, onCreated }) {
         styleRules: Array.isArray(rc['文风规则'] || rc.文风规则) ? (rc['文风规则'] || rc.文风规则) : [],
         forbiddenWords: Array.isArray(rc['禁止行为'] || rc.禁止行为) ? (rc['禁止行为'] || rc.禁止行为) : [],
         affectionEnabled: true,
-        affectionInitial: rc['好感度初始'] || rc.好感度初始 || 50,
+        affectionInitial: rc['好感度初始'] ?? rc.好感度初始 ?? 50,
         affectionStages: (rc['好感度阶段'] || rc.好感度阶段 || []).map(s => ({
           name: s.label || s.name || '', min: s.min || 0, max: s.max || 100,
           behavior: s.behavior || (Array.isArray(s.behaviors) ? s.behaviors.map(b => (typeof b === 'string' ? b : b.behavior || b.description || '')).join('；') : ''),
