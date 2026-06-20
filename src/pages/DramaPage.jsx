@@ -407,9 +407,13 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
           </span>
           <button
             onClick={() => {
-              const KEEP = 6
+              const KEEP = 4
               const all = InteractionKernel.getState().messages
-              if (all.length <= KEEP) return
+              const compressible = all.filter(m => m.role === 'user' || (m.role === 'assistant' && !m.isOpening))
+              if (compressible.length <= KEEP + 2) {
+                alert('消息太少，不需要压缩（至少需要 ' + (KEEP + 3) + ' 条）')
+                return
+              }
               const toKeep = all.slice(-KEEP)
               const old = all.slice(0, -KEEP)
               const lines = old
