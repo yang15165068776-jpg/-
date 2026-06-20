@@ -1002,8 +1002,10 @@ export function createFolderUSK(folderId, charactersData = [], options = {}) {
 
     // ── Global state (v6 folder-level) ──
     global_state: {
-      world_tension: 30,
-      folder_mood: 50,
+      world_tension: 30,        // 0-100，世界观层面的紧张程度
+      folder_mood: 50,          // 0-100，世界氛围
+      narrative_phase: 'setup', // setup | rising | crisis | resolution
+      timeline_pointer: 0,      // 故事时间线位置（回合数）
     },
 
     // ── Event memory ──

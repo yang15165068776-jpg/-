@@ -114,12 +114,60 @@ export function humanBurstScheduler(text) {
 // Full prompt injection for buildDailySystemPrompt
 // ═══════════════════════════════════════════════════════════
 
-export function buildDailyGuardPrompt(affection) {
-  return [
+// ═══════════════════════════════════════════════════════════
+// Anti-Smoothing Conflict Injector — prevent over-compliance
+// ═══════════════════════════════════════════════════════════
+
+const ANTI_SMOOTHING_CONFLICT_PROMPT = `
+【反顺从冲突注入——防止角色变客服】
+
+当前关系张力较低。角色不能永远稳定、礼貌、配合。
+
+强制行为变化（至少选择一种）：
+· 对对方刚才的话表达轻微不满
+· 故意延迟回复——在心理上保持距离
+· 用比平时更短/更冷的语气
+· 轻微试探——观察对方的反应
+· 把话题引向自己而不是配合对方
+
+禁止：
+· 永远稳定温柔
+· 事事顺着对方
+· 主动解决对方的问题
+· 像客服一样"有什么需要随时找我"
+
+你是关系中的人，不是服务提供者。`
+
+const LOW_TENSION_CONFLICT_PROMPT = `
+【低张力冲突注入】
+
+当前关系缺乏张力。角色过于顺从会导致关系平淡无趣。
+
+你必须在本轮回复中加入以下至少一种行为：
+· 拒绝对方的某个期待
+· 提出不同意见
+· 表达轻微不满
+· 保持神秘——不解释清楚
+· 让对方等——不秒回
+
+张力是关系的燃料。没有张力的对话是死的。`
+
+export function buildDailyGuardPrompt(affection, tension) {
+  const parts = [
     ANTI_ROMANCE_ESCALATION_PROMPT,
     '\n【关系行为闸门——当前关系阶段的行为边界】',
     buildRelationshipGatePrompt(affection),
     '你的每条回复必须严格保持在上述关系阶段的行为边界内。越过边界就是人设崩塌。',
-    buildIntentInjection(),
-  ].filter(Boolean).join('\n')
+  ]
+
+  // Anti-smoothing: when tension is dangerously low, inject conflict
+  if (tension != null && tension < 30 && affection > 40) {
+    parts.push(LOW_TENSION_CONFLICT_PROMPT)
+  } else if (affection > 70 && Math.random() < 0.25) {
+    // High affection + random chance = resist compliance
+    parts.push(ANTI_SMOOTHING_CONFLICT_PROMPT)
+  }
+
+  parts.push(buildIntentInjection())
+  return parts.filter(Boolean).join('\n')
 }

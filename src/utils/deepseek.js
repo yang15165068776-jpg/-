@@ -729,9 +729,10 @@ function buildDailySystemPrompt(character, affectionData) {
   )
 
   // ═══════════════════════════════════════════
-  // 6. Daily v5 Guard（行为闸门 + 自主意图）
+  // 6. Daily v5 Guard（行为闸门 + 自主意图 + 冲突注入）
   // ═══════════════════════════════════════════
-  parts.push(buildDailyGuardPrompt(aff))
+  const tension = character._uskTension ?? 30
+  parts.push(buildDailyGuardPrompt(aff, tension))
 
   // ═══════════════════════════════════════════
   // 7. 格式规则（简洁，不重复）

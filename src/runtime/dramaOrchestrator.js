@@ -149,6 +149,29 @@ export const DramaOrchestrator = {
   },
 
   /**
+   * Shuraba (修罗场) detection — 2+ characters both have affection > 60 AND tension > 70.
+   * When triggered, forces multi-character confrontation.
+   */
+  detectShuraba(uskCharacters, threshold) {
+    if (!uskCharacters) return false
+    const highAffectionChars = Object.entries(uskCharacters)
+      .filter(([, s]) => (s.relationship?.affection || 0) > 60)
+    return highAffectionChars.length >= 2 && (threshold || 70) > 70
+  },
+
+  /**
+   * Sync scene state to USK global_state.
+   */
+  syncToUSK(usk, scene) {
+    if (!usk?.global_state) return usk
+    usk.global_state.world_tension = scene.tension
+    usk.global_state.narrative_phase = scene.scenePhase
+    usk.global_state.timeline_pointer = scene.turnInScene
+    usk.global_state.folder_mood = Math.max(0, Math.min(100, 50 - (scene.tension - 30) * 0.5))
+    return usk
+  },
+
+  /**
    * Advance the scene — check triggers, generate event, update phase.
    * Called once per turn BEFORE the LLM prompt is built.
    *
@@ -226,6 +249,7 @@ export const DramaOrchestrator = {
 
     if (scene.tension > 70) {
       lines.push('· ⚠️ 高张力场景：角色情绪接近失控，随时可能爆发')
+      lines.push('· 🔥 修罗场条件已满足：必须安排多角色交叉攻击/误解/争夺，不能只写一个角色')
     }
     if (scene.stability < 30) {
       lines.push('· ⚠️ 低稳定度：任何小事都可能引发连锁反应')
