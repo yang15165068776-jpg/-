@@ -581,12 +581,12 @@ export const InteractionKernel = {
 
       // 2. Get USK snapshot for coordinator + pre-turn state for causal engine
       const usk = getRawFolderUSK()
+      const mainCharName = character.name
       const uskBefore = mainCharName
         ? this._snapshotUSK(mainCharName)
         : null
 
       // 2.5. Run agent decision layer
-      const mainCharName = character.name
       const decision = mainCharName
         ? AgentDecisionLayer.decideFromFolder(
             mainCharName,
