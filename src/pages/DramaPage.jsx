@@ -163,6 +163,46 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     }
   }
 
+  // ── Per-message handlers ──
+  const handleEditMessage = (idx) => {
+    const msg = InteractionKernel.getState().messages[idx]
+    if (!msg || msg.role !== 'user') return
+    const text = prompt('编辑消息：', msg.content)
+    if (text && text !== msg.content) {
+      // Edit the message + truncate everything after it, then re-send
+      InteractionKernel.rollbackTo(idx - 1)
+      InteractionKernel.addUserMessage(text)
+      const state = InteractionKernel.getState()
+      setMessages(state.messages)
+      doSend(text)
+    }
+  }
+
+  const handleDeleteMessage = (idx) => {
+    const state = InteractionKernel.getState()
+    const msg = state.messages[idx]
+    if (!msg || msg.immutable) return
+    if (msg.role === 'user') {
+      // Delete user msg + everything after (assistant response)
+      InteractionKernel.rollbackTo(idx - 1)
+    } else {
+      // Delete just this assistant message
+      InteractionKernel.deleteMessageAtIndex(idx)
+    }
+    setMessages(InteractionKernel.getState().messages)
+    setAffection(InteractionKernel.getAffection())
+    setTension(InteractionKernel.getState().tension)
+  }
+
+  const handleRegenerate = (assistantIdx) => {
+    const userMsg = InteractionKernel.getUserMsgBefore(assistantIdx)
+    if (!userMsg) return
+    // Truncate to before the user message, then re-send
+    InteractionKernel.rollbackTo(userMsg._index - 1)
+    setMessages(InteractionKernel.getState().messages)
+    doSend(userMsg.content)
+  }
+
   const handleEditLast = () => {
     const last = InteractionKernel.getLastUserMessage()
     if (!last) return
@@ -225,10 +265,19 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
     if (msg.role === 'user') {
       return (
-        <div key={i} style={{ marginBottom: '20px', paddingLeft: '24px' }}>
+        <div key={i} style={{ marginBottom: '20px', paddingLeft: '24px', position: 'relative' }}
+          onMouseEnter={e => { e.currentTarget.querySelector('.msg-actions')?.style.setProperty('opacity', '1') }}
+          onMouseLeave={e => { e.currentTarget.querySelector('.msg-actions')?.style.setProperty('opacity', '0') }}
+        >
           <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>主角</div>
           <div style={{ fontSize: '14px', color: 'var(--text)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
             {msg.content}
+          </div>
+          <div className="msg-actions" style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: '2px', opacity: 0, transition: 'opacity 0.15s' }}>
+            <button onClick={() => handleEditMessage(i)} title="编辑"
+              style={{ width: '20px', height: '20px', borderRadius: '4px', border: 'none', background: 'var(--bg2)', color: 'var(--text3)', fontSize: '10px', cursor: 'pointer' }}>✏️</button>
+            <button onClick={() => handleDeleteMessage(i)} title="删除"
+              style={{ width: '20px', height: '20px', borderRadius: '4px', border: 'none', background: 'var(--bg2)', color: 'var(--text3)', fontSize: '10px', cursor: 'pointer' }}>🗑</button>
           </div>
         </div>
       )
@@ -236,10 +285,22 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
     const sections = parseMultiCharacterMessage(msg.content)
     return (
-      <div key={i} style={{ marginBottom: '24px' }}>
+      <div key={i} style={{ marginBottom: '24px', position: 'relative' }}
+        onMouseEnter={e => { e.currentTarget.querySelector('.msg-actions')?.style.setProperty('opacity', '1') }}
+        onMouseLeave={e => { e.currentTarget.querySelector('.msg-actions')?.style.setProperty('opacity', '0') }}
+      >
         {msg.isOpening && (
           <div style={{ textAlign: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '10px', color: 'var(--purple)', background: 'var(--purple-l)', padding: '2px 8px', borderRadius: '8px' }}>开场剧情</span>
+          </div>
+        )}
+        {/* Per-message actions */}
+        {!msg.immutable && (
+          <div className="msg-actions" style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: '2px', opacity: 0, transition: 'opacity 0.15s' }}>
+            <button onClick={() => handleRegenerate(i)} title="重刷"
+              style={{ width: '20px', height: '20px', borderRadius: '4px', border: 'none', background: 'var(--bg2)', color: 'var(--text3)', fontSize: '10px', cursor: 'pointer' }}>🔄</button>
+            <button onClick={() => handleDeleteMessage(i)} title="删除"
+              style={{ width: '20px', height: '20px', borderRadius: '4px', border: 'none', background: 'var(--bg2)', color: 'var(--text3)', fontSize: '10px', cursor: 'pointer' }}>🗑</button>
           </div>
         )}
         {sections.length <= 1 ? (

@@ -328,6 +328,50 @@ export const InteractionKernel = {
   },
 
   /**
+   * Edit a message at a specific array index.
+   * @param {number} idx
+   * @param {string} newContent
+   * @returns {boolean} success
+   */
+  editMessageAtIndex(idx, newContent) {
+    if (idx < 0 || idx >= this.state.messages.length) return false
+    const msg = this.state.messages[idx]
+    if (msg.immutable) return false
+    msg.content = newContent
+    this._autoSave()
+    return true
+  },
+
+  /**
+   * Delete a message at a specific array index.
+   * @param {number} idx
+   * @returns {object[]} updated messages
+   */
+  deleteMessageAtIndex(idx) {
+    if (idx < 0 || idx >= this.state.messages.length) return this.state.messages
+    const msg = this.state.messages[idx]
+    if (msg.immutable) return false
+    this.state.messages.splice(idx, 1)
+    this._autoSave()
+    return this.state.messages
+  },
+
+  /**
+   * Find the user message that precedes an assistant message at the given index.
+   * Used for "regenerate" — find what the user said to re-trigger the AI.
+   * @param {number} assistantIdx
+   * @returns {{ content: string, _index: number } | null}
+   */
+  getUserMsgBefore(assistantIdx) {
+    for (let i = assistantIdx - 1; i >= 0; i--) {
+      if (this.state.messages[i].role === 'user') {
+        return { content: this.state.messages[i].content, _index: i }
+      }
+    }
+    return null
+  },
+
+  /**
    * Rollback the last message only.
    */
   rollbackLast() {
