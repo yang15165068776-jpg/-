@@ -33,6 +33,7 @@ import { HydrationEngine } from './hydrationEngine'
 import { AgentDecisionLayer } from './agentDecisionLayer'
 import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
+import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -731,6 +732,22 @@ export const InteractionKernel = {
         }
       }
 
+      // 11.5. Memory Interpretation — record + dual-view
+      const mode = this.state.mode || 'drama'
+      const uskContext = mainCharName ? getFolderUIState(mainCharName) : null
+      const interpretation = MemoryInterpreter.interpretTurn(
+        { role: 'user', content: userText },
+        { role: 'assistant', content: cleanReply },
+        mode,
+        { uskState: uskContext, turnCount: this.state.lifecycle.turnCount, character },
+      )
+      // Store in dual-view memory for cross-mode consistency
+      DualViewMemory.record(
+        { role: 'user', content: userText },
+        { role: 'assistant', content: cleanReply },
+        { uskState: uskContext, turnCount: this.state.lifecycle.turnCount, character },
+      )
+
       // 12. Persist
       this._autoSave()
       this._saveToHydration()
@@ -747,6 +764,7 @@ export const InteractionKernel = {
         affection: this.state.affection,
         tension: this.state.tension,
         decision,
+        interpretation,
         silent: false,
         turnReport: result.turnReport || null,
         worldState: result.worldState || null,
