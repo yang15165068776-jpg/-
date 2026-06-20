@@ -186,8 +186,16 @@ function buildCharacterIdentityBlock(character, world) {
     }
   }
 
-  // Player character
-  if (character.protagonistName) {
+  // Player character — from account or legacy protagonist fields
+  const pp = character._playerProfile
+  if (pp && pp.name) {
+    lines.push('\n【玩家身份】' + pp.name +
+      (pp.gender ? '（' + pp.gender + '）' : '') + ' — ' +
+      (pp.personalityTags && pp.personalityTags.length > 0 ? pp.personalityTags.join('、') : '未设定'))
+    if (pp.description) {
+      lines.push('玩家设定：' + pp.description.slice(0, 200))
+    }
+  } else if (character.protagonistName) {
     lines.push('\n【主角】' + character.protagonistName + ' — ' +
       (character.protagonistPersonality || '未设定') +
       (character.protagonistGender ? '（' + character.protagonistGender + '）' : ''))

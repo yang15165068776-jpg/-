@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react'
 import { getAllFolders, deleteFolder } from '../state/folderStore'
-import { getPlayerProfile } from '../utils/storage'
+import { getActiveAccount, getActiveAccountId, getAllAccounts, setActiveAccount } from '../state/accountStore'
 
 /**
  * Entry — Opening page. 2-column layout:
- *   Left (76px) : toolbar — player avatar, world cards, profile icon, settings icon
- *   Right(flex:1): main — large avatar (selected folder or player), create button
+ *   Left (84px) : toolbar — player avatar (active account), world cards, account switcher
+ *   Right(flex:1): main — large avatar (selected folder), create button
  *
- * Card click → preview in center. Center avatar click → enter folder.
- * Create button → create folder page.
+ * Worlds are filtered by active account. Switching accounts = switching phones.
  */
 export default function Entry({
   onEnterFolder,
@@ -18,13 +17,19 @@ export default function Entry({
   onLegacyList,
 }) {
   const [folders, setFolders] = useState([])
-  const [profile, setProfile] = useState({ name: '', avatar: '' })
+  const [account, setAccount] = useState(null)
+  const [accounts, setAccounts] = useState([])
   const [selectedFolder, setSelectedFolder] = useState(null)
+  const [showAccountPicker, setShowAccountPicker] = useState(false)
 
   const refresh = () => {
-    const all = getAllFolders()
+    const activeId = getActiveAccountId()
+    const activeAcct = getActiveAccount()
+    setAccount(activeAcct)
+    setAccounts(getAllAccounts())
+
+    const all = getAllFolders(activeId)
     setFolders(all)
-    setProfile(getPlayerProfile())
     // Keep selection if folder still exists
     if (selectedFolder && !all.find(f => f.id === selectedFolder.id)) {
       setSelectedFolder(null)
@@ -32,40 +37,103 @@ export default function Entry({
   }
   useEffect(() => { refresh() }, [])
   useEffect(() => {
-    window.addEventListener('focus', refresh)
-    return () => window.removeEventListener('focus', refresh)
+    const h = () => refresh()
+    window.addEventListener('focus', h)
+    // Listen for custom account-changed event (fired by PlayerProfile)
+    window.addEventListener('account-changed', h)
+    return () => {
+      window.removeEventListener('focus', h)
+      window.removeEventListener('account-changed', h)
+    }
   }, [])
+
+  const handleSwitchAccount = (id) => {
+    setActiveAccount(id)
+    setShowAccountPicker(false)
+    // Dispatch custom event so other components can react
+    window.dispatchEvent(new CustomEvent('account-changed'))
+    refresh()
+  }
 
   // First folder avatar for center display
   const displayFolder = selectedFolder || (folders.length > 0 ? folders[0] : null)
-  // Use first character's initial as avatar fallback
   const firstChar = displayFolder?.characterData?.[0]
-  const displayName = displayFolder?.name || profile.name || '玩家'
-  const displayAvatar = firstChar?.avatar || profile.avatar || ''
+  const displayName = displayFolder?.name || (account?.name || '玩家')
+  const displayAvatar = account?.avatar || firstChar?.avatar || ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'row', height: '100%', background: 'var(--bg)' }}>
 
-      {/* ═══ LEFT — 76px toolbar ═══ */}
+      {/* ═══ LEFT — 84px toolbar ═══ */}
       <div style={{
         width: '84px', flexShrink: 0, display: 'flex', flexDirection: 'column',
         alignItems: 'center', padding: '12px 8px', background: 'var(--bg2)',
         borderRight: '0.5px solid var(--border2)', height: '100%', overflowY: 'auto',
       }}>
-        {/* Player avatar thumbnail (top) */}
-        <div onClick={onProfile} style={{ cursor: 'pointer', marginBottom: '16px' }}>
+        {/* Player avatar thumbnail — active account */}
+        <div onClick={() => {
+          if (accounts.length > 1) {
+            setShowAccountPicker(v => !v)
+          } else {
+            onProfile()
+          }
+        }} style={{ cursor: 'pointer', marginBottom: '8px', position: 'relative' }}>
           <div style={{
             width: '40px', height: '40px', borderRadius: '8px', overflow: 'hidden',
-            background: 'var(--bg3)', border: '0.5px solid var(--border)',
+            background: 'var(--bg3)', border: account ? '2px solid var(--purple)' : '0.5px solid var(--border)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            {profile.avatar ? (
-              <img src={profile.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            {account?.avatar ? (
+              <img src={account.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             ) : (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" strokeWidth="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-7 8-7s8 3 8 7"/></svg>
             )}
           </div>
+          {accounts.length > 1 && (
+            <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '14px', height: '14px', borderRadius: '7px', background: 'var(--text)', color: 'var(--bg)', fontSize: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--bg2)' }}>
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M8 7l4.5-4.5L17 7M8 17l4.5 4.5L17 17"/></svg>
+            </div>
+          )}
         </div>
+
+        {/* Account name label */}
+        {account && (
+          <div style={{ fontSize: '10px', color: 'var(--text3)', marginBottom: '12px', textAlign: 'center', maxWidth: '72px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={account.name}>
+            {account.name}
+          </div>
+        )}
+
+        {/* Account picker dropdown */}
+        {showAccountPicker && accounts.length > 1 && (
+          <div style={{
+            position: 'absolute', top: '56px', left: '4px', zIndex: 10,
+            width: '76px', background: 'var(--bg)', borderRadius: '10px',
+            border: '0.5px solid var(--border)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+            padding: '4px', display: 'flex', flexDirection: 'column', gap: '2px',
+          }}>
+            {accounts.map(a => (
+              <button key={a.id}
+                onClick={() => handleSwitchAccount(a.id)}
+                style={{
+                  padding: '6px 4px', borderRadius: '6px', border: 'none',
+                  background: a.id === getActiveAccountId() ? 'var(--purple-l)' : 'transparent',
+                  color: a.id === getActiveAccountId() ? 'var(--purple)' : 'var(--text2)',
+                  fontSize: '10px', cursor: 'pointer', textAlign: 'center',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+                title={a.name}
+              >{a.name}</button>
+            ))}
+            <button
+              onClick={() => { setShowAccountPicker(false); onProfile() }}
+              style={{
+                padding: '4px', borderRadius: '4px', border: 'none',
+                background: 'transparent', color: 'var(--text3)', fontSize: '9px',
+                cursor: 'pointer', textAlign: 'center',
+              }}
+            >管理身份…</button>
+          </div>
+        )}
 
         {/* World card list (scrollable) */}
         <div style={{ flex: 1, overflowY: 'auto', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -79,7 +147,7 @@ export default function Entry({
                   onClick={() => setSelectedFolder(f)}
                   style={{
                     width: '60px', minHeight: '44px', borderRadius: '10px',
-                    background: isSelected ? 'var(--purple-l)' : 'var(--bg3)',
+                    background: isSelected ? 'var(--purple-l)' : 'var(--bg)',
                     border: isSelected ? '2px solid var(--purple)' : '2px solid transparent',
                     marginBottom: '10px', cursor: 'pointer', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -101,7 +169,7 @@ export default function Entry({
                       if (confirm(`确定删除世界"${f.name}"？`)) {
                         deleteFolder(f.id)
                         if (isSelected) setSelectedFolder(null)
-                        setFolders(getAllFolders())
+                        setFolders(getAllFolders(getActiveAccountId()))
                       }
                     }}
                     style={{
@@ -121,7 +189,7 @@ export default function Entry({
 
         {/* Bottom icons */}
         <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: '8px' }}>
-          <button onClick={onProfile} title="玩家设定" style={{
+          <button onClick={onProfile} title="玩家身份" style={{
             width: '36px', height: '36px', borderRadius: '18px',
             border: '0.5px solid var(--border)', background: 'var(--bg)',
             cursor: 'pointer', display: 'flex', alignItems: 'center',
@@ -177,7 +245,16 @@ export default function Entry({
           {displayName}
         </div>
 
-        {/* Subtitle */}
+        {/* Account subtitle — show current active identity */}
+        {account && !displayFolder && (
+          <div style={{ fontSize: '12px', color: 'var(--text3)', textAlign: 'center', maxWidth: '260px', lineHeight: 1.5 }}>
+            {account.description
+              ? account.description.slice(0, 80) + (account.description.length > 80 ? '…' : '')
+              : '当前身份 · ' + (account.gender || '未设性别')}
+          </div>
+        )}
+
+        {/* Subtitle — world info */}
         {displayFolder && (
           <div style={{ fontSize: '12px', color: 'var(--text3)', textAlign: 'center', maxWidth: '260px', lineHeight: 1.5 }}>
             {displayFolder.worldview ? displayFolder.worldview.slice(0, 60) + (displayFolder.worldview.length > 60 ? '…' : '') : '暂无世界观'}

@@ -220,29 +220,17 @@ export default function CharacterEditor({ folderId, charIndex, onBack }) {
             <label style={labelStyle}>头像链接（URL）</label>
             <input style={inputStyle} value={char.avatar || ''} onChange={e => update('avatar', e.target.value)} placeholder="https://..." />
           </div>
-          <div style={{ marginBottom: '10px' }}>
-            <label style={labelStyle}>主角名字</label>
-            <input style={inputStyle} value={char.protagonistName || ''} onChange={e => update('protagonistName', e.target.value)} placeholder="玩家扮演的角色名" />
+          <div style={{ marginBottom: '10px', padding: '8px 10px', borderRadius: '8px', background: 'var(--purple-l)', fontSize: '11px', color: 'var(--purple)', lineHeight: 1.5 }}>
+            ℹ️ 玩家的名字、性别、设定等信息现在在<b>玩家身份</b>中统一管理。角色会自动识别当前活跃的玩家身份。
           </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>主角性别</label>
-              <select style={inputStyle} value={char.protagonistGender || ''} onChange={e => update('protagonistGender', e.target.value)}>
-                <option value="">不设定</option>
-                <option value="男">男</option>
-                <option value="女">女</option>
-                <option value="其他">其他</option>
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>故事基调</label>
-              <select style={inputStyle} value={char.storyTone || '甜虐'} onChange={e => update('storyTone', e.target.value)}>
-                <option value="甜虐">甜虐</option>
-                <option value="纯爱">纯爱</option>
-                <option value="悬疑">悬疑</option>
-                <option value="黑深残">黑深残</option>
-              </select>
-            </div>
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>故事基调</label>
+            <select style={inputStyle} value={char.storyTone || '甜虐'} onChange={e => update('storyTone', e.target.value)}>
+              <option value="甜虐">甜虐</option>
+              <option value="纯爱">纯爱</option>
+              <option value="悬疑">悬疑</option>
+              <option value="黑深残">黑深残</option>
+            </select>
           </div>
         </CollapseSection>
 
@@ -255,14 +243,6 @@ export default function CharacterEditor({ folderId, charIndex, onBack }) {
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>开场剧情</label>
             <textarea style={{ ...textareaStyle, minHeight: '80px' }} value={char.openingScenario || ''} onChange={e => update('openingScenario', e.target.value)} placeholder="故事第一幕场景…" />
-          </div>
-          <div style={{ marginBottom: '10px' }}>
-            <label style={labelStyle}>主角背景</label>
-            <textarea style={textareaStyle} value={char.protagonistBackground || ''} onChange={e => update('protagonistBackground', e.target.value)} placeholder="主角的过往和身份…" />
-          </div>
-          <div style={{ marginBottom: '10px' }}>
-            <label style={labelStyle}>主角性格</label>
-            <textarea style={textareaStyle} value={char.protagonistPersonality || ''} onChange={e => update('protagonistPersonality', e.target.value)} placeholder="主角的行为模式和性格…" />
           </div>
         </CollapseSection>
 

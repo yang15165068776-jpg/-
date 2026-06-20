@@ -261,6 +261,47 @@ export function findForbiddenWord(text, words) {
   return words.find(w => w.trim() && lower.includes(w.trim().toLowerCase())) || null
 }
 
+/**
+ * Build the player identity block for the system prompt.
+ * Uses _playerProfile (from accountStore) when available;
+ * falls back to legacy protagonist fields on the character.
+ */
+function buildPlayerIdentityBlock(character) {
+  const pp = character._playerProfile
+  if (pp && pp.name) {
+    const lines = []
+    lines.push('【玩家身份——你正在与之互动的人】')
+    lines.push('名字：' + pp.name)
+    if (pp.gender) lines.push('性别：' + pp.gender)
+    if (pp.personalityTags && pp.personalityTags.length > 0) {
+      lines.push('性格标签：' + pp.personalityTags.join('、'))
+    }
+    if (pp.description) {
+      lines.push('设定：' + pp.description)
+    }
+    lines.push('')
+    lines.push('以上是正在与你互动的玩家的身份信息。')
+    lines.push('角色应该认识并记住这个玩家的名字和设定，并据此做出反应。')
+    lines.push('玩家通过输入文字扮演这个身份与世界互动。')
+    lines.push('记住：你绝不能替' + pp.name + '做任何动作或说任何话。')
+    return lines.join('\n')
+  }
+
+  // Fallback: legacy protagonist fields
+  if (character.protagonistName) {
+    return '【主角设定（用户扮演的角色）】\n' +
+      '故事主角是' + character.protagonistName +
+      (character.protagonistGender ? '，' + character.protagonistGender : '') +
+      '。\n' +
+      (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
+      (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
+      '用户扮演这个角色与世界互动。\n' +
+      '记住：你绝不能替' + character.protagonistName + '做任何动作或说任何话。'
+  }
+
+  return ''
+}
+
 function buildGMPrompt(character, affections) {
   const parts = []
   const name = character.name || '故事'
@@ -355,7 +396,7 @@ function buildGMPrompt(character, affections) {
 
   // 0.5: (removed — story time system removed)
 
-  // 1: GM identity + Protagonist
+  // 1: GM identity + Protagonist (from player account or legacy fields)
   parts.push(
     '你是GM，第三人称全知叙事。你控制NPC、可攻略角色和环境，不控制玩家。\n' +
     '\n' +
@@ -363,15 +404,8 @@ function buildGMPrompt(character, affections) {
     '× 禁止替玩家说话/动作/心理——不写"你感到""你心想""你不禁""你下意识"\n' +
     '× 禁止在玩家无输入时推进玩家行为\n' +
     '√ 允许：NPC视角观察/误读玩家、环境对玩家的客观影响、以等待回应结尾\n' +
-    '违反 = 重写。' +
-    (character.protagonistName ? '\n\n【主角设定（用户扮演的角色）】\n' +
-    '故事主角是' + character.protagonistName +
-    (character.protagonistGender ? '，' + character.protagonistGender : '') +
-    '。\n' +
-    (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
-    (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
-    '用户扮演这个角色与世界互动。\n' +
-    '记住：你绝不能替' + character.protagonistName + '做任何动作或说任何话。' : '')
+    '违反 = 重写。\n\n' +
+    buildPlayerIdentityBlock(character)
   )
 
   // 2: World view
@@ -823,16 +857,10 @@ export function buildSystemPrompt(character, affectionData) {
     '请严格按照本prompt末尾的消息格式规则输出。'
   )
 
-  if (character.protagonistName) {
-    parts.push(
-      '【主角设定（用户扮演的角色）】\n' +
-      '主角是' + character.protagonistName +
-      (character.protagonistGender ? '，' + character.protagonistGender : '') +
-      '。\n' +
-      (character.protagonistBackground ? '背景：' + character.protagonistBackground + '\n' : '') +
-      (character.protagonistPersonality ? '性格：' + character.protagonistPersonality + '\n' : '') +
-      '用户扮演这个角色与你互动。'
-    )
+  // Player identity — from account or legacy protagonist fields
+  const playerBlock = buildPlayerIdentityBlock(character)
+  if (playerBlock) {
+    parts.push(playerBlock)
   }
 
   if (character.background) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getFolder, getSaves, createSave, deleteSave, renameSave, getFolderCharacters, getSaveMessageCount } from '../state/folderStore'
-import { getPlayerProfile } from '../utils/storage'
+import { getActiveAccount } from '../state/accountStore'
 import { HydrationEngine } from '../engine/hydrationEngine'
 
 export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnterDaily, onEditCharacter }) {
@@ -20,7 +20,8 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
       setSaves(getSaves(f.id))
       setChars(getFolderCharacters(f.id))
     }
-    setProfile(getPlayerProfile())
+    const acct = getActiveAccount()
+    setProfile(acct ? { name: acct.name, avatar: acct.avatar } : { name: '', avatar: '' })
   }
   useEffect(() => { refresh() }, [folderId])
   useEffect(() => {

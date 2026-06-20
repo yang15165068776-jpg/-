@@ -560,55 +560,12 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
         </button>
       </div>
 
-      {/* ========== Protagonist ========== */}
-      <div style={sectionStyle}>
-        <h3 className="text-sm font-medium text-gray-200 mb-3">👤 主角设定（你）</h3>
-        <p className="text-xs text-gray-500 mb-3">设定你在故事中扮演的角色，AI会根据这些信息来推进剧情。</p>
-        <div className="space-y-3">
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label style={labelStyle}>主角名字</label>
-              <input
-                type="text"
-                style={inputStyle}
-                value={form.protagonistName}
-                onChange={e => update('protagonistName', e.target.value)}
-                placeholder="你在故事中的角色名"
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>性别</label>
-              <select
-                style={inputStyle}
-                value={form.protagonistGender}
-                onChange={e => update('protagonistGender', e.target.value)}
-              >
-                <option value="">未设定</option>
-                <option value="男">男</option>
-                <option value="女">女</option>
-                <option value="其他">其他</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label style={labelStyle}>主角背景简介</label>
-            <textarea
-              className={inputClass + " h-20 resize-none"}
-              value={form.protagonistBackground}
-              onChange={e => update('protagonistBackground', e.target.value)}
-              placeholder="介绍你的角色的身份、过往经历、在故事世界中的位置..."
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>主角性格特点</label>
-            <textarea
-              className={inputClass + " h-16 resize-none"}
-              value={form.protagonistPersonality}
-              onChange={e => update('protagonistPersonality', e.target.value)}
-              placeholder="你的角色有什么性格特征、行为习惯、价值观..."
-            />
-          </div>
-        </div>
+      {/* Player identity notice */}
+      <div style={{ ...sectionStyle, padding: '12px 14px', borderRadius: '12px', border: '0.5px solid var(--purple-l)', background: 'var(--purple-l)' }}>
+        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--purple)', marginBottom: '4px' }}>👤 玩家身份</div>
+        <p style={{ fontSize: '11px', color: 'var(--purple)', lineHeight: 1.5, margin: 0 }}>
+          你的名字、性别、设定等信息在<b>玩家身份</b>中统一管理。角色会自动识别当前活跃的玩家身份并据此推进剧情。
+        </p>
       </div>
 
       {/* ========== BLOCK 1: World & Plot ========== */}

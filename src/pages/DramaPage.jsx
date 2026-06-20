@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { parseMultiCharacterMessage, findCharacterAvatar, compressChatHistory } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { getFolder } from '../state/folderStore'
+import { getActiveAccount } from '../state/accountStore'
 import { InteractionKernel } from '../engine/interactionKernel'
 import ProgressBar from '../components/ProgressBar'
 import EventActionPanel from '../components/EventActionPanel'
@@ -62,6 +63,15 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     const mergedWorldSetting = mainChar.worldSetting || (folder ? folder.worldview : '') || ''
     const mergedOpening = mainChar.openingScenario || (folder ? folder.story_intro : '') || ''
 
+    // Inject active player account so AI knows who it's talking to
+    const playerAccount = getActiveAccount()
+    const _playerProfile = playerAccount ? {
+      name: playerAccount.name || '',
+      gender: playerAccount.gender || '',
+      personalityTags: playerAccount.personalityTags || [],
+      description: playerAccount.description || '',
+    } : null
+
     return {
       id: mainChar.id || folderId,
       name: mainChar.name,
@@ -94,6 +104,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
       topP: mainChar.topP ?? 0.95,
       thinkingEnabled: mainChar.thinkingEnabled || false,
       contextWindow: mainChar.contextWindow || 40,
+      _playerProfile,  // injected into AI prompt via buildPlayerIdentityBlock()
     }
   }, [folderId, mainChar])
 

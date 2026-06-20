@@ -14,6 +14,7 @@ import { createFolder, addInlineCharacter, generateId } from '../state/folderSto
 import { createFolderUSK, saveFolderUSK } from '../state/unifiedStateKernel'
 import { getApiKey } from '../utils/storage'
 import { extractStoryFromText } from '../utils/deepseek'
+import { getActiveAccountId } from '../state/accountStore'
 
 // ═══════════════════════ Shared mini-components ═══════════════════════
 
@@ -90,7 +91,6 @@ function emptyChar() {
     id: generateId(),
     name: '', avatar: '', personality: '', background: '', speakingStyle: '',
     styleRules: [], forbiddenWords: [],
-    protagonistName: '', protagonistGender: '', protagonistBackground: '', protagonistPersonality: '',
     worldSetting: '', openingScenario: '', storyTone: '甜虐',
     affectionEnabled: true, affectionInitial: 50,
     affectionStages: [{ name: '', min: 0, max: 100, behavior: '', coreState: '', playerStrategy: '', riseCondition: '', languageSamples: '', forbiddenBehaviors: '', stageDetails: '', emotionalTraits: '', stageExplosion: '' }],
@@ -185,7 +185,7 @@ export default function CreateFolder({ onBack, onCreated }) {
   // ── Create Folder ──
   const handleCreate = () => {
     const name = folderName.trim() || '未命名世界'
-    const folder = createFolder(name, worldview.trim(), storyIntro.trim())
+    const folder = createFolder(name, worldview.trim(), storyIntro.trim(), getActiveAccountId())
     for (const char of characters) {
       const { expanded, ...charData } = char
       addInlineCharacter(folder.id, charData)

@@ -1,4 +1,4 @@
-# JSJG Character OS v6.3
+# JSJG Character OS v6.4
 
 > 最后更新：2026-06-20
 > 仓库：https://github.com/yang15165068776-jpg/-.git
@@ -13,9 +13,32 @@
 
 ---
 
+## 0. 账户系统（v6.4 新增）
+
+```
+Account（玩家身份 = 一部手机）
+  ├── id, name, avatar, gender, personalityTags, description
+  │
+  ├── Folder A（世界）
+  │     ├── Character X（角色）
+  │     └── Saves + USK
+  │
+  └── Folder B（世界）
+        └── ...
+```
+
+- **Storage**：`jsjg_accounts` (Account[]), `jsjg_active_account` (string)
+- **Folder 归属**：Folder.accountId 关联到账户
+- **玩家→AI 链路**：DramaPage/DailyPage 将 activeAccount 注入 `character._playerProfile`，deepseek.js 的 `buildPlayerIdentityBlock()` 将其写入系统 prompt
+- **迁移**：首次加载自动从旧 `jsjg_player_profile` 迁移
+
+---
+
 ## 1. 完整系统架构（7 层引擎）
 
 ```
+Player Account (玩家身份)
+        ↓
 Character Profile (角色设定)
         ↓
 StabilityCompiler     ← 人格编译锁死
@@ -80,6 +103,7 @@ src/
 │   └── agentDecisionLayer.js        # ⭐ 角色决策层：规则评分→行为选择
 │
 ├── state/                           # 状态层
+│   ├── accountStore.js              # ⭐ 账户系统：多玩家身份 CRUD + 迁移
 │   ├── unifiedStateKernel.js        # USK：4层20维 + 文件夹USK
 │   ├── uskApi.js                    # USK 访问控制
 │   ├── stateBridge.js               # UI↔USK 桥接
@@ -166,11 +190,12 @@ src/
 
 ## 5. 数据模型
 
-### Folder → localStorage['jsjg_folders']
+### Account → localStorage['jsjg_accounts'] + localStorage['jsjg_active_account']
+### Folder → localStorage['jsjg_folders']（含 accountId 归属）
 ### Save → localStorage['jsjg_folder_saves_(id)']
 ### USK → localStorage['jsjg_folder_usk_(id)']
-### PlayerProfile → localStorage['jsjg_player_profile']
 ### Settings → localStorage['rp_settings']
+### ~~PlayerProfile~~ → localStorage['jsjg_player_profile']（已废弃，首次加载自动迁移到 Account）
 
 ---
 
@@ -284,6 +309,12 @@ interpret(event, mode, context) → { meaning, weight, tension_delta, affection_
 - CharacterEditor 与 CreateFolder 内编辑器代码重复
 - DailyPage 好感度变化未接入 LLM judge（`delta: 0` 硬编码）
 - Settings 部分旧 UI 残留
+
+### ✅ v6.4 修复
+- **玩家→角色链路**：PlayerProfile 数据现在通过 `character._playerProfile` 注入 AI prompt，角色能认识玩家
+- **多账户系统**：支持多个玩家身份，每个身份有独立的世界列表，切换身份 = 换手机
+- **PlayerProfile 重写**：支持账户 CRUD，设定 textarea 已绑定
+- **角色编辑器清理**：移除 protagonist 字段（改为账户级管理）
 
 ---
 

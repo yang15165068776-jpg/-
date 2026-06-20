@@ -80,7 +80,7 @@ export function initGraphFromCharacter(character, affections) {
   // User node
   graph.nodes.user = {
     type: 'player',
-    name: character.protagonistName || '玩家',
+    name: (character._playerProfile?.name) || character.protagonistName || '玩家',
   }
 
   // Romance character nodes + edges

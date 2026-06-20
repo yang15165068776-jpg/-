@@ -124,6 +124,9 @@ export default function App() {
     showToast('世界创建成功！', 'success')
   }, [showToast])
   const handleProfile = useCallback(() => nav.profile(), [])
+  const handleAccountsChanged = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('account-changed'))
+  }, [])
 
   const handleEnterDrama = useCallback((f) => {
     const chars = (f.characterData || []).filter(c => !c.type || c.type !== 'npc')
@@ -182,7 +185,7 @@ export default function App() {
             onLegacyList={() => nav.entry()}
           />
         )}
-        {isProfile && <PlayerProfile onBack={nav.back} />}
+        {isProfile && <PlayerProfile onBack={nav.back} onAccountsChanged={handleAccountsChanged} />}
         {isCreateFolder && <CreateFolder onBack={nav.back} onCreated={handleFolderCreated} />}
         {isFolder && selectedFolder && (
           <FolderInterior

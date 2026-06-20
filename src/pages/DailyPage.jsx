@@ -3,6 +3,7 @@ import { sendDailyChatMessage } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { initBridgeForFolder, getFolderUIState, dailyTurnStart, dailyTurnEnd } from '../state/stateBridge'
 import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, getFolder } from '../state/folderStore'
+import { getActiveAccount } from '../state/accountStore'
 import { HydrationEngine } from '../engine/hydrationEngine'
 import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
@@ -177,6 +178,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     try {
       const folder = getFolder(folderId)
       const mergedBg = mainChar.background || (folder ? folder.worldview : '') || ''
+      const playerAcct = getActiveAccount()
       const char = {
         id: mainChar.id || folderId, name: mainChar.name, chatStyle: 'casual',
         background: mergedBg, personality: mainChar.personality || '',
@@ -184,6 +186,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         styleRules: mainChar.styleRules || [], forbiddenWords: mainChar.forbiddenWords || [],
         temperature: mainChar.temperature ?? 0.9, topP: mainChar.topP ?? 0.95,
         contextWindow: mainChar.contextWindow || 40,
+        _playerProfile: playerAcct ? { name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
       }
       const systemCtx = { role: 'system', content: '【主动消息——角色自主发起的聊天】\n你主动给对方发了一条消息。保持自然，像真人微信聊天。不要叙事。短句。' }
       const ctxMsgs = [...messages.slice(-6), systemCtx]
@@ -223,6 +226,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
     // Merge folder-level worldview into character for LLM prompt
     const folder = getFolder(folderId)
     const mergedBackground = mainChar.background || (folder ? folder.worldview : '') || ''
+    const playerAcct = getActiveAccount()
 
     const char = {
       id: mainChar.id || folderId,
@@ -240,6 +244,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       contextWindow: mainChar.contextWindow || 40,
       thinkingEnabled: mainChar.thinkingEnabled || false,
       nickname: mainChar.nickname || '',
+      _playerProfile: playerAcct ? { name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
     }
 
     const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }

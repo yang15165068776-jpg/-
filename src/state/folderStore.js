@@ -98,15 +98,19 @@ function _writeSaves(folderId, saves) {
  * @param {string} name — 世界/计划名称
  * @param {string} worldview — 世界观描述
  * @param {string} storyIntro — 开场剧情
+ * @param {string} accountId — 归属账户 ID（可选，默认取活跃账户）
  * @returns {object} Folder
  */
-export function createFolder(name, worldview = '', storyIntro = '') {
+export function createFolder(name, worldview = '', storyIntro = '', accountId = '') {
+  // accountId must be passed by caller to avoid circular dependency with accountStore.
+  // If empty, the migration in accountStore.runAccountMigration() will assign it later.
   const folders = _readFolders()
   const folder = {
     id: generateId(),
     name: name || '未命名世界',
     worldview,
     story_intro: storyIntro,
+    accountId: accountId || '',  // which player account owns this world
     characterIds: [],       // legacy character ids imported into this folder
     characterData: [],      // inline character data for folder-native characters
     saveIds: [],
@@ -122,11 +126,45 @@ export function createFolder(name, worldview = '', storyIntro = '') {
 
 /**
  * Get all Folders, sorted by updatedAt desc.
+ * Optionally filter by accountId.
+ * @param {string} [accountId] — if provided, only return folders for this account
  * @returns {object[]}
  */
-export function getAllFolders() {
+export function getAllFolders(accountId) {
   const folders = _readFolders()
-  return folders.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+  const filtered = accountId
+    ? folders.filter(f => !f.accountId || f.accountId === accountId)
+    : folders
+  return filtered.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
+}
+
+/**
+ * Get all Folders for a specific account.
+ * @param {string} accountId
+ * @returns {object[]}
+ */
+export function getAllFoldersByAccount(accountId) {
+  return getAllFolders(accountId)
+}
+
+/**
+ * Assign folders without accountId to a given account.
+ * Used during migration.
+ * @param {string} accountId
+ */
+export function assignOrphanFolders(accountId) {
+  if (!accountId) return
+  const folders = _readFolders()
+  let modified = false
+  for (const f of folders) {
+    if (!f.accountId) {
+      f.accountId = accountId
+      modified = true
+    }
+  }
+  if (modified) {
+    _writeFolders(folders)
+  }
 }
 
 /**
@@ -149,7 +187,7 @@ export function updateFolder(id, updates) {
   const folders = _readFolders()
   const idx = folders.findIndex(f => f.id === id)
   if (idx === -1) return null
-  const allowed = ['name', 'worldview', 'story_intro', 'characterIds', 'characterData', 'saveIds']
+  const allowed = ['name', 'worldview', 'story_intro', 'characterIds', 'characterData', 'saveIds', 'accountId']
   for (const key of allowed) {
     if (updates[key] !== undefined) {
       folders[idx][key] = updates[key]
