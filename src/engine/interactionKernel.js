@@ -32,6 +32,7 @@ import {
 import { HydrationEngine } from './hydrationEngine'
 import { AgentDecisionLayer } from './agentDecisionLayer'
 import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
+import { StabilityCompiler } from '../runtime/stabilityCompiler'
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -62,6 +63,7 @@ export const InteractionKernel = {
     affections: {},
     affectionFlash: null,
     tension: 30,
+    compiledPersona: null,
     lifecycle: {
       turnCount: 0,
       passiveTurns: 0,
@@ -188,6 +190,11 @@ export const InteractionKernel = {
     }
     this.state.affections = affMap
 
+    // ── Compile character personality ──
+    if (mainChar) {
+      this.state.compiledPersona = StabilityCompiler.compile(mainChar)
+    }
+
     this.state._initialized = true
     return this.getState()
   },
@@ -204,6 +211,7 @@ export const InteractionKernel = {
     this.state.affections = {}
     this.state.affectionFlash = null
     this.state.tension = 30
+    this.state.compiledPersona = null
     this.state.lifecycle = {
       turnCount: 0,
       passiveTurns: 0,
@@ -610,6 +618,23 @@ export const InteractionKernel = {
           timestamp: Date.now(),
         }
         this.state.messages.push(interruptCtx)
+      }
+
+      // 2.7. Stability Compiler — inject compiled constraints into character
+      if (this.state.compiledPersona) {
+        character._compiledConstraints = StabilityCompiler.buildPromptInjection(this.state.compiledPersona)
+        // Validate runtime state against compiled constraints
+        const validation = StabilityCompiler.validate(
+          {
+            softness: (100 - (this.state.tension || 30)) / 100,
+            compliance: (50 + (this.state.affection || 50) - (this.state.tension || 30)) / 100,
+            conflict: (this.state.tension || 30) / 100,
+          },
+          this.state.compiledPersona,
+        )
+        if (!validation.valid) {
+          character._stabilityCorrections = validation.corrections
+        }
       }
 
       // 3. Call agent coordinator
