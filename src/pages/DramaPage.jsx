@@ -167,15 +167,10 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const handleEditMessage = (idx) => {
     const msg = InteractionKernel.getState().messages[idx]
     if (!msg || msg.role !== 'user') return
-    const text = prompt('编辑消息：', msg.content)
-    if (text && text !== msg.content) {
-      // Edit the message + truncate everything after it, then re-send
-      InteractionKernel.rollbackTo(idx - 1)
-      InteractionKernel.addUserMessage(text)
-      const state = InteractionKernel.getState()
-      setMessages(state.messages)
-      doSend(text)
-    }
+    // Truncate everything from this message onward, put text back in input
+    InteractionKernel.rollbackTo(idx - 1)
+    setMessages(InteractionKernel.getState().messages)
+    setInput(msg.content)
   }
 
   const handleDeleteMessage = (idx) => {
@@ -183,10 +178,8 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     const msg = state.messages[idx]
     if (!msg || msg.immutable) return
     if (msg.role === 'user') {
-      // Delete user msg + everything after (assistant response)
       InteractionKernel.rollbackTo(idx - 1)
     } else {
-      // Delete just this assistant message
       InteractionKernel.deleteMessageAtIndex(idx)
     }
     setMessages(InteractionKernel.getState().messages)
@@ -197,22 +190,18 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
   const handleRegenerate = (assistantIdx) => {
     const userMsg = InteractionKernel.getUserMsgBefore(assistantIdx)
     if (!userMsg) return
-    // Truncate to before the user message, then re-send
+    // Truncate to before the user message, put the text back in input
     InteractionKernel.rollbackTo(userMsg._index - 1)
     setMessages(InteractionKernel.getState().messages)
-    doSend(userMsg.content)
+    setInput(userMsg.content)
   }
 
   const handleEditLast = () => {
     const last = InteractionKernel.getLastUserMessage()
     if (!last) return
-    const text = prompt('编辑消息：', last.content)
-    if (text) {
-      InteractionKernel.rollbackTo(last._index - 1)
-      const state = InteractionKernel.getState()
-      setMessages(state.messages)
-      doSend(text)
-    }
+    InteractionKernel.rollbackTo(last._index - 1)
+    setMessages(InteractionKernel.getState().messages)
+    setInput(last.content)
   }
 
   const handleDeleteLast = () => {
