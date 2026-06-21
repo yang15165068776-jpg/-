@@ -29,7 +29,7 @@ import { loadGraph, initGraphFromCharacter, saveGraph } from '../memory/memoryGr
 import { buildContext } from '../memory/contextBuilder'
 import { createPowerGraph, applyPowerShift, buildPowerStateContext, savePowerGraph, loadPowerGraph } from '../runtime/powerDynamics'
 import { buildASLReinforcement, validateASL } from '../runtime/alignmentSuppression'
-import { loadCanon, saveCanon, buildStoryCanonBlock, scanAndUpdateCanon } from '../state/storyCanon'
+import { loadCanon, saveCanon, buildStoryCanonBlock, scanAndUpdateCanon, lockFact } from '../state/storyCanon'
 import { InteractionKernel } from '../engine/interactionKernel'
 import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
@@ -69,6 +69,25 @@ export function initAgentSystem(character, affections, messages) {
   _currentSaveId = InteractionKernel.state?.saveId || null
   _storyCanon = loadCanon(_characterId, _currentSaveId)
   console.log('[Coordinator] Story Canon loaded:', _storyCanon.timeline.length, 'events,', _storyCanon.lockedFacts.length, 'facts')
+
+  // 🔒 Lock player background into Story Canon (prevents LLM amnesia about player identity)
+  const ppBg = character._playerProfile
+  if (ppBg) {
+    // Lock player name as canonical fact
+    if (ppBg.name && ppBg.name !== '玩家' && ppBg.name !== '新玩家') {
+      lockFact(_storyCanon, '玩家的名字是「' + ppBg.name + '」，所有角色必须用此名或设定中的昵称称呼。禁止使用其他名字。')
+    }
+    // Lock key background facts from player description
+    if (ppBg.description) {
+      const desc = ppBg.description.slice(0, 300)
+      lockFact(_storyCanon, '玩家背景（角色都知道）：' + desc)
+    }
+    // Lock gender if set
+    if (ppBg.gender) {
+      lockFact(_storyCanon, '玩家性别：' + ppBg.gender)
+    }
+    saveCanon(_characterId, _currentSaveId, _storyCanon)
+  }
 
   // ── Load CPS (Conflict Persistence System) state ──
   _cpsState = loadConflictState(_characterId)
@@ -197,6 +216,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   }
 
   // Second pass: LLM judge for ambiguous cases
+  // 🔥 v7.1 fix: LLM changes MUST be merged back into affectionResult.deltas
+  // so they propagate to updatedAffections and turnReport downstream
   if (affectionResult.needsLLM.length > 0 && apiKey) {
     console.log('[Coordinator] LLM裁判需求:', affectionResult.needsLLM.join(', '))
     try {
@@ -210,6 +231,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
               type: 'RELATIONSHIP_CHANGE',
               data: { source: name, target: 'player', delta, trigger: 'LLM裁判' },
             })
+            // 🔥 Merge into affectionResult so it reaches updatedAffections + turnReport
+            affectionResult.deltas[name] = (affectionResult.deltas[name] || 0) + delta
           }
         }
       }
