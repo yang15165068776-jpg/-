@@ -42,7 +42,10 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)) }
 const STORAGE_KEY = 'jsjg_fact_ledger_'
 
 function _key(characterId, saveId) {
-  return STORAGE_KEY + (saveId ? saveId + '_' : '') + characterId
+  // 🔒 Always include saveId in key. If missing, still namespace by characterId
+  // to prevent cross-save contamination (instead of sharing a key across all saves).
+  const sid = saveId || '__no_save__'
+  return STORAGE_KEY + sid + '_' + characterId
 }
 
 function _create() {

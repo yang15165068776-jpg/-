@@ -152,7 +152,8 @@ export function initGraphFromCharacter(character, affections) {
  * @returns {object} memory graph
  */
 export function loadGraph(characterId, saveId) {
-  const key = STORAGE_KEY_PREFIX + (saveId ? saveId + '_' : '') + characterId
+  const sid = saveId || '__no_save__'
+  const key = STORAGE_KEY_PREFIX + sid + '_' + characterId
   try {
     const raw = safeGetItem(key)
     if (raw) {
@@ -174,7 +175,8 @@ export function loadGraph(characterId, saveId) {
  * @param {object} graph - memory graph to save
  */
 export function saveGraph(characterId, saveId, graph) {
-  const key = STORAGE_KEY_PREFIX + (saveId ? saveId + '_' : '') + characterId
+  const sid = saveId || '__no_save__'
+  const key = STORAGE_KEY_PREFIX + sid + '_' + characterId
   graph.updatedAt = Date.now()
   try {
     safeSetItem(key, JSON.stringify(graph))

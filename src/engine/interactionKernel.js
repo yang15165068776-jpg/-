@@ -138,12 +138,12 @@ export const InteractionKernel = {
 
     // Use explicit saveId if provided, otherwise fall back to default
     const activeSaveId = saveId || (getOrCreateDefaultSave(folderId)?.id)
+    // 🔒 Always set saveId — prevents cross-save contamination when key is null
+    this.state.saveId = activeSaveId || null
 
     if (cached && cached.messages && cached.messages.length > 0) {
       messages = cached.messages
-      this.state.saveId = activeSaveId
     } else if (activeSaveId) {
-      this.state.saveId = activeSaveId
       messages = getSaveMessages(activeSaveId, folderId, mode === 'drama' ? 'drama' : 'daily')
       }
 
@@ -276,6 +276,8 @@ export const InteractionKernel = {
     this.state.affectionFlash = null
     this.state.tension = 30
     this.state.compiledPersona = null
+    this.state._ledger = null
+    this.state._initialized = false
     this.state.lifecycle = {
       turnCount: 0,
       passiveTurns: 0,
@@ -284,7 +286,11 @@ export const InteractionKernel = {
       totalCacheHitTokens: 0,
       totalCacheMissTokens: 0,
     }
-    this.state._initialized = false
+    // 🔒 Reset all in-memory engines — prevents cross-save state leak
+    try { AutonomousWorldEngine.reset() } catch {}
+    try { EventGraph.reset() } catch {}
+    try { AgencyEngine.reset() } catch {}
+    try { RelationshipPhysics.reset() } catch {}
   },
 
   // ═══════════════════════════════════════════════════

@@ -23,7 +23,8 @@
 const STORAGE_PREFIX = 'jsjg_canon_'
 
 function _key(characterId, saveId) {
-  return STORAGE_PREFIX + (saveId ? saveId + '_' : '') + characterId
+  const sid = saveId || '__no_save__'
+  return STORAGE_PREFIX + sid + '_' + characterId
 }
 
 function _create() {
