@@ -1,6 +1,6 @@
 # JSJG Character OS v8.0 — Narrative Operating System (NOS)
 
-> 最后更新：2026-06-21
+> 最后更新：2026-06-21（晚上）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -166,6 +166,10 @@ src/
 | 重刷多一步 | handleRegenerate把消息放回输入框 | 直接rollback + doSend |
 | Daily慢回复 | Human Burst Scheduler延迟 | 移除，即时渲染 |
 | Daily输入后空白 | hasReadReceipt拦截 + !reply时消息残留 | 移除已读不回，失败时回滚消息 |
+| 存档相互影响 | saveId为null时storage key无前缀 + reset不清理引擎 | saveId强制注入key + reset清空全部引擎 |
+| Daily气泡不拆分 | 模型用\\n拼多句到一个气泡里 | 后处理按\\n拆分 + 上限5条 |
+| Daily长文 | 格式规则在prompt中间被淹没 | 挪到末尾+近因效应+≤20字+拆分铁律 |
+| executeTurn里mainChar未定义 | init()局部变量在executeTurn()里引用 | 改用character.name |
 
 ---
 
