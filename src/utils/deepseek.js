@@ -1321,6 +1321,7 @@ export async function* streamCompletion(messages, apiKey, model, temperature, to
       model,
       messages,
       stream: true,
+      max_tokens: 4096,  // Enough for a full narrative paragraph — prevents truncation
     }
     if (temperature != null) body.temperature = temperature
     if (topP != null) body.top_p = topP
