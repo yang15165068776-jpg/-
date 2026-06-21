@@ -155,7 +155,7 @@ function buildCharacterIdentityBlock(character, world) {
     lines.push('')
     lines.push('每个角色都认识「' + playerProfile.name + '」。')
     lines.push('每个角色对「' + playerProfile.name + '」的关系由各自的好感度阶段决定。')
-    lines.push('称呼只能用「' + pp.name + '」或角色设定中的昵称。禁止编造其他名字。')
+    lines.push('称呼只能用「' + playerProfile.name + '」或角色设定中的昵称。禁止编造其他名字。')
   }
 
   const rcList = character.romanceCharacters || []
