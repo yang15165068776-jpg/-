@@ -128,6 +128,10 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   }
 
   // ── Director directives (every turn, highest priority for THIS response) ──
+  // 🔒 Fact Ledger: immutable truth — HIGHEST priority, must come first
+  if (character._ledgerBlock) {
+    sections.push(character._ledgerBlock)
+  }
   // 🌍 World context: ARSL + Agency + Attention + World Events (unified)
   if (character._worldContext) {
     sections.push(character._worldContext)

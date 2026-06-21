@@ -41,6 +41,7 @@ import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } f
 import { AgencyEngine } from '../runtime/agencyEngine'
 import { RelationshipPhysics } from '../runtime/relationshipPhysics'
 import { AutonomousWorldEngine } from '../runtime/autonomousWorldEngine'
+import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedgerBlock, enforceSceneContinuity } from '../runtime/factLedger'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -232,6 +233,14 @@ export const InteractionKernel = {
     // ── 🌍 Autonomous World Engine v1: init world + all sub-engines ──
     if (mode === 'drama' && mainChar) {
       AutonomousWorldEngine.init(mainChar, this.state.affections)
+    }
+
+    // ── 🔒 Fact Ledger v2: load + seed identity facts ──
+    const charId = mainChar?.id || mainChar?.name || folderId
+    this.state._ledger = loadLedger(charId, this.state.saveId)
+    if (mainChar) {
+      seedIdentityFacts(this.state._ledger, mainChar, mainChar._playerProfile)
+      saveLedger(charId, this.state.saveId, this.state._ledger)
     }
 
     this.state._initialized = true
@@ -779,6 +788,17 @@ export const InteractionKernel = {
         }
       }
 
+      // 2.12. 🔒 Fact Ledger — enforce scene continuity + inject before LLM
+      if (this.state.mode === 'drama' && this.state._ledger) {
+        // Enforce continuity from last turn's state
+        const lastMsg = this.state.messages[this.state.messages.length - 1]
+        if (lastMsg?.role === 'assistant' && lastMsg.content) {
+          enforceSceneContinuity(this.state._ledger, lastMsg.content)
+        }
+        // Inject ledger block into prompt
+        character._ledgerBlock = buildLedgerBlock(this.state._ledger)
+      }
+
       // 3. Call agent coordinator
       const result = await runAgentTurn(
         userText,
@@ -895,7 +915,17 @@ export const InteractionKernel = {
         { uskState: uskContext, turnCount: this.state.lifecycle.turnCount, character },
       )
 
-      // 12. Persist
+      // 12. 🔒 Fact Ledger — extract new facts from this turn
+      if (this.state._ledger && cleanReply) {
+        const charId = mainChar?.name || folderId
+        extractTurnFacts(this.state._ledger, userText, cleanReply, {
+          playerName: mainCharName || '玩家',
+          characterNames: Object.keys(this.state.affections),
+        })
+        saveLedger(charId, this.state.saveId, this.state._ledger)
+      }
+
+      // 13. Persist
       this._autoSave()
       this._saveToHydration()
 
