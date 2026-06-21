@@ -223,9 +223,24 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       }
 
       // ── Daily v4: structured packet → immediate render (no artificial delay) ──
-      const bubbles = (packet && packet.bubbles && packet.bubbles.length > 0)
+      let bubbles = (packet && packet.bubbles && packet.bubbles.length > 0)
         ? packet.bubbles
         : [{ text: reply.slice(0, 60), type: 'text', delay: 0 }]
+
+      // 🔧 Post-process: split multi-line bubbles into separate bubbles
+      // Model sometimes puts "嗯\n\n你管我？" as one bubble — fix that here
+      bubbles = bubbles.flatMap(b => {
+        const lines = (b.text || '').split(/\n+/).filter(s => s.trim())
+        if (lines.length <= 1) return [b]
+        return lines.map((text, i) => ({
+          ...b,
+          text: text.trim(),
+          delay: 0,
+          _split: i > 0, // mark as split from original
+        }))
+      }).filter(b => b.text && b.text.trim())
+      // Cap at 5 bubbles
+      if (bubbles.length > 5) bubbles = bubbles.slice(0, 5)
 
       // ── Daily v4 Affection Judge: independent LLM scoring ──
       const judgeResult = await judgeDailyAffection(
