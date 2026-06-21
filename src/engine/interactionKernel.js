@@ -884,7 +884,7 @@ export const InteractionKernel = {
 
       // 13. 🔒 Fact Ledger — extract new facts from this turn
       if (this.state._ledger && cleanReply) {
-        const charId = mainChar?.name || folderId
+        const charId = (character && character.name) || this.state.folderId
         extractTurnFacts(this.state._ledger, userText, cleanReply, {
           playerName: mainCharName || '玩家',
           characterNames: Object.keys(this.state.affections),
