@@ -40,6 +40,7 @@ import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from '../
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from '../runtime/desireKernel'
 import { AgencyEngine } from '../runtime/agencyEngine'
 import { RelationshipPhysics } from '../runtime/relationshipPhysics'
+import { AutonomousWorldEngine } from '../runtime/autonomousWorldEngine'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -228,14 +229,9 @@ export const InteractionKernel = {
       this.state.scene = DramaOrchestrator.initScene(mainChar, folderData)
     }
 
-    // ── Agency Engine v1: init character autonomous action states ──
+    // ── 🌍 Autonomous World Engine v1: init world + all sub-engines ──
     if (mode === 'drama' && mainChar) {
-      AgencyEngine.init(mainChar, getRawFolderUSK())
-    }
-
-    // ── ARSL v1: init relationship physics engine ──
-    if (mode === 'drama' && mainChar) {
-      RelationshipPhysics.init(mainChar, this.state.affections)
+      AutonomousWorldEngine.init(mainChar, this.state.affections)
     }
 
     this.state._initialized = true
@@ -769,23 +765,17 @@ export const InteractionKernel = {
         }
       }
 
-      // 2.11. 🔥 Agency Engine v1 — characters act autonomously (behind player's back)
+      // 2.11. 🌍 Autonomous World Engine — unified world tick
       if (this.state.mode === 'drama') {
         const rawUSK = getRawFolderUSK()
-        AgencyEngine.syncFromUSK(rawUSK)
-        const agencyHint = AgencyEngine.check(character, rawUSK)
-        if (agencyHint) {
-          character._agencyContext = AgencyEngine.buildContext()
-        }
-      }
-
-      // 2.12. 🔥 ARSL v1 — relationship physics tick (auto-evolve all edges)
-      if (this.state.mode === 'drama') {
-        const rawUSK = getRawFolderUSK()
-        RelationshipPhysics.applyPlayerInteraction(mainCharName)
-        const arslEvents = RelationshipPhysics.tick(rawUSK)
-        if (arslEvents.length > 0) {
-          character._arslContext = RelationshipPhysics.buildContext()
+        const worldSnapshot = AutonomousWorldEngine.tick(rawUSK, userText)
+        if (worldSnapshot) {
+          character._worldContext = AutonomousWorldEngine.buildNarrativeContext()
+          // Sync world tension back to scene for DramaOrchestrator compatibility
+          if (this.state.scene) {
+            this.state.scene.tension = worldSnapshot.tension
+            this.state.scene.stability = 100 - worldSnapshot.instability
+          }
         }
       }
 

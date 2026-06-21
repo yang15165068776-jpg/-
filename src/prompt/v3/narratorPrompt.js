@@ -128,14 +128,12 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   }
 
   // ── Director directives (every turn, highest priority for THIS response) ──
+  // 🌍 World context: ARSL + Agency + Attention + World Events (unified)
+  if (character._worldContext) {
+    sections.push(character._worldContext)
+  }
   if (character._sceneContext) {
     sections.push(character._sceneContext)
-  }
-  if (character._arslContext) {
-    sections.push(character._arslContext)
-  }
-  if (character._agencyContext) {
-    sections.push(character._agencyContext)
   }
   if (character._darkActionDirective) {
     sections.push(character._darkActionDirective)
