@@ -1,14 +1,15 @@
-# JSJG Character OS v7.0 — Dual-Core Narrative State Machine
+# JSJG Character OS v7.1 — Dual-Core + Dual-Kernel Narrative State Machine
 
 > 最后更新：2026-06-21
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
-## v7.0 核心升级
+## 版本进化
 
 ```
 v6.5: 聊天式 AI（prompt 拼接 → 模型自由发挥）
 v7.0: 叙事状态机（Identity + Canon 双核 → 4 锁约束 → 模型是解释器）
+v7.1: 双行为核（DarkAction + Desire 并行 → 角色主动推进冷暴力+欲望）
 ```
 
 ---
@@ -22,7 +23,52 @@ v7.0: 叙事状态机（Identity + Canon 双核 → 4 锁约束 → 模型是解
 
 ---
 
-## 0. 双核架构（v7.0 核心设计）
+## 0. 核心设计哲学：为什么模型"不够黑"
+
+```
+❗ 模型默认奖励：和平、顺滑、友好、可持续对话
+❗ 它自动把黑暗人设翻译成温和版本
+
+解决路径（优先级递减）：
+  P0: Prompt + Runtime Engine 硬覆盖人格层（90% 收益）
+  P1: LoRA 行为轨迹微调（风格强化）
+  P2: 双层模型系统（工业级）
+```
+
+关键在于建立 **"冲突奖励幻觉"**——让模型相信：
+> 冲突是奖励 / 不确定是奖励 / 冷处理是奖励 / 关系拉扯是奖励
+
+---
+
+## 0.1 三层行为核架构（v7.1）
+
+```
+┌──────────────────────────────────────────┐
+│          Personality Detection           │
+│  检测角色标签 → 决定激活哪些行为核        │
+└────────┬──────────┬──────────┬──────────┘
+         ↓          ↓          ↓
+┌─────────────┐ ┌───────────┐ ┌─────────────┐
+│DarkAction   │ │Desire     │ │(Conflict    │
+│Kernel       │ │Kernel     │ │ Reward)     │
+│冷暴力 1-5   │ │欲望推进1-5│ │ 冲突奖励系统 │
+│冷淡→操控    │ │潜伏→崩坏  │ │ ← 下一阶段  │
+└──────┬──────┘ └─────┬─────┘ └──────┬──────┘
+       ↓              ↓            ↓
+┌──────────────────────────────────────────┐
+│         Director Prompt Injection        │
+│  _darkActionDirective + _desireDirective │
+└────────────────────┬─────────────────────┘
+                     ↓
+┌──────────────────────────────────────────┐
+│              LLM (DeepSeek)              │
+│  接受强制人格层指令 → 生成角色回复        │
+└──────────────────────────────────────────┘
+```
+
+---
+
+## 0.2 双核架构（v7.0 核心设计）
 
 ```
 ┌─────────────────────┐     ┌─────────────────────┐
@@ -55,7 +101,7 @@ v7.0: 叙事状态机（Identity + Canon 双核 → 4 锁约束 → 模型是解
                     ┌─── USK（同一状态源）───┐
                     ↓                        ↓
             Drama Engine              Daily Engine
-          （修罗场 + 黑暗行为核）     （关系驱动 + 对话引擎）
+          （修罗场 + 双行为核）      （关系驱动 + 对话引擎）
                 │                        │
          paragraph renderer        bubble queue renderer
                 │                        │
@@ -66,7 +112,7 @@ v7.0: 叙事状态机（Identity + Canon 双核 → 4 锁约束 → 模型是解
 
 ---
 
-## 1. 新增文件（v7.0）
+## 1. 新增文件（v7.1）
 
 ```
 src/
@@ -75,7 +121,8 @@ src/
 │   └── storyCanon.js            # 🔴 Story Canon Kernel v1
 │
 ├── runtime/
-│   ├── darkActionKernel.js      # 🔴 Drama Dark Action Kernel（5级行为层）
+│   ├── darkActionKernel.js      # 🔴 Drama Dark Action Kernel（5级冷暴力行为层）
+│   ├── desireKernel.js          # 🔥 Drama Desire & Physicality Kernel（5级欲望推进层）★ NEW
 │   ├── stateLocks.js            # 🔒 4 锁统一校验层（post-generation 硬约束）
 │   ├── dramaOrchestrator.js     # 🔥 v3 修罗场引擎（Conflict Graph + Aggro + Attention + Interrupt + Collapse）
 │   └── dailyGuard.js            # 🔥 v6（Relationship Gate + Narrative Suppression + Intent + Burst + Conversation Engine + Player Focus）
@@ -83,13 +130,14 @@ src/
 
 ---
 
-## 2. Drama Pipeline（v3 修罗场引擎）
+## 2. Drama Pipeline（v7.1 双行为核）
 
 ```
 Player input
   → InteractionKernel.executeTurn
-      ├── AgentDecisionLayer.decide（行为决策）
-      ├── 🔴 DarkActionKernel.decideDarkActionLevel（5级行为层：Level 1-5）
+      ├── AgentDecisionLayer.decide（行为决策：silent/interrupt/emotional_burst/initiate/normal）
+      ├── 🔴 DarkActionKernel.decideDarkActionLevel（5级冷暴力：Level 1-5）
+      ├── 🔥 DesireKernel.decideDesireLevel（5级欲望推进：Level 1-5）★ NEW
       ├── 🔥 DramaOrchestratorV3.advance
       │     ├── syncConflictGraph（USK → 冲突图谱：jealousy/hostility/dependence）
       │     ├── computeAggression（攻击性排序）
@@ -101,7 +149,8 @@ Player input
       ├── StoryCanon.load（加载不可变时间线）
       ├── StabilityCompiler（人格约束）
       └── runAgentTurn
-            ├── buildNarratorPrompt（含 identityBlock + canonBlock + sceneContext + darkActionDirective）
+            ├── buildNarratorPrompt（含 identityBlock + canonBlock + sceneContext
+            │                       + darkActionDirective + desireDirective）
             ├── CPS + MemoryGraph + PowerGraph
             ├── 🔒 StateLocks.runAllLocks（Identity + Event + Persona + Shape）
             └── judgeAffectionDelta（独立 LLM 裁判）
@@ -158,7 +207,9 @@ AI 生成 reply
 
 ---
 
-## 5. 5 级行为层（Drama Dark Action Kernel）
+## 5. 行为层系统（v7.1 双核并行）
+
+### 5a. Dark Action Kernel — 5级冷暴力层
 
 | Level | 名称 | 行为示例 |
 |-------|------|---------|
@@ -171,6 +222,32 @@ AI 生成 reply
 - 黑暗人设默认 Level 2 起步
 - 连续5轮 Level 1 → 反均值化强制提升至 Level 3
 - 暖色人设固定 Level 1（走温柔决绝路线）
+
+### 5b. Desire & Physicality Kernel — 5级欲望推进层 ★ NEW
+
+| Level | 名称 | 行为示例 |
+|-------|------|---------|
+| 1 | 潜伏期 | 喉结滚动、呼吸微乱、目光多停一秒 |
+| 2 | 试探期 | 故意放慢语速、"无意"触碰、话里有钩子 |
+| 3 | 主动期 | 明确生理状态变化、手不受控扣紧、脏话 |
+| 4 | 失控期 | 腰自己往前顶、啃咬不是亲吻、体液浸透布料 |
+| 5 | 崩坏期 | 器官名+具体动作+生理感受——不跳过不隐喻 |
+
+- 自动触发：角色含 轻浮/风流/偏执/占有欲强/腹黑/花心 等标签
+- 好感 > 40 起步，> 60 升级，> 80 进入 Level 4+
+- 嫉妒 > 40 直接推高一级
+- 独处场景 +1 级
+- 每 4 轮强制抬一级（反均值化）
+- 15% 概率随机爆发到 Level 4
+
+### 5c. 两个 Kernel 的关系
+
+```
+同一个角色可以同时激活两个 Kernel：
+  DarkAction Level 4 + Desire Level 3
+  = "恨她又想要她"——冷暴力 + 生理渴望并存
+  = 角色张力最大化
+```
 
 ---
 
@@ -189,6 +266,8 @@ AI 生成 reply
 | 人设漂移/不够黑 | 模型自动去极端化 | Dark Action Kernel 每轮强制行为层 |
 | 正在输入闪烁 | `loading` 和 `isTyping` 分离 | 提前设 `isTyping(true)` |
 | 气泡闪现 | reveal 键名 mismatch | 统一 `revealedCount`/`totalCount` |
+| Drama 模式 TDZ 崩溃 | `narratorPrompt.js` 中 `pp` 未声明就使用 | 改为 `playerProfile.name` |
+| 每轮弹 CANONICAL IDENTITY 弹窗 | v7 调试代码未清理 | 删除 alert，保留校验逻辑 |
 
 ---
 
@@ -206,3 +285,15 @@ AI 生成 reply
 - **Debug**：alert() 不用 console.log
 - **禁止**：Tailwind class、暗黑模式、霓虹色、渐变、阴影
 - **CSS**：内联 CSS 变量，430px 手机壳，圆角 12-16px
+
+---
+
+## 8. 路线图
+
+```
+✅ v7.0: Identity + Canon 双核 + 4 锁 + DarkAction + Orchestrator v3
+✅ v7.1: Desire & Physicality Kernel（双行为核并行）
+⬜ v7.2: Conflict Reward System（冲突奖励幻觉——核心）
+⬜ v7.3: Emotion Drift System（情绪漂移——角色情绪随时间自然波动）
+⬜ v7.4: LoRA 行为轨迹微调（可选，风格强化）
+```
