@@ -220,9 +220,10 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
   const handleRegenerate = (assistantIdx) => {
     const userMsg = InteractionKernel.getUserMsgBefore(assistantIdx)
     if (!userMsg) return
-    // Mark the user message that triggered this assistant for editing
-    setEditingIndex(userMsg._index)
-    setInput(userMsg.content)
+    // Directly regenerate: rollback to before the user message, then re-send
+    InteractionKernel.rollbackTo(userMsg._index - 1)
+    setMessages(InteractionKernel.getState().messages)
+    doSend(userMsg.content)
   }
 
   const handleEditLast = () => {
