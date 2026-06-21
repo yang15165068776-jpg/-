@@ -204,10 +204,17 @@ export const InteractionKernel = {
     // ── Sync affection / tension from USK ──
     const mainChar = characters[0]
     if (mainChar) {
-      const uiState = getFolderUIState(mainChar.name || mainChar.id)
+      const lookupKey = mainChar.name || mainChar.id
+      const uiState = getFolderUIState(lookupKey)
       if (uiState) {
-        this.state.affection = uiState.relationship?.affection ?? 50
+        const rawAff = uiState.relationship?.affection
+        // 0 is a valid value, but null/undefined/NaN means uninitialized
+        this.state.affection = (rawAff != null && !isNaN(rawAff)) ? rawAff : (mainChar.affectionInitial ?? 50)
         this.state.tension = uiState.tension?.unresolved_conflicts ?? 30
+      } else {
+        // Character not found in USK — fall back to character config
+        this.state.affection = mainChar.affectionInitial ?? 50
+        alert('[init] ⚠️ 角色「' + (lookupKey || '(无名)') + '」在 USK 中未找到，好感度使用配置默认值：' + this.state.affection)
       }
     }
 
@@ -217,7 +224,8 @@ export const InteractionKernel = {
       const name = c.name || c.id
       if (name) {
         const charState = getFolderUIState(name)
-        affMap[name] = charState?.relationship?.affection ?? c.affectionInitial ?? 50
+        const rawAff = charState?.relationship?.affection
+        affMap[name] = (rawAff != null && !isNaN(rawAff)) ? rawAff : (c.affectionInitial ?? 50)
       }
     }
     this.state.affections = affMap
@@ -832,13 +840,16 @@ export const InteractionKernel = {
       if (mainCharName) {
         const uiState = getFolderUIState(mainCharName)
         if (uiState) {
-          this.state.affection = uiState.relationship?.affection ?? this.state.affection
+          const rawAff = uiState.relationship?.affection
+          if (rawAff != null && !isNaN(rawAff)) {
+            this.state.affection = rawAff
+          }
           this.state.tension = uiState.tension?.unresolved_conflicts ?? this.state.tension
         }
         // Also re-sync all character affections from USK (SSOT)
         for (const charName of Object.keys(this.state.affections)) {
           const charState = getFolderUIState(charName)
-          if (charState?.relationship?.affection != null) {
+          if (charState?.relationship?.affection != null && !isNaN(charState.relationship.affection)) {
             this.state.affections[charName] = charState.relationship.affection
           }
         }
