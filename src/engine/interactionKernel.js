@@ -39,6 +39,7 @@ import { DramaOrchestrator, syncConflictGraph } from '../runtime/dramaOrchestrat
 import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from '../runtime/darkActionKernel'
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from '../runtime/desireKernel'
 import { AgencyEngine } from '../runtime/agencyEngine'
+import { RelationshipPhysics } from '../runtime/relationshipPhysics'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -230,6 +231,11 @@ export const InteractionKernel = {
     // ── Agency Engine v1: init character autonomous action states ──
     if (mode === 'drama' && mainChar) {
       AgencyEngine.init(mainChar, getRawFolderUSK())
+    }
+
+    // ── ARSL v1: init relationship physics engine ──
+    if (mode === 'drama' && mainChar) {
+      RelationshipPhysics.init(mainChar, this.state.affections)
     }
 
     this.state._initialized = true
@@ -770,6 +776,16 @@ export const InteractionKernel = {
         const agencyHint = AgencyEngine.check(character, rawUSK)
         if (agencyHint) {
           character._agencyContext = AgencyEngine.buildContext()
+        }
+      }
+
+      // 2.12. 🔥 ARSL v1 — relationship physics tick (auto-evolve all edges)
+      if (this.state.mode === 'drama') {
+        const rawUSK = getRawFolderUSK()
+        RelationshipPhysics.applyPlayerInteraction(mainCharName)
+        const arslEvents = RelationshipPhysics.tick(rawUSK)
+        if (arslEvents.length > 0) {
+          character._arslContext = RelationshipPhysics.buildContext()
         }
       }
 

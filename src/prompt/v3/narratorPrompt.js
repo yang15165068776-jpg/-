@@ -131,6 +131,9 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   if (character._sceneContext) {
     sections.push(character._sceneContext)
   }
+  if (character._arslContext) {
+    sections.push(character._arslContext)
+  }
   if (character._agencyContext) {
     sections.push(character._agencyContext)
   }
