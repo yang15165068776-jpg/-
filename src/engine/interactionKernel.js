@@ -38,6 +38,7 @@ import { CausalEngine } from '../runtime/causalEngine'
 import { DramaOrchestrator, syncConflictGraph } from '../runtime/dramaOrchestrator'
 import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from '../runtime/darkActionKernel'
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from '../runtime/desireKernel'
+import { AgencyEngine } from '../runtime/agencyEngine'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -224,6 +225,11 @@ export const InteractionKernel = {
     if (mode === 'drama' && mainChar) {
       const folderData = getFolder(folderId)
       this.state.scene = DramaOrchestrator.initScene(mainChar, folderData)
+    }
+
+    // ── Agency Engine v1: init character autonomous action states ──
+    if (mode === 'drama' && mainChar) {
+      AgencyEngine.init(mainChar, getRawFolderUSK())
     }
 
     this.state._initialized = true
@@ -754,6 +760,16 @@ export const InteractionKernel = {
           trackDesireLevel(desireDecision.level)
           character._desireDirective = desireDecision.directive
           character._desireLevel = desireDecision.level
+        }
+      }
+
+      // 2.11. 🔥 Agency Engine v1 — characters act autonomously (behind player's back)
+      if (this.state.mode === 'drama') {
+        const rawUSK = getRawFolderUSK()
+        AgencyEngine.syncFromUSK(rawUSK)
+        const agencyHint = AgencyEngine.check(character, rawUSK)
+        if (agencyHint) {
+          character._agencyContext = AgencyEngine.buildContext()
         }
       }
 
