@@ -37,17 +37,12 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
 
   // ── Init: kernel handles hydration → save → USK ──
   useEffect(() => {
-    try {
-      const state = InteractionKernel.init(folderId, folderChars, 'drama', null, propSaveId)
-      setMessages(state.messages)
-      setAffection(state.affection)
-      setTension(state.tension)
-      setSaveId(state.saveId)
-      setAffections(state.affections)
-    } catch (e) {
-      alert('DramaPage init ERROR:\n' + (e?.message || String(e)) + '\n\nStack:\n' + (e?.stack || '(none)'))
-      setError(e?.message || String(e))
-    }
+    const state = InteractionKernel.init(folderId, folderChars, 'drama', null, propSaveId)
+    setMessages(state.messages)
+    setAffection(state.affection)
+    setTension(state.tension)
+    setSaveId(state.saveId)
+    setAffections(state.affections)
   }, [folderId])
 
   // ── Auto-save safety net ──
