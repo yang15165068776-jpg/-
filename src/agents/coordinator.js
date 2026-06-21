@@ -29,6 +29,9 @@ import { loadGraph, initGraphFromCharacter, saveGraph } from '../memory/memoryGr
 import { buildContext } from '../memory/contextBuilder'
 import { createPowerGraph, applyPowerShift, buildPowerStateContext, savePowerGraph, loadPowerGraph } from '../runtime/powerDynamics'
 import { buildASLReinforcement, validateASL } from '../runtime/alignmentSuppression'
+import { loadCanon, saveCanon, buildStoryCanonBlock, scanAndUpdateCanon } from '../state/storyCanon'
+import { InteractionKernel } from '../engine/interactionKernel'
+import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
 
 // Global state (persists across turns within a session)
@@ -38,7 +41,9 @@ let _isFirstTurn = true
 let _cpsState = null       // CPS: Conflict Persistence System state
 let _memoryGraph = null    // Event-Native Memory Graph
 let _powerGraph = null     // v3.5: Power Dynamics Engine state
+let _storyCanon = null     // 🔴 Story Canon Kernel — immutable timeline
 let _characterId = null    // Current character ID for storage keys
+let _currentSaveId = null  // Current save ID for per-save canon isolation
 
 /**
  * Initialize or reset the agent system for a new session.
@@ -59,6 +64,11 @@ export function initAgentSystem(character, affections, messages) {
       Object.keys(_memoryGraph.edges || {}).length, 'edges,',
       (_memoryGraph.event_log || []).length, 'events')
   }
+
+  // ── 🔴 Load Story Canon — immutable timeline ──
+  _currentSaveId = InteractionKernel.state?.saveId || null
+  _storyCanon = loadCanon(_characterId, _currentSaveId)
+  console.log('[Coordinator] Story Canon loaded:', _storyCanon.timeline.length, 'events,', _storyCanon.lockedFacts.length, 'facts')
 
   // ── Load CPS (Conflict Persistence System) state ──
   _cpsState = loadConflictState(_characterId)
@@ -98,6 +108,9 @@ export function resetAgentTurn() {
   _cpsState = null
   _memoryGraph = null
   _powerGraph = null
+  _storyCanon = null
+  _currentSaveId = null
+  resetPersonaState()
   _characterId = null
 }
 
@@ -124,6 +137,12 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     for (const [key, edge] of Object.entries(syncedEdges)) {
       _memoryGraph.edges[key] = { ...(_memoryGraph.edges[key] || {}), ...edge }
     }
+  }
+
+  // ── 🔒 Persona Continuity: record pre-turn state ──
+  const mainCharName = character.name
+  if (usk?.characters?.[mainCharName]) {
+    recordTurnState(usk.characters[mainCharName])
   }
 
   const world = _worldState
@@ -249,6 +268,26 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
+  // ── 🔍 Canonical Identity Kernel v1: pre-send validation ──
+  const pp = character._playerProfile
+  if (!pp?.name || pp.name === '玩家' || pp.name === '新玩家') {
+    alert(
+      '[IdentityKernel] ❌ 发送前拦截！\n' +
+      '原因：player.name 无效（' + (pp?.name || '(空)') + '）\n' +
+      '请在 PlayerProfile 中设置你的真实名字后再进入游戏。'
+    )
+    return { reply: null, error: new Error('IdentityKernel: player.name invalid') }
+  }
+  alert(
+    '[CANONICAL IDENTITY BLOCK]\n' +
+    'player.name: ' + pp.name + '\n' +
+    'player.id: ' + (pp._id || '(无)') + '\n' +
+    'character: ' + (character.name || '(未知)') + '\n' +
+    'folderId: ' + (_worldState?.folderId || '(无)') + '\n' +
+    'saveId: ' + (_worldState?.saveId || '(无)') + '\n' +
+    'mode: DRAMA'
+  )
+
   // ── Phase 6: Build Narrator prompt + CPS injection ──
   const systemPrompt = buildNarratorPrompt(
     _worldState, character, narrativeHints, userInput, _isFirstTurn
@@ -262,6 +301,14 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   const narratorMessages = [
     { role: 'system', content: systemPrompt },
   ]
+
+  // Layer 0: 🔴 Story Canon — immutable world facts (BEFORE memory graph)
+  if (_storyCanon && (_storyCanon.timeline.length > 0 || _storyCanon.lockedFacts.length > 0)) {
+    const canonBlock = buildStoryCanonBlock(_storyCanon)
+    if (canonBlock) {
+      narratorMessages.push({ role: 'system', content: canonBlock })
+    }
+  }
 
   // Layer 1: Event-Native Memory Graph context (structured relationship state + events)
   if (_memoryGraph) {
@@ -400,6 +447,24 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
+  // 🔒 State Locks v1 — post-generation hard constraint validation
+  if (reply && !error) {
+    const pp = character._playerProfile
+    const lockResult = runAllLocks(reply, {
+      playerName: pp?.name || '',
+      storyCanon: _storyCanon,
+      uskState: usk?.characters?.[mainCharName] || null,
+      mode: 'drama',
+    })
+
+    if (!lockResult.passed) {
+      const lockViolations = lockResult.violations.join(' | ')
+      alert('[StateLocks] ❌ ' + lockResult.violations.length + ' 项校验失败：\n' + lockViolations)
+      error = new Error('StateLocks: ' + lockViolations)
+      reply = null
+    }
+  }
+
   // ASL validation — post-generation alignment leak detection
   let aslValidation = null
   if (reply && !error) {
@@ -460,6 +525,17 @@ export async function runAgentTurn(userInput, character, affections, messages, a
       saveGraph(_characterId, _memoryGraph)
     } catch (e) {
       console.warn('[Coordinator] Graph persist failed:', e)
+    }
+  }
+
+  // 🔴 Persist Story Canon — scan reply for key events + save
+  if (_storyCanon && reply) {
+    try {
+      const charNames = (character?.romanceCharacters || []).map(rc => rc.name)
+      _storyCanon = scanAndUpdateCanon(_storyCanon, reply, charNames)
+      saveCanon(_characterId, _currentSaveId, _storyCanon)
+    } catch (e) {
+      console.warn('[Coordinator] Story Canon persist failed:', e)
     }
   }
 

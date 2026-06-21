@@ -506,8 +506,8 @@ export function buildCPSInjection(conflictState) {
 /**
  * Load or create a conflict state from localStorage.
  */
-export function loadConflictState(characterId) {
-  const key = 'jsjg_cps_' + characterId
+export function loadConflictState(characterId, saveId) {
+  const key = 'jsjg_cps_' + (saveId ? saveId + '_' : '') + characterId
   try {
     const raw = localStorage.getItem(key)
     if (raw) {
@@ -523,8 +523,8 @@ export function loadConflictState(characterId) {
 /**
  * Save conflict state to localStorage.
  */
-export function saveConflictState(characterId, state) {
-  const key = 'jsjg_cps_' + characterId
+export function saveConflictState(characterId, saveId, state) {
+  const key = 'jsjg_cps_' + (saveId ? saveId + '_' : '') + characterId
   try {
     localStorage.setItem(key, JSON.stringify(state))
   } catch {}

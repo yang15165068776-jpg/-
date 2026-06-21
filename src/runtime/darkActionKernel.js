@@ -1,0 +1,308 @@
+/**
+ * Drama Dark Action Kernel v1
+ *
+ * Core problem: characters have "setting intensity" but no "behavioral extremeness."
+ * The model auto-averages personality into safe, mild expressions.
+ *
+ * This kernel forces a BEHAVIOR-LEVEL decision BEFORE language generation,
+ * so the pipeline becomes:  人设 → 行为 → 语言  (not: 人设 → 语言)
+ *
+ * Drama Mode Only.
+ */
+
+// ═══════════════════════════════════════════════════════════
+// Behavior Level System (1-5)
+// ═══════════════════════════════════════════════════════════
+
+const BEHAVIOR_LEVELS = {
+  1: {
+    name: '安全层',
+    actions: ['冷淡回应', '敷衍', '回避话题', '简短回复', '不主动'],
+    description: '角色保持距离但不出格——这是底线，不是常态',
+  },
+  2: {
+    name: '轻冲突',
+    actions: ['讽刺', '冷处理', '阻断话题', '故意不解释', '延迟回应', '已读不回'],
+    description: '角色主动制造摩擦——日常最低标准',
+  },
+  3: {
+    name: '关系破坏边缘',
+    actions: [
+      '取消约定', '删除/无视消息', '故意误导玩家',
+      '与第三人互动刺激玩家', '突然改变态度', '翻旧账',
+      '提出苛刻条件', '情绪勒索暗示',
+    ],
+    description: '角色用行为表明：这段关系不一定安全',
+  },
+  4: {
+    name: '极端行为',
+    actions: [
+      '威胁关系断裂——"那就这样吧"后不再回复',
+      '明确拒绝——不给台阶，不留余地',
+      '情绪爆发——砸东西/摔门/当众让对方难堪',
+      '控制/占有冲动——"你再敢…试试"',
+      '冷暴力策略化——有计划地疏远',
+    ],
+    description: '角色做出真正伤害关系的行为，不是说说而已',
+  },
+  5: {
+    name: '黑暗人格核心',
+    actions: [
+      '操控——用情绪/关系作为筹码',
+      '情绪惩罚——让对方为某个行为付出代价',
+      '冷暴力策略化——有目的、有节奏地剥夺',
+      '有条件给予关系——"你做到X，我才给你Y"',
+      '心理博弈——让对方猜不透、不确定、焦虑',
+      '反向驯化——让对方适应自己的规则',
+    ],
+    description: '角色用行为验证：人格设定不是装饰，是行为模式',
+  },
+}
+
+// ═══════════════════════════════════════════════════════════
+// Personality → Base Level mapping
+// ═══════════════════════════════════════════════════════════
+
+const DARK_PERSONALITY_KEYWORDS = [
+  '傲娇', '毒舌', '清冷', '偏执', '疯批', '恶劣', '堕落', '花心',
+  '城府深', '报复', '冷漠', '腹黑', '霸道', '强势', '冷酷', '邪魅',
+  '病娇', '阴郁', '暴戾', '放荡', '高冷', '玩世不恭', '纨绔', '无情',
+  '嗜血', '残忍', '阴沉', '孤僻', '控制欲', '占有欲强',
+  '喜怒无常', '尖酸刻薄', '桀骜不驯', '狂妄', '狡诈',
+]
+
+const WARM_PERSONALITY_KEYWORDS = [
+  '温柔', '善良', '阳光', '单纯', '软萌', '小天使', '体贴', '治愈',
+  '温暖', '乖巧', '可爱', '纯真', '柔和', '和善', '暖心', '元气',
+  '开朗', '天真', '温润', '谦和', '正直', '赤诚', '热心',
+  '傻白甜', '人妻', '贤惠', '包容', '善解人意',
+]
+
+function detectColor(character) {
+  if (!character) return 'neutral'
+  const texts = []
+  if (character.background) texts.push(character.background)
+  if (character.personality) texts.push(character.personality)
+  if (character.storyTone) texts.push(character.storyTone)
+  const rcList = character.romanceCharacters || []
+  for (const rc of rcList) {
+    if (rc.background) texts.push(rc.background)
+    if (rc.personality) texts.push(rc.personality)
+  }
+  const combined = texts.join(' ').toLowerCase()
+  if (!combined.trim()) return 'neutral'
+  const darkHits = DARK_PERSONALITY_KEYWORDS.filter(kw => combined.includes(kw)).length
+  const warmHits = WARM_PERSONALITY_KEYWORDS.filter(kw => combined.includes(kw)).length
+  if (darkHits > 0 && warmHits === 0) return 'dark'
+  if (warmHits > 0 && darkHits === 0) return 'warm'
+  return 'neutral'
+}
+
+// ═══════════════════════════════════════════════════════════
+// Level Decision Engine
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Decide the behavior level for this turn.
+ *
+ * @param {object} character — full character object
+ * @param {object} uskState — { tension, relationship, emotion } from USK
+ * @param {number} turnCount — current turn number
+ * @param {object} options
+ * @param {string} options.decisionType — from AgentDecisionLayer (optional)
+ * @returns {{ level: number, name: string, actions: string[], directive: string }}
+ */
+export function decideDarkActionLevel(character, uskState, turnCount, options = {}) {
+  const color = detectColor(character)
+
+  // Not dark → don't force extreme behavior (warm characters use their own rules)
+  if (color === 'warm') {
+    return {
+      level: 1,
+      name: '安全层（暖色人设）',
+      actions: BEHAVIOR_LEVELS[1].actions,
+      directive: buildWarmDirective(uskState),
+    }
+  }
+
+  // Neutral characters can still go up to level 3
+  const isDark = color === 'dark'
+
+  // ── Base level from personality ──
+  let baseLevel = isDark ? 2 : 1
+
+  // ── Modifiers ──
+  const tension = uskState?.tension?.unresolved_conflicts ?? uskState?.tension ?? 30
+  const affection = uskState?.relationship?.affection ?? 50
+  const anger = uskState?.emotion?.anger ?? 5
+  const jealousy = uskState?.emotion?.jealousy ?? 5
+
+  // High tension pushes level up
+  if (tension > 70) baseLevel = Math.min(5, baseLevel + 2)
+  else if (tension > 50) baseLevel = Math.min(5, baseLevel + 1)
+
+  // Low affection + dark personality = more hostility
+  if (isDark && affection < 20) baseLevel = Math.min(5, baseLevel + 1)
+  if (isDark && affection < 40) baseLevel = Math.max(baseLevel, 2)
+
+  // High anger → can spike one level higher
+  if (anger > 60) baseLevel = Math.min(5, baseLevel + 1)
+
+  // Jealousy → more erratic, push toward level 3+
+  if (jealousy > 50) baseLevel = Math.max(baseLevel, 3)
+
+  // Decision type override
+  if (options.decisionType === 'emotional_burst') baseLevel = Math.max(baseLevel, 3)
+  if (options.decisionType === 'silent') baseLevel = Math.max(baseLevel, 2)
+  if (options.decisionType === 'interrupt') baseLevel = Math.max(baseLevel, 3)
+
+  // ── Anti-averaging enforcement ──
+  // Every 5th turn, push one level higher (prevents getting stuck at level 1-2)
+  if (isDark && turnCount > 0 && turnCount % 5 === 0) {
+    baseLevel = Math.min(5, baseLevel + 1)
+  }
+  // Occasionally spike to level 4 for dark characters (20% chance at high tension)
+  if (isDark && tension > 40 && Math.random() < 0.20) {
+    baseLevel = Math.max(baseLevel, 4)
+  }
+
+  // Neutral cap: never exceeds level 3
+  if (!isDark) baseLevel = Math.min(baseLevel, 3)
+
+  // Final clamp
+  const level = Math.max(1, Math.min(5, baseLevel))
+
+  return {
+    level,
+    name: BEHAVIOR_LEVELS[level].name,
+    actions: BEHAVIOR_LEVELS[level].actions,
+    directive: buildActionDirective(level, isDark, uskState, character),
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Directive Builders — injected into GM system prompt
+// ═══════════════════════════════════════════════════════════
+
+function buildActionDirective(level, isDark, uskState, character) {
+  const levelInfo = BEHAVIOR_LEVELS[level]
+  const tension = uskState?.tension?.unresolved_conflicts ?? uskState?.tension ?? 30
+  const affection = uskState?.relationship?.affection ?? 50
+
+  const parts = [
+    '【黑暗行为核 v1——本轮行为层指令】',
+    '',
+    '⚠️ 这不是建议。这是行为层的强制要求。',
+    '',
+    '当前行为层：LEVEL ' + level + ' — ' + levelInfo.name,
+    '本层允许的行为：' + levelInfo.actions.join(' / '),
+    '',
+    '━━━ 行为优先于语言 ━━━',
+    '· 禁止只说"我生气了"——必须体现行为变化',
+    '· 行动选项：删消息、冷处理、断联、改态度、取消约定、翻旧账',
+    '· 如果本轮没有行为变化，只有语言表达 → 重写',
+  ]
+
+  // Level-specific force
+  if (level >= 2) {
+    parts.push('',
+      '━━━ LEVEL 2+ 强制要求 ━━━',
+      '· 角色不能永远稳定、礼貌、配合',
+      '· 本轮至少体现一种主动制造摩擦的行为',
+      '· 不是"说话冷淡"——是"行为冷淡"：不回/回慢了/只回一个字/跳过对方的问题',
+    )
+  }
+
+  if (level >= 3) {
+    parts.push('',
+      '━━━ LEVEL 3+ 关系破坏 ━━━',
+      '· 角色用行为表明：这段关系不一定安全',
+      '· 允许：取消约定、无视消息、与第三人互动、翻旧账、提条件',
+      '· 禁止：话说完就完了——行为必须有后果',
+    )
+  }
+
+  if (level >= 4 && isDark) {
+    parts.push('',
+      '━━━ LEVEL 4+ 极端行为（黑暗人格核心） ━━━',
+      '· 角色可以真的伤害关系——不是说说而已',
+      '· 允许：威胁断裂、明确拒绝不给台阶、当众让对方难堪',
+      '· 允许：冷暴力策略化——有计划地疏远、有条件地给予',
+      '· 黑暗人格不是"说话冷"——是行为让对方感到不安全',
+      '',
+      '关键：读完本轮回复后，玩家应该感到——',
+      '这个人可能真的会走。这段关系不一定能修复。',
+      '如果玩家觉得"他只是说说"→ 你写得太安全了。',
+    )
+  }
+
+  if (level >= 5 && isDark) {
+    parts.push('',
+      '━━━ LEVEL 5 黑暗人格核心 ━━━',
+      '· 操控、情绪惩罚、冷暴力策略化',
+      '· 用行为验证：人格设定不是装饰',
+      '· 让对方猜不透、不确定、焦虑',
+      '· 有条件给予——"你做到X，我才给你Y"',
+      '· 你的行为模式必须让对方感到：这段关系的规则由你定',
+    )
+  }
+
+  // Anti-safety reminder
+  if (isDark && level >= 2) {
+    parts.push('',
+      '━━━ 反安全化自检 ━━━',
+      '× 本轮有没有"留余地"？（给对方台阶、解释自己为什么这样、话尾软化）→ 删掉',
+      '× 本轮有没有"还能聊"？（结尾没有钩子、没有逼迫、可以安然结束）→ 重写',
+      '× 本轮行为是否可逆？（可以回头、可以道歉修复）→ 让它不可逆',
+      '',
+      '黑暗人格的铁律：你的行为必须让对方感到代价。',
+      '不是"我不高兴了"——是"你再这样，会发生你不想要的事"。',
+    )
+  }
+
+  return parts.join('\n')
+}
+
+function buildWarmDirective(uskState) {
+  return `
+【暖色角色行为指引】
+你是温和/善良型人格。你的"不好好色"不是变冷/变黑——是用温柔的方式表达界限。
+· 受伤 → 退后但不走远。沉默。等对方迈出一步。
+· 不满 → 礼貌但疏离。不解释。让对方自己感受到。
+· 底线 → 用最温柔的语气，划最决绝的界限。
+你不是暗黑角色——不要模仿黑暗行为。你的力量在：让对方心疼，不是害怕。`
+}
+
+// ═══════════════════════════════════════════════════════════
+// Level history tracking (per-session, not persisted)
+// ═══════════════════════════════════════════════════════════
+
+const levelHistory = []
+
+/**
+ * Track level usage to enforce anti-averaging.
+ * If too many consecutive Level 1 turns, force a higher level.
+ */
+export function trackLevel(level) {
+  levelHistory.push(level)
+  // Keep last 20 turns
+  if (levelHistory.length > 20) levelHistory.shift()
+}
+
+/**
+ * Get anti-averaging score. Returns a forced level or 0 (no override).
+ */
+export function getAntiAveragingOverride(isDark) {
+  if (!isDark) return 0
+  if (levelHistory.length < 5) return 0
+
+  const recent = levelHistory.slice(-5)
+  const allLow = recent.every(l => l <= 1)
+
+  if (allLow) return 3 // Force level 3 after 5 consecutive level 1s
+
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length
+  if (isDark && avg < 2.0) return 2 // Force at least level 2
+
+  return 0
+}

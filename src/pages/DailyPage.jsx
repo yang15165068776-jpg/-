@@ -9,6 +9,7 @@ import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
 import StatusPanel from '../components/StatusPanel'
 import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix } from '../runtime/personaStateEngine'
+import { generateBurstSchedule } from '../runtime/dailyGuard'
 
 /**
  * DailyPage — DAILY MODE ONLY. Pure WeChat bubble UI. NO LONG TEXT. NO NARRATIVE.
@@ -17,7 +18,7 @@ import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix } from '../
  * Layout: CharacterSidebar (left) | Chat Bubbles (center) | StatusPanel (right)
  */
 
-export default function DailyPage({ folderId, folderChars, onBack }) {
+export default function DailyPage({ folderId, folderChars, saveId: propSaveId, onBack }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -66,8 +67,8 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       setMessages(cached.messages)
     }
 
-    // 2. Load from folder save
-    const save = getOrCreateDefaultSave(folderId)
+    // 2. Load from folder save — prefer explicit saveId prop
+    const save = propSaveId ? { id: propSaveId } : getOrCreateDefaultSave(folderId)
     if (!save) return
     setSaveId(save.id)
 
@@ -124,7 +125,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         styleRules: mainChar.styleRules || [], forbiddenWords: mainChar.forbiddenWords || [],
         temperature: mainChar.temperature ?? 0.9, topP: mainChar.topP ?? 0.95,
         contextWindow: mainChar.contextWindow || 40,
-        _playerProfile: playerAcct ? { name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
+        _playerProfile: playerAcct ? { _id: playerAcct.id || '', name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
       }
       // Initiative prompt: character reaches out proactively, very short
       const systemCtx = { role: 'system', content: '【Daily v4 主动消息】你主动给对方发了一条微信。像突然想到对方了。只发 1 条，5-15 字。不解释自己为什么发。例："在干嘛" / "刚看到个东西" / "[表情包]"' }
@@ -194,7 +195,7 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
       contextWindow: mainChar.contextWindow || 40,
       thinkingEnabled: mainChar.thinkingEnabled || false,
       nickname: mainChar.nickname || '',
-      _playerProfile: playerAcct ? { name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
+      _playerProfile: playerAcct ? { _id: playerAcct.id || '', name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
     }
 
     const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }
@@ -248,16 +249,30 @@ export default function DailyPage({ folderId, folderChars, onBack }) {
         setTimeout(() => setAffectionFlash(null), 2500)
       }
 
-      // ── v4 Queue Renderer: setTimeout per bubble → true WeChat feel ──
-      const typingDelay = 600 + Math.random() * 1200
+      // ── v6 Queue Renderer: Human Burst Scheduler → true WeChat pacing ──
+      const schedule = generateBurstSchedule(affection, bubbles.length)
+      const typingDelay = schedule.delays[0] || 800
+
+      // "已读不回" effect — show typing indicator, then nothing for a while
+      if (schedule.hasReadReceipt) {
+        setTimeout(() => {
+          setIsTyping(false)
+          // After a pause, maybe send something or stay silent
+        }, typingDelay + 2000)
+        return // character read it but didn't reply yet
+      }
+
       setTimeout(() => {
         try {
           setIsTyping(false)
-          // Schedule each bubble as a separate message with its own delay
+          // Schedule each bubble with human-like pacing from burst scheduler
           let cumulativeDelay = 0
-          for (let i = 0; i < bubbles.length; i++) {
+          const sendCount = Math.min(schedule.count, bubbles.length)
+          for (let i = 0; i < sendCount; i++) {
             const bubble = bubbles[i]
-            cumulativeDelay += bubble.delay || (500 + i * 300)
+            // Use scheduler delays, fall back to bubble-provided delay
+            const delay = schedule.delays[i] || bubble.delay || (500 + i * 300)
+            cumulativeDelay += delay
             setTimeout(() => {
               setMessages(prev => [...prev, {
                 id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_' + i,

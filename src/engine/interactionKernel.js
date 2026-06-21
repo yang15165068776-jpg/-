@@ -35,7 +35,27 @@ import { runAgentTurn, resetAgentTurn } from '../agents/coordinator'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
 import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 import { CausalEngine } from '../runtime/causalEngine'
-import { DramaOrchestrator } from '../runtime/dramaOrchestrator'
+import { DramaOrchestrator, syncConflictGraph } from '../runtime/dramaOrchestrator'
+import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from '../runtime/darkActionKernel'
+
+function _detectDarkColor(character) {
+  if (!character) return false
+  const texts = []
+  if (character.background) texts.push(character.background)
+  if (character.personality) texts.push(character.personality)
+  if (character.storyTone) texts.push(character.storyTone)
+  const rcList = character.romanceCharacters || []
+  for (const rc of rcList) {
+    if (rc.background) texts.push(rc.background)
+    if (rc.personality) texts.push(rc.personality)
+  }
+  const combined = texts.join(' ').toLowerCase()
+  const darkKw = ['傲娇', '毒舌', '清冷', '偏执', '疯批', '恶劣', '堕落', '花心', '城府深', '报复', '冷漠', '腹黑', '霸道', '强势', '冷酷', '邪魅', '病娇', '阴郁', '暴戾', '放荡', '高冷', '玩世不恭', '纨绔', '无情', '嗜血', '残忍', '阴沉', '孤僻', '控制欲', '占有欲强']
+  const warmKw = ['温柔', '善良', '阳光', '单纯', '软萌', '小天使', '体贴', '治愈', '温暖', '乖巧', '可爱', '纯真', '柔和', '和善', '暖心', '元气', '开朗', '天真', '温润', '谦和', '正直', '赤诚', '热心']
+  const darkHits = darkKw.filter(kw => combined.includes(kw)).length
+  const warmHits = warmKw.filter(kw => combined.includes(kw)).length
+  return darkHits > 0 && warmHits === 0
+}
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
@@ -97,7 +117,7 @@ export const InteractionKernel = {
    * @param {object|null} hydrateData — cached { messages, usk } from HydrationEngine
    * @returns {object} state snapshot { messages, affection, tension, saveId, affections }
    */
-  init(folderId, characters, mode, hydrateData) {
+  init(folderId, characters, mode, hydrateData, saveId) {
     this.reset()
     // Reset coordinator world state so old folder's affection doesn't leak in
     resetAgentTurn()
@@ -108,18 +128,16 @@ export const InteractionKernel = {
     const cached = hydrateData || HydrationEngine.get(folderId, mode)
     let messages = []
 
+    // Use explicit saveId if provided, otherwise fall back to default
+    const activeSaveId = saveId || (getOrCreateDefaultSave(folderId)?.id)
+
     if (cached && cached.messages && cached.messages.length > 0) {
       messages = cached.messages
-      // Ensure saveId is set even when loading from cache
-      const save = getOrCreateDefaultSave(folderId)
-      if (save) this.state.saveId = save.id
-    } else {
-      const save = getOrCreateDefaultSave(folderId)
-      if (save) {
-        this.state.saveId = save.id
-        messages = getSaveMessages(save.id, folderId, mode === 'drama' ? 'drama' : 'daily')
+      this.state.saveId = activeSaveId
+    } else if (activeSaveId) {
+      this.state.saveId = activeSaveId
+      messages = getSaveMessages(activeSaveId, folderId, mode === 'drama' ? 'drama' : 'daily')
       }
-    }
 
     // Inject opening scene for drama mode if missing (handles both fresh + cache w/o opening)
     if (mode === 'drama') {
@@ -651,9 +669,16 @@ export const InteractionKernel = {
         this.state.messages.push(interruptCtx)
       }
 
-      // 2.7. Drama Orchestrator v1 — advance scene + inject director prompt
+      // 2.7. Drama Orchestrator v3 — sync conflict graph + advance + director prompt
       if (this.state.scene && this.state.mode === 'drama') {
         const uskState = getFolderUIState(mainCharName)
+        const rawUSK = getRawFolderUSK()
+
+        // v3: Sync Conflict Graph from USK before advancing
+        if (this.state.scene.conflictGraph && rawUSK?.characters) {
+          syncConflictGraph(this.state.scene.conflictGraph, rawUSK.characters, this.state.affections)
+        }
+
         const interactionType = decision?.type === 'emotional_burst' ? 'conflict' :
                                decision?.type === 'silent' ? 'rejection' : null
         const { scene, event } = DramaOrchestrator.advance(this.state.scene, uskState, interactionType)
@@ -679,6 +704,29 @@ export const InteractionKernel = {
         if (!validation.valid) {
           character._stabilityCorrections = validation.corrections
         }
+      }
+
+      // 2.9. 🔴 Drama Dark Action Kernel — behavior level BEFORE language
+      if (this.state.mode === 'drama') {
+        const uskState = mainCharName ? getFolderUIState(mainCharName) : {}
+        const darkAction = decideDarkActionLevel(character, uskState, this.state.lifecycle.turnCount, {
+          decisionType: decision?.type || null,
+        })
+
+        // Anti-averaging: force higher level if history is too flat
+        const isDark = _detectDarkColor(character)
+        const override = getAntiAveragingOverride(isDark)
+        if (override > darkAction.level) {
+          darkAction.level = override
+          darkAction.directive = darkAction.directive.replace(
+            /当前行为层：LEVEL \d/,
+            '当前行为层：LEVEL ' + override + ' [反均值化强制提升]'
+          )
+        }
+
+        trackLevel(darkAction.level)
+        character._darkActionDirective = darkAction.directive
+        character._darkActionLevel = darkAction.level
       }
 
       // 3. Call agent coordinator

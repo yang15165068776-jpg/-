@@ -80,7 +80,7 @@ export function initGraphFromCharacter(character, affections) {
   // User node
   graph.nodes.user = {
     type: 'player',
-    name: (character._playerProfile?.name) || character.protagonistName || '玩家',
+    name: (character._playerProfile?.name) || '__user__',
   }
 
   // Romance character nodes + edges
@@ -151,8 +151,8 @@ export function initGraphFromCharacter(character, affections) {
  * @param {string} characterId - character UUID
  * @returns {object} memory graph
  */
-export function loadGraph(characterId) {
-  const key = STORAGE_KEY_PREFIX + characterId
+export function loadGraph(characterId, saveId) {
+  const key = STORAGE_KEY_PREFIX + (saveId ? saveId + '_' : '') + characterId
   try {
     const raw = safeGetItem(key)
     if (raw) {
@@ -173,8 +173,8 @@ export function loadGraph(characterId) {
  * @param {string} characterId - character UUID
  * @param {object} graph - memory graph to save
  */
-export function saveGraph(characterId, graph) {
-  const key = STORAGE_KEY_PREFIX + characterId
+export function saveGraph(characterId, saveId, graph) {
+  const key = STORAGE_KEY_PREFIX + (saveId ? saveId + '_' : '') + characterId
   graph.updatedAt = Date.now()
   try {
     safeSetItem(key, JSON.stringify(graph))

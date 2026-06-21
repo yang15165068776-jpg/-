@@ -675,8 +675,9 @@ export function updateUSK(event, usk, charName) {
       // ── Daily v4: LLM-provided deltas → daily subspace only ──
       const relDelta = event.relationship_delta ?? 0
       const emoDelta = event.emotion_delta ?? 0
-      // Relationship: LLM delta (primary) or default +2 bonding
-      rel.affection = clamp((rel.affection ?? 50) + (relDelta !== 0 ? relDelta : 2), 0, 100)
+      // Relationship: LLM judge delta only — no hardcoded fallback
+      // (relDelta defaults to 0 via ?? above, so 0 = no change)
+      rel.affection = clamp((rel.affection ?? 50) + relDelta, 0, 100)
       // Life: emotion delta drives mood change
       lif.mood = clamp((lif.mood ?? 50) + emoDelta * 0.8, 0, 100)
       // Social need satisfied by any chat

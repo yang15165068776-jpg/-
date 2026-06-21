@@ -11,7 +11,7 @@ import EventActionPanel from '../components/EventActionPanel'
  * DramaPage — DRAMA MODE ONLY. Pure paragraph narrative. NO BUBBLES. NO TIMESTAMPS.
  * Completely isolated from DailyPage. Uses folder USK + folder saves.
  */
-export default function DramaPage({ folderId, folderChars, onBack }) {
+export default function DramaPage({ folderId, folderChars, saveId: propSaveId, onBack }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,7 +37,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
 
   // ── Init: kernel handles hydration → save → USK ──
   useEffect(() => {
-    const state = InteractionKernel.init(folderId, folderChars, 'drama')
+    const state = InteractionKernel.init(folderId, folderChars, 'drama', null, propSaveId)
     setMessages(state.messages)
     setAffection(state.affection)
     setTension(state.tension)
@@ -66,6 +66,7 @@ export default function DramaPage({ folderId, folderChars, onBack }) {
     // Inject active player account so AI knows who it's talking to
     const playerAccount = getActiveAccount()
     const _playerProfile = playerAccount ? {
+      _id: playerAccount.id || '',
       name: playerAccount.name || '',
       gender: playerAccount.gender || '',
       personalityTags: playerAccount.personalityTags || [],

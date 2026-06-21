@@ -63,10 +63,10 @@ export default function FolderInterior({ folderId, onBack, onEnterDrama, onEnter
   }
 
   const handlePickDrama = () => {
-    if (onEnterDrama) onEnterDrama(folder)
+    if (onEnterDrama) onEnterDrama(folder, selectedSave)
   }
   const handlePickDaily = () => {
-    if (onEnterDaily) onEnterDaily(folder)
+    if (onEnterDaily) onEnterDaily(folder, selectedSave)
   }
 
   const formatDate = (ts) => {

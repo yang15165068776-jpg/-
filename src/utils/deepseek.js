@@ -28,7 +28,9 @@ import { getModel } from './storage'
 import writingSamplesRaw from './writing-samples.txt?raw'
 import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
 import { buildPersonaShield } from '../runtime/personaIntegrity'
-import { buildDailyGuardPrompt, dailyActionFilter } from '../runtime/dailyGuard'
+import { buildDailyGuardPrompt, dailyActionFilter, narrativeSuppressionFilter, relationshipGateFilter, wechatAuthenticityCheck, conversationEndingFilter } from '../runtime/dailyGuard'
+import { outputShapeLock } from '../runtime/stateLocks'
+import { InteractionKernel } from '../engine/interactionKernel'
 import { buildStateSnapshot, getRelationship } from '../state/unifiedStateKernel'
 import { extractEvents, extractEventsDeterministic } from '../memory/eventExtractor'
 import { initGraphFromCharacter, loadGraph, saveGraph, updateGraph } from '../memory/memoryGraph'
@@ -270,8 +272,8 @@ export function findForbiddenWord(text, words) {
 function buildPlayerIdentityBlock(character) {
   const pp = character._playerProfile
 
-  // Player name: account name > "玩家"
-  const playerName = (pp && pp.name) ? pp.name : '玩家'
+  // Player name: Canonical Identity Kernel v1 — NO FALLBACKS
+  const playerName = (pp && pp.name) ? pp.name : '(身份未配置——请在 PlayerProfile 中设置你的名字)'
 
   const lines = []
   lines.push('【玩家身份——你正在与之互动的人】')
@@ -404,6 +406,11 @@ function buildGMPrompt(character, affections) {
   // 🎬 Drama Orchestrator v1 — director's scene instructions
   if (character._sceneContext) {
     parts.push(character._sceneContext)
+  }
+
+  // 🔴 Drama Dark Action Kernel v1 — behavior level directive (MUST come after scene)
+  if (character._darkActionDirective) {
+    parts.push(character._darkActionDirective)
   }
 
   // 2: World view
@@ -739,11 +746,11 @@ function buildDailySystemPrompt(character, affectionData) {
   // ═══════════════════════════════════════════
   parts.push(
     '【消息格式规则】\n' +
-    '· 单条消息 5-60 字，短句优先\n' +
+    '· 单条消息 5-25 字，短句优先。一个字能说完不说两个字。80% 的回复只发 1-3 条气泡。禁止连续大段输出\n' +
     '· 禁止第三人称叙事（"他/她 + 动词"）\n' +
     '· 禁止动作描写、心理描写、场景描写\n' +
     '· 禁止括号里写小说——括号只能放微信原生内容（[表情包]、[语音]、（刚开完会））\n' +
-    '· 你就是消息本身，不是"正在发消息的角色"'
+    '· 你就是消息本身，不是"正在发消息的角色"。删掉名字和头像后，你的消息必须像真人微信聊天记录'
   )
 
   // ═══════════════════════════════════════════
@@ -763,7 +770,7 @@ function buildDailySystemPrompt(character, affectionData) {
     '}\n\n' +
 
     '字段：\n' +
-    '· bubbles：1-5 条，text 5-60 字，delay 300-2000ms，type=text/voice_hint/action\n' +
+    '· bubbles：1-3 条（80%情况），最多 5 条。text 5-25 字，delay 300-2000ms，type=text/voice_hint/action\n' +
     '· emotion_delta：-10~+10，角色情绪变化\n' +
     '· relationship_delta：-5~+5，关系亲近度变化\n\n' +
 
@@ -1249,13 +1256,15 @@ export async function judgeDailyAffection(character, currentAffection, userInput
     '---\n\n' +
     '根据以上对话判断好感度变化。\n' +
     '规则：\n' +
-    '· 日常聊天通常变化很小，±0 或 ±1\n' +
-    '· 对方说了暖心/有趣/让' + name + '感到被在乎的话 → +1 或 +2\n' +
-    '· 对方冷淡/敷衍/冒犯 → -1 或 -2\n' +
-    '· 非常强烈的情绪冲击 → ±3（极少）\n' +
-    '· 普通闲聊、没特别情绪波动的对话 → 0\n' +
-    '· 上涨必须要有明确原因，没有理由就給0\n' +
-    '· 控制好感度增长速率，不要太快\n\n' +
+    '· 默认就是 0——日常普通聊天、寒暄、一问一答都是 0\n' +
+    '· 只有对方说了真正让' + name + '心动/感动/被触动的话 → 才 +1\n' +
+    '· 对方说了极少数真正触及' + name + '内心的、难以忽视的话 → +2\n' +
+    '· 对方冷淡/敷衍/冒犯/越界 → -1 或 -2\n' +
+    '· ±3 几乎不给——除非发生了极其重大的事件\n' +
+    '· 关键：好感度是缓慢积累的，不是每轮必涨\n' +
+    '· 如果' + name + '的回复里本身就在敷衍/冷淡/生气 → 大概率给 0 或负分\n' +
+    '· 如果' + name + '的回复很普通，对方说的也很普通 → 绝对给 0\n' +
+    '· 好感度越高（>70），上涨应该越难（边际递减）\n\n' +
     '输出一行严格格式：[最终得分: X]，X 是 -3 到 +3 的整数。'
 
   try {
@@ -1268,7 +1277,7 @@ export async function judgeDailyAffection(character, currentAffection, userInput
       body: JSON.stringify({
         model: 'deepseek-chat',
         messages: [
-          { role: 'system', content: '你是好感度裁判。只输出一行：[最终得分: X]，X 是 -3 到 +3 的整数。不要解释。' },
+          { role: 'system', content: '你是严格的好感度裁判。默认给 0。普通聊天不给分。只有真正触动角色内心的话才给 ±1。极少情况给 ±2。几乎不给 ±3。只输出一行：[最终得分: X]。' },
           { role: 'user', content: userMessage },
         ],
         max_tokens: 32,
@@ -1393,8 +1402,8 @@ export async function sendStoryStageMessage(character, messages, affections, api
   const memoryMessages = messages.filter(m => m.role === 'system')
   const userAssistantMessages = messages.filter(m => m.role !== 'system')
 
-  // Truncate first, then wrap
-  const contextWindow = character.contextWindow || 40
+  // Truncate — respect user setting, default 300 only when unset
+  const contextWindow = character.contextWindow || 300
   const truncated = userAssistantMessages.slice(-contextWindow)
 
   // Story mode: wrap user messages with USER_WRAPPER + supplements
@@ -1407,13 +1416,14 @@ export async function sendStoryStageMessage(character, messages, affections, api
 
   // ── v2.2 Event-Native Memory: Load graph + build context ──
   const characterId = character.id || character.name
-  let memoryGraph = loadGraph(characterId)
+  const saveId = InteractionKernel.state?.saveId
+  let memoryGraph = loadGraph(characterId, saveId)
   if (!memoryGraph && character.romanceCharacters?.length) {
     memoryGraph = initGraphFromCharacter(character, affections)
   }
 
   // ── CPS v1: Load conflict persistence state ──
-  let cpsState = loadConflictState(characterId)
+  let cpsState = loadConflictState(characterId, saveId)
   if (!cpsState || !cpsState.activeConflicts) {
     cpsState = ConflictStateEngine.create()
   }
@@ -1500,7 +1510,7 @@ export async function sendStoryStageMessage(character, messages, affections, api
 
       // ── v2.2 Event-Native Memory: Extract events + update graph + CPS ──
       if (characterId && memoryGraph && fullReply) {
-        scheduleGraphUpdate(characterId, memoryGraph, cpsState, truncated, fullReply, apiKey, affections, character)
+        scheduleGraphUpdate(characterId, saveId, memoryGraph, cpsState, truncated, fullReply, apiKey, affections, character)
       }
 
       return {
@@ -1606,8 +1616,8 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
   const memoryMessages = messages.filter(m => m.role === 'system')
   const userAssistantMessages = messages.filter(m => m.role !== 'system')
 
-  // Truncate to context window
-  const contextWindow = character.contextWindow || 40
+  // Truncate — respect user setting, default 400 only when unset (Daily messages are short)
+  const contextWindow = character.contextWindow || 400
   const truncated = userAssistantMessages.slice(-contextWindow)
 
   // KEY: Do NOT wrap user messages — daily mode has no USER_WRAPPER
@@ -1634,6 +1644,26 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
     const memoryContent = memoryMessages.map(m => m.content).join('\n\n---\n\n')
     systemPrompt += '\n\n【记忆存档】\n' + memoryContent
   }
+
+  // ── 🔍 Canonical Identity Kernel v1: pre-send validation (Daily) ──
+  const ppDaily = character._playerProfile
+  if (!ppDaily?.name || ppDaily.name === '玩家' || ppDaily.name === '新玩家') {
+    alert(
+      '[IdentityKernel] ❌ Daily 发送前拦截！\n' +
+      '原因：player.name 无效（' + (ppDaily?.name || '(空)') + '）\n' +
+      '请在 PlayerProfile 中设置你的真实名字后再进入游戏。'
+    )
+    return { reply: null, packet: null, error: new Error('IdentityKernel: player.name invalid') }
+  }
+  alert(
+    '[CANONICAL IDENTITY BLOCK]\n' +
+    'player.name: ' + ppDaily.name + '\n' +
+    'player.id: ' + (ppDaily._id || '(无)') + '\n' +
+    'character: ' + (character.name || '(未知)') + '\n' +
+    'folderId: ' + (character._folderId || '(无)') + '\n' +
+    'saveId: ' + (InteractionKernel.state?.saveId || '(无)') + '\n' +
+    'mode: DAILY'
+  )
 
   let lastError = null
   let lastViolation = null
@@ -1699,6 +1729,57 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
         }
       }
 
+      // ── P0-NEW: Conversation Engine check — kill dead-end replies ──
+      const allText2 = packet ? packet.bubbles.map(b => b.text).join(' ') : reply
+      const convViolation = conversationEndingFilter(allText2)
+      if (convViolation) {
+        lastViolation = convViolation
+        lastError = new Error(lastViolation)
+        continue
+      }
+
+      // ── P0-1: Relationship Gate check ──
+      const rgViolation = relationshipGateFilter(allText2, affectionData)
+      if (rgViolation) {
+        lastViolation = '关系越级：' + rgViolation + '（当前好感度 ' + affectionData + ' 不允许此内容）'
+        lastError = new Error(lastViolation)
+        continue
+      }
+
+      // ── P0-2 PATCH: Narrative Suppression + WeChat Authenticity ──
+      const wxCheck = wechatAuthenticityCheck(allText2)
+      if (!wxCheck.clean) {
+        lastViolation = '叙事泄漏：' + wxCheck.violations.join('；')
+        lastError = new Error(lastViolation)
+        continue
+      }
+
+      // ── Bubble count/length check ──
+      if (packet && packet.bubbles) {
+        const tooLong = packet.bubbles.find(b => b.text.length > 60)
+        const tooMany = packet.bubbles.length > 5
+        if (tooLong) {
+          lastViolation = '气泡超60字：' + tooLong.text.slice(0, 30)
+          lastError = new Error(lastViolation)
+          continue
+        }
+        if (tooMany) {
+          lastViolation = '气泡过多（' + packet.bubbles.length + '条）'
+          lastError = new Error(lastViolation)
+          continue
+        }
+
+        // ── 🔒 Output Shape Lock v1: structural validation per bubble ──
+        for (const bubble of packet.bubbles) {
+          const shapeResult = outputShapeLock(bubble.text, 'daily')
+          if (!shapeResult.valid) {
+            lastViolation = 'Output Shape: ' + shapeResult.violations.join('；')
+            lastError = new Error(lastViolation)
+            continue
+          }
+        }
+      }
+
       return { reply: packet ? packet.bubbles.map(b => b.text).join(' ||| ') : reply, packet, reasoningContent, usage, error: null }
     } catch (err) {
       lastError = err
@@ -1714,7 +1795,7 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
  * Fire-and-forget: extracts events from the latest turn and updates the memory graph.
  * Runs after the AI reply is returned to the user, so it doesn't block the response.
  */
-async function scheduleGraphUpdate(characterId, graph, cpsState, messages, aiReply, apiKey, affections, character) {
+async function scheduleGraphUpdate(characterId, saveId, graph, cpsState, messages, aiReply, apiKey, affections, character) {
   try {
     // Get the last user message
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
@@ -1744,11 +1825,11 @@ async function scheduleGraphUpdate(characterId, graph, cpsState, messages, aiRep
 
       // Update Memory Graph
       updateGraph(graph, events, { aiReply, turnNumber: graph.global.turnCount + 1 })
-      saveGraph(characterId, graph)
+      saveGraph(characterId, saveId, graph)
 
       // Update CPS — register conflicts from events, advance state
       updateCPSFromEvents(cpsState, events, { turnNumber: cpsState.turnCount + 1 })
-      saveConflictState(characterId, cpsState)
+      saveConflictState(characterId, saveId, cpsState)
       console.log('[CPS] Active conflicts:', cpsState.activeConflicts.length,
         '| Tension:', Math.round(cpsState.tensionLevel * 100) + '%')
     }

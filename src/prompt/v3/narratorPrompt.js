@@ -140,6 +140,24 @@ function buildCharacterIdentityBlock(character, world) {
   lines.push('沉默、矛盾、攻击性、回避、崩溃——这些比温和无害的回复更真实。')
   lines.push('每轮回复前先检查：这句话是这个角色会说的吗？')
 
+  // ── 🔵 将玩家身份织入角色认知 ──
+  const playerProfile = character._playerProfile
+  if (playerProfile && playerProfile.name) {
+    lines.push('')
+    lines.push('━━━ 所有角色的互动对象 ━━━')
+    lines.push('你扮演的所有角色正在与同一个人互动——')
+    lines.push('名字：' + playerProfile.name)
+    if (playerProfile.gender) lines.push('性别：' + playerProfile.gender)
+    if (playerProfile.personalityTags && playerProfile.personalityTags.length > 0) {
+      lines.push('性格：' + playerProfile.personalityTags.join('、'))
+    }
+    if (playerProfile.description) lines.push('简介：' + playerProfile.description.slice(0, 200))
+    lines.push('')
+    lines.push('每个角色都认识「' + playerProfile.name + '」。')
+    lines.push('每个角色对「' + playerProfile.name + '」的关系由各自的好感度阶段决定。')
+    lines.push('称呼只能用「' + pp.name + '」或角色设定中的昵称。禁止编造其他名字。')
+  }
+
   const rcList = character.romanceCharacters || []
   for (const rc of rcList) {
     lines.push('')
@@ -186,16 +204,16 @@ function buildCharacterIdentityBlock(character, world) {
     }
   }
 
-  // Player character — from account only, never legacy protagonist fields
+  // Player character — Canonical Identity Kernel v1 (NO FALLBACKS)
   const pp = character._playerProfile
-  const playerName = (pp && pp.name) ? pp.name : '玩家'
+  const playerName = (pp && pp.name) ? pp.name : '(身份未配置——请在 PlayerProfile 中设置你的名字)'
   lines.push('\n【玩家身份】' + playerName +
     (pp && pp.gender ? '（' + pp.gender + '）' : '') + ' — ' +
     (pp && pp.personalityTags && pp.personalityTags.length > 0 ? pp.personalityTags.join('、') : '未设定'))
   if (pp && pp.description) {
     lines.push('玩家设定：' + pp.description.slice(0, 200))
   }
-  lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。')
+  lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。禁止猜测或推断玩家名字。')
 
   lines.push('')
   lines.push('⚠️ 禁止人设偏离：')

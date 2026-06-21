@@ -114,13 +114,13 @@ export default function App() {
       setSelectedFolder(f)
       NavigationEngine.push('folder', { folder: f })
     },
-    dramaPage: (f, chars) => {
-      const folderWithChars = { ...f, _chars: chars }
+    dramaPage: (f, chars, saveId) => {
+      const folderWithChars = { ...f, _chars: chars, _saveId: saveId }
       setSelectedFolder(folderWithChars)
       NavigationEngine.push('dramaPage', { folder: folderWithChars })
     },
-    dailyPage: (f, chars) => {
-      const folderWithChars = { ...f, _chars: chars }
+    dailyPage: (f, chars, saveId) => {
+      const folderWithChars = { ...f, _chars: chars, _saveId: saveId }
       setSelectedFolder(folderWithChars)
       NavigationEngine.push('dailyPage', { folder: folderWithChars })
     },
@@ -227,6 +227,7 @@ export default function App() {
           <DramaPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
+            saveId={selectedFolder._saveId || null}
             onBack={nav.back}
           />
         )}
@@ -234,6 +235,7 @@ export default function App() {
           <DailyPage
             folderId={selectedFolder.id}
             folderChars={selectedFolder._chars || []}
+            saveId={selectedFolder._saveId || null}
             onBack={nav.back}
           />
         )}
