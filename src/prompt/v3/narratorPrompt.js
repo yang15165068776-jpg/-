@@ -101,12 +101,6 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   // ── Every turn: world snapshot ──
   sections.push(buildWorldSnapshot(snapshot))
 
-  // ── Every turn: player identity + scene continuity (prevents LLM amnesia) ──
-  const playerFacts = buildPlayerFactsBlock(character)
-  if (playerFacts) {
-    sections.push(playerFacts)
-  }
-
   // ── NPC actions / narrative hints ──
   if (narrativeHints && narrativeHints.length > 0) {
     const highPriority = narrativeHints.filter(h => h.priority === 'high')
@@ -283,44 +277,6 @@ function buildWorldSnapshot(snapshot) {
   if (snapshot.flags && snapshot.flags.length > 0) {
     lines.push('世界事件：' + snapshot.flags.join(' / '))
   }
-
-  return lines.join('\n')
-}
-
-/**
- * Build per-turn player identity + scene continuity block.
- * Prevents LLM "amnesia" — forgetting player background (e.g. parents deceased)
- * or scene state (e.g. clothing removed) after a few turns.
- */
-function buildPlayerFactsBlock(character) {
-  const lines = ['【玩家身份 & 场景连续性——每轮必读】']
-
-  // ── Player identity (every turn, not just first) ──
-  const pp = character._playerProfile
-  if (pp && pp.name) {
-    lines.push('')
-    lines.push('━━━ 玩家身份（不可违背的硬事实）━━━')
-    lines.push('· 名字：' + pp.name + ' — 所有角色必须用这个名字称呼，禁止编造任何其他名字')
-    if (pp.gender) lines.push('· 性别：' + pp.gender)
-    if (pp.personalityTags && pp.personalityTags.length > 0) {
-      lines.push('· 性格标签：' + pp.personalityTags.join('、'))
-    }
-    if (pp.description) {
-      // Extract key facts from description (family, background, etc.)
-      lines.push('· 背景（角色都知道这些）：' + pp.description.slice(0, 250))
-    }
-    lines.push('· ⚠️ 以上背景设定是角色都知道的硬事实，角色绝对不能表现出"不知道"或"刚发现"')
-    lines.push('· ⚠️ 如果背景中包含家庭成员信息（如父母双亡、单亲等），角色绝对不能提到不存在的家庭成员')
-  }
-
-  // ── Scene continuity hint ──
-  // Use recent messages to detect scene state changes that must be preserved
-  lines.push('')
-  lines.push('━━━ 场景连续性 ━━━')
-  lines.push('· 角色的衣着状态、身体状态、场景位置——以上一轮结束时的状态为准')
-  lines.push('· 如果上一轮角色是赤裸的，本轮不能变成"半裸"或"穿着衣服"')
-  lines.push('· 如果上一轮场景在卧室，本轮不能突然变成客厅（除非角色明确移动了）')
-  lines.push('· 身体的生理状态是连续的——勃起不会凭空消失、汗水不会自己干透、黏液不会突然不见')
 
   return lines.join('\n')
 }

@@ -467,79 +467,67 @@ export const AutonomousWorldEngine = {
   buildNarrativeContext() {
     if (!this.world) return ''
 
-    const lines = [
-      '【🌍 自主世界引擎 —— 世界在推剧情，你在参与】',
-      '',
-      '━━━ 世界状态 ━━━',
-      '· 世界张力：' + this.world.tension + '/100',
-      '· 世界不稳定度：' + this.world.instability + '/100',
-      '· 世界阶段：' + this.world.phase,
-      '· 回合数：' + this.world.turnCount,
+    const lines = ['【🌍 世界引擎】']
+
+    // ── World state + attention (compact, one line each) ──
+    lines.push('张力' + this.world.tension + ' 不稳' + this.world.instability + ' 阶段:' + this.world.phase)
+
+    // Attention (compact)
+    const attnEntries = Object.entries(this.attention)
+    if (attnEntries.length > 0) {
+      const parts = attnEntries.map(([n, a]) => {
+        const icon = a.starved && n !== this.playerName ? '⚫' : ''
+        return icon + n + ':' + a.share + '%'
+      })
+      lines.push('注意力: ' + parts.join(' '))
+    }
+
+    // ── ARSL edges (compact — only non-trivial edges) ──
+    const arslEdges = RelationshipPhysics.edges
+    const edgeLines = []
+    for (const [key, edge] of Object.entries(arslEdges)) {
+      if (edge.attraction < 25 && edge.tension < 25) continue
+      const icon = edge.phase === 'crisis' ? '🔴' : edge.phase === 'rupture' ? '💀' : edge.phase === 'rising_tension' ? '🟡' : ''
+      edgeLines.push(icon + edge.from + '→' + edge.to + ':吸' + Math.round(edge.attraction) + '张' + Math.round(edge.tension) + '嫉' + Math.round(edge.jealousy))
+    }
+    if (edgeLines.length > 0) {
+      lines.push('关系力场: ' + edgeLines.join(' | '))
+    }
+
+    // ── Events (combined active + hidden, compact) ──
+    const allEvents = [
+      ...this.world.activeEvents.slice(-3),
+      ...this.world.hiddenEvents.slice(-2),
     ]
+    // Also include turn events from ARSL + Agency
+    const recentHints = this.turnEvents
+      .filter(e => e.hint)
+      .slice(-3)
+      .map(e => e.hint)
 
-    // Attention distribution
-    if (Object.keys(this.attention).length > 0) {
-      lines.push('')
-      lines.push('━━━ 注意力分配（注意力是稀缺资源）━━━')
-      for (const [name, attn] of Object.entries(this.attention)) {
-        const icon = attn.role === '注意力焦点' ? '🔴' :
-                     attn.starved ? '⚫' : '🟢'
-        lines.push(icon + ' ' + name + '：' + attn.share + '% — ' + attn.role)
-      }
+    if (recentHints.length > 0) {
+      lines.push('事件: ' + recentHints.join(' | '))
     }
 
-    // ARSL context (relationship force field)
-    const arslCtx = RelationshipPhysics.buildContext()
-    if (arslCtx && !arslCtx.includes('尚未形成')) {
-      lines.push('')
-      lines.push(arslCtx)
-    }
-
-    // Agency context
+    // ── Agency context (compact — only if there are hints) ──
     const agencyCtx = AgencyEngine.buildContext()
     if (agencyCtx) {
-      lines.push('')
-      lines.push(agencyCtx)
-    }
-
-    // Active world events
-    const activeVisible = this.world.activeEvents.slice(-5)
-    if (activeVisible.length > 0) {
-      lines.push('')
-      lines.push('━━━ 正在发生的世界事件 ━━━')
-      for (const evt of activeVisible) {
-        lines.push('· [' + (evt.label || evt.type) + '] ' + (evt.narrative || ''))
+      // Strip the verbose formatting, keep only the hint lines
+      const hintLines = agencyCtx.split('\n').filter(l => l.startsWith('📡'))
+      if (hintLines.length > 0) {
+        lines.push('幕后: ' + hintLines.map(l => l.replace('📡 ', '').replace(/（行为类型.*$/, '')).join(' | '))
       }
     }
 
-    // Hidden events (the LLM should hint at these, not reveal)
-    if (this.world.hiddenEvents.length > 0) {
-      lines.push('')
-      lines.push('━━━ ⚠️ 幕后事件（角色知道，玩家不知道——通过行为泄漏）━━━')
-      for (const evt of this.world.hiddenEvents.slice(-3)) {
-        lines.push('· ' + (evt.narrative || ''))
-      }
-      lines.push('· 以上事件不要直接告诉玩家——让它们在角色的行为、语气、回避中"泄漏"出来')
+    // ── Phase directive (one line) ──
+    const phaseDir = {
+      setup: '酝酿冲突种子',
+      rising: '推高张力，角色失耐心',
+      crisis: '不可挽回的话即将说出',
+      collapse: '对话碎片化，行为极端化',
+      release: '裂痕还在，余波未平',
     }
-
-    // Phase-specific narrative directive
-    const phaseDirectives = {
-      setup: '世界在酝酿——建立氛围，种下冲突的种子。不要让任何事看起来太安全。',
-      rising: '冲突在升级——每个互动都在推高张力。角色开始失去耐心和伪装。',
-      crisis: '危机已到来——不可挽回的话即将被说出。角色在做平时不会做的选择。',
-      collapse: '世界在崩坏——对话碎片化。行为极端化。理性让位于情绪。',
-      release: '短暂平静——但裂痕还在。有人想修复，有人在酝酿下一波。余波未平。',
-    }
-    lines.push('')
-    lines.push('━━━ 世界阶段指令 ━━━')
-    lines.push('· ' + (phaseDirectives[this.world.phase] || ''))
-
-    lines.push('')
-    lines.push('━━━ 铁律 ━━━')
-    lines.push('· 世界有自己的动力——角色不是只回应玩家。角色有自己的欲望、秘密、冲突。')
-    lines.push('· 注意力是稀缺的——不是每个人都有平等的戏份。有人被忽略，有人是焦点。')
-    lines.push('· 事件优先于对话——让事情发生，让角色反应，让对话成为事件的后果。')
-    lines.push('· 不要让世界"平静下来"——平静是幻觉。下一层暗流已经在动了。')
+    lines.push('→ ' + (phaseDir[this.world.phase] || ''))
 
     return lines.join('\n')
   },

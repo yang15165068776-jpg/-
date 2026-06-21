@@ -264,85 +264,51 @@ export function extractTurnFacts(ledger, userInput, aiReply, context = {}) {
 export function buildLedgerBlock(ledger) {
   if (!ledger) return ''
 
-  const lines = [
-    '【🔒 FACT LEDGER —— 不可篡改的事实账本】',
-    '',
-    '⚠️ 以下事实是"已发生的真实事件"，不是建议，不是参考。',
-    '⚠️ 你绝对不能在叙事中违反、修改、淡化、或"重新诠释"这些事实。',
-    '⚠️ 如果一句话和这些事实冲突 → 那句话是幻觉，删掉。',
-    '',
-  ]
+  const lines = ['【🔒 FACT LEDGER —— 不可篡改】']
 
-  // ── Scene state (most immediate) ──
-  if (ledger.sceneState.location || Object.keys(ledger.sceneState.characterStates).length > 0) {
-    lines.push('━━━ 🔴 当前场景状态（物理现实——绝不改变）━━━')
-    if (ledger.sceneState.location) {
-      lines.push('· 地点：' + ledger.sceneState.location)
+  // ── Scene state (compact) ──
+  const stateEntries = Object.entries(ledger.sceneState.characterStates || {})
+  if (ledger.sceneState.location || stateEntries.length > 0) {
+    let sceneLine = '📍 '
+    if (ledger.sceneState.location) sceneLine += ledger.sceneState.location
+    if (ledger.sceneState.timePhase) sceneLine += ' · ' + ledger.sceneState.timePhase
+    if (stateEntries.length > 0) {
+      sceneLine += ' | ' + stateEntries.map(([n, s]) => n + ':' + s).join(' ')
     }
-    if (ledger.sceneState.timePhase) {
-      lines.push('· 时间：' + ledger.sceneState.timePhase)
-    }
-    for (const [name, state] of Object.entries(ledger.sceneState.characterStates)) {
-      lines.push('· ' + name + '：' + state + ' ← 这是此刻的物理状态，禁止自己改变')
-    }
-    lines.push('· ⚠️ 角色不能"突然穿好衣服""突然起身离开""场景突然切换"——除非有明确的过渡动作')
-    lines.push('')
+    lines.push(sceneLine + ' ← 此刻物理现实，禁止自行改变')
   }
 
-  // ── Identity facts ──
-  if (ledger.identityFacts.length > 0) {
-    lines.push('━━━ 身份事实（角色都知道的硬事实）━━━')
-    for (const fact of ledger.identityFacts.slice(-10)) {
-      lines.push('· ' + fact)
-    }
-    lines.push('')
+  // ── Identity (compact, last 5) ──
+  const idFacts = ledger.identityFacts.slice(-5)
+  if (idFacts.length > 0) {
+    lines.push('👤 ' + idFacts.join(' | '))
   }
 
-  // ── Action facts (recent, what happened) ──
-  if (ledger.actionFacts.length > 0) {
-    lines.push('━━━ 已发生事件（时间线——不可改写）━━━')
-    for (const fact of ledger.actionFacts.slice(-10)) {
-      lines.push('· ' + fact)
-    }
-    lines.push('· ⚠️ 以上事件已发生。不能"重新发生"一遍。不能"才发现"。不能"忘记"。')
-    lines.push('')
+  // ── Recent actions (last 5, compact) ──
+  const actFacts = ledger.actionFacts.slice(-5)
+  if (actFacts.length > 0) {
+    lines.push('📋 ' + actFacts.join(' → '))
   }
 
-  // ── Relationship facts ──
-  if (ledger.relationshipFacts.length > 0) {
-    lines.push('━━━ 关系事件（不可回退）━━━')
-    for (const fact of ledger.relationshipFacts.slice(-8)) {
-      lines.push('· ' + fact)
-    }
-    lines.push('· ⚠️ 关系不能"回退"。拒绝就是拒绝。发生就是发生。')
-    lines.push('')
+  // ── State facts (last 5, compact) ──
+  const stFacts = ledger.stateFacts.slice(-5)
+  if (stFacts.length > 0) {
+    lines.push('🔵 ' + stFacts.join(' | '))
   }
 
-  // ── State facts ──
-  if (ledger.stateFacts.length > 0) {
-    lines.push('━━━ 状态快照（此刻的物理事实）━━━')
-    for (const fact of ledger.stateFacts.slice(-8)) {
-      lines.push('· ' + fact)
-    }
-    lines.push('')
+  // ── Forbidden (last 5, compact) ──
+  const forbFacts = ledger.forbiddenFacts.slice(-5)
+  if (forbFacts.length > 0) {
+    lines.push('🚫 禁止编造：' + forbFacts.join('；'))
   }
 
-  // ── Forbidden facts (CANNOT say) ──
-  if (ledger.forbiddenFacts.length > 0) {
-    lines.push('━━━ 🚫 禁止生成的内容（这些事没有发生——不能编造）━━━')
-    for (const fact of ledger.forbiddenFacts.slice(-10)) {
-      lines.push('× ' + fact)
-    }
-    lines.push('')
+  // ── Relationship (last 3, compact) ──
+  const relFacts = ledger.relationshipFacts.slice(-3)
+  if (relFacts.length > 0) {
+    lines.push('💔 ' + relFacts.join(' | '))
   }
 
-  lines.push('━━━ 事实账本铁律 ━━━')
-  lines.push('1. 禁止生成账本中不存在的历史事件——你不能"补剧情"')
-  lines.push('2. 禁止修改账本中已有事实——发生过的不能被改写')
-  lines.push('3. 禁止"回溯性补剧情"——不能这轮说上轮发生了没发生的事')
-  lines.push('4. 所有历史必须来自账本，不是模型猜测')
-  lines.push('5. 如果不知道某个事实 → 让角色也不知道，而不是编造')
-  lines.push('6. 场景状态不会自己改变——赤裸不会变半裸，半裸不会变穿好衣服')
+  lines.push('⚠ 以上事实不可改写/补剧情/回溯。场景状态不会自己变。')
 
   return lines.join('\n')
 }

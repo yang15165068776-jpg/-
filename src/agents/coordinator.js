@@ -311,22 +311,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     { role: 'system', content: systemPrompt },
   ]
 
-  // Layer 0: 🔴 Story Canon — immutable world facts (BEFORE memory graph)
-  if (_storyCanon && (_storyCanon.timeline.length > 0 || _storyCanon.lockedFacts.length > 0)) {
-    const canonBlock = buildStoryCanonBlock(_storyCanon)
-    if (canonBlock) {
-      narratorMessages.push({ role: 'system', content: canonBlock })
-    }
-  }
-
-  // Layer 1: Event-Native Memory Graph context (structured relationship state + events)
-  if (_memoryGraph) {
-    const graphContext = buildContext(_memoryGraph, { maxEvents: 12, includeScene: true })
-    if (graphContext) {
-      narratorMessages.push({ role: 'system', content: graphContext })
-    }
-  }
-
+  // Layer 0: 🔴 Story Canon → now covered by Fact Ledger (injected via system prompt)
+  // Layer 1: Memory Graph → now covered by ARSL edges (injected via World Engine)
   // Layer 2: Power Dynamics state (v3.5 — current power structure + shifts)
   if (_powerGraph) {
     const powerContext = buildPowerStateContext(_powerGraph, _worldState)
@@ -343,12 +329,7 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
-  // Layer 4: Event memory (compact structured event log)
-  const eventMemoryText = formatEventLogForPrompt(_worldState.eventLog || [], 10)
-  if (eventMemoryText) {
-    narratorMessages.push({ role: 'system', content: eventMemoryText })
-  }
-
+  // Layer 4: Event memory → now covered by Fact Ledger actionFacts
   // Layer 5: Working memory (last few user/assistant turns for continuity)
   const conversationMsgs = (messages || []).filter(m => m.role !== 'system').slice(-6)
   for (const msg of conversationMsgs) {
