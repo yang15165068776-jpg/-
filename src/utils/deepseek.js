@@ -1648,22 +1648,8 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
   // ── 🔍 Canonical Identity Kernel v1: pre-send validation (Daily) ──
   const ppDaily = character._playerProfile
   if (!ppDaily?.name || ppDaily.name === '玩家' || ppDaily.name === '新玩家') {
-    alert(
-      '[IdentityKernel] ❌ Daily 发送前拦截！\n' +
-      '原因：player.name 无效（' + (ppDaily?.name || '(空)') + '）\n' +
-      '请在 PlayerProfile 中设置你的真实名字后再进入游戏。'
-    )
-    return { reply: null, packet: null, error: new Error('IdentityKernel: player.name invalid') }
+    return { reply: null, packet: null, error: new Error('IdentityKernel: player.name 无效（' + (ppDaily?.name || '(空)') + '），请在 PlayerProfile 中设置你的真实名字。') }
   }
-  alert(
-    '[CANONICAL IDENTITY BLOCK]\n' +
-    'player.name: ' + ppDaily.name + '\n' +
-    'player.id: ' + (ppDaily._id || '(无)') + '\n' +
-    'character: ' + (character.name || '(未知)') + '\n' +
-    'folderId: ' + (character._folderId || '(无)') + '\n' +
-    'saveId: ' + (InteractionKernel.state?.saveId || '(无)') + '\n' +
-    'mode: DAILY'
-  )
 
   let lastError = null
   let lastViolation = null

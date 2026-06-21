@@ -271,22 +271,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   // ── 🔍 Canonical Identity Kernel v1: pre-send validation ──
   const pp = character._playerProfile
   if (!pp?.name || pp.name === '玩家' || pp.name === '新玩家') {
-    alert(
-      '[IdentityKernel] ❌ 发送前拦截！\n' +
-      '原因：player.name 无效（' + (pp?.name || '(空)') + '）\n' +
-      '请在 PlayerProfile 中设置你的真实名字后再进入游戏。'
-    )
-    return { reply: null, error: new Error('IdentityKernel: player.name invalid') }
+    return { reply: null, error: new Error('IdentityKernel: player.name 无效（' + (pp?.name || '(空)') + '），请在 PlayerProfile 中设置你的真实名字。') }
   }
-  alert(
-    '[CANONICAL IDENTITY BLOCK]\n' +
-    'player.name: ' + pp.name + '\n' +
-    'player.id: ' + (pp._id || '(无)') + '\n' +
-    'character: ' + (character.name || '(未知)') + '\n' +
-    'folderId: ' + (_worldState?.folderId || '(无)') + '\n' +
-    'saveId: ' + (_worldState?.saveId || '(无)') + '\n' +
-    'mode: DRAMA'
-  )
 
   // ── Phase 6: Build Narrator prompt + CPS injection ──
   const systemPrompt = buildNarratorPrompt(
