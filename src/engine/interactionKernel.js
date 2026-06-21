@@ -42,6 +42,7 @@ import { AgencyEngine } from '../runtime/agencyEngine'
 import { RelationshipPhysics } from '../runtime/relationshipPhysics'
 import { AutonomousWorldEngine } from '../runtime/autonomousWorldEngine'
 import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedgerBlock, enforceSceneContinuity } from '../runtime/factLedger'
+import { buildConstitution } from '../runtime/characterConstitution'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -774,7 +775,13 @@ export const InteractionKernel = {
         }
       }
 
-      // 2.11. 🌍 Autonomous World Engine — unified world tick
+      // 2.11. ⚖️ CCL — Character Constitution (every turn, top of dynamic section)
+      if (this.state.mode === 'drama') {
+        const uskForCCL = mainCharName ? getRawFolderUSK() : null
+        character._constitution = buildConstitution(character, uskForCCL)
+      }
+
+      // 2.13. 🌍 Autonomous World Engine — unified world tick
       if (this.state.mode === 'drama') {
         const rawUSK = getRawFolderUSK()
         const worldSnapshot = AutonomousWorldEngine.tick(rawUSK, userText)
@@ -788,7 +795,7 @@ export const InteractionKernel = {
         }
       }
 
-      // 2.12. 🔒 Fact Ledger — enforce scene continuity + inject before LLM
+      // 2.14. 🔒 Fact Ledger — enforce scene continuity + inject before LLM
       if (this.state.mode === 'drama' && this.state._ledger) {
         // Enforce continuity from last turn's state
         const lastMsg = this.state.messages[this.state.messages.length - 1]

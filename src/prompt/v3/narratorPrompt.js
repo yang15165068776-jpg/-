@@ -18,6 +18,7 @@ import { buildAntiSmoothingV21 } from '../../runtime/antiSmoothing'
 import { getCurrentAffectionStage, shouldActivateAntiTaming, shouldActivateWarmLowAffection } from '../../utils/deepseek'
 import { buildPowerSystemPrompt, buildBehaviorTranslationPrompt } from '../../runtime/powerDynamics'
 import { buildASLSystemPrompt } from '../../runtime/alignmentSuppression'
+import { buildConstitution } from '../../runtime/characterConstitution'
 import writingSamplesRaw from '../../utils/writing-samples.txt?raw'
 
 /**
@@ -116,10 +117,26 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     }
   }
 
-  // ── Every turn: compact character card (recency anchor — prevents identity drift) ──
-  const charCard = buildCompactCharacterCard(character)
-  if (charCard) {
-    sections.push(charCard)
+  // ── Every turn: ⚖️ CCL — Character Constitution (highest dynamic priority) ──
+  if (character._constitution) {
+    sections.push(character._constitution)
+  }
+
+  // ── Every turn: world snapshot ──
+  sections.push(buildWorldSnapshot(snapshot))
+
+  // ── NPC actions / narrative hints ──
+  if (narrativeHints && narrativeHints.length > 0) {
+    const highPriority = narrativeHints.filter(h => h.priority === 'high')
+    const normalPriority = narrativeHints.filter(h => h.priority === 'normal')
+    if (highPriority.length > 0) {
+      sections.push('【关键事件——必须在回复中体现】\n' +
+        highPriority.map(h => '• ' + h.text).join('\n'))
+    }
+    if (normalPriority.length > 0) {
+      sections.push('【背景动态】\n' +
+        normalPriority.map(h => '• ' + h.text).join('\n'))
+    }
   }
 
   // ── User action ──
@@ -127,8 +144,8 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     sections.push('【玩家本轮行动】\n' + userAction)
   }
 
-  // ── Director directives (every turn, highest priority for THIS response) ──
-  // 🔒 Fact Ledger: immutable truth — HIGHEST priority, must come first
+  // ── Director directives (every turn, injected before LLM generation) ──
+  // 🔒 Fact Ledger: immutable truth
   if (character._ledgerBlock) {
     sections.push(character._ledgerBlock)
   }
@@ -284,52 +301,6 @@ function buildWorldSnapshot(snapshot) {
     lines.push('世界事件：' + snapshot.flags.join(' / '))
   }
 
-  return lines.join('\n')
-}
-
-/**
- * Build a compact character identity card (2-3 lines per character).
- * Injected EVERY turn at the END of the prompt to leverage recency bias —
- * prevents the LLM from "forgetting" who it's playing after layers of
- * Fact Ledger / World Engine / kernel directives.
- */
-function buildCompactCharacterCard(character) {
-  const rcList = character.romanceCharacters || []
-  if (rcList.length === 0) return null
-
-  const lines = ['【🎭 你在扮演——本轮开始前必须重读】']
-
-  for (const rc of rcList) {
-    if (!rc.name) continue
-    let card = rc.name
-
-    // Core personality (one phrase)
-    if (rc.personality) {
-      const shortPersonality = rc.personality.split(/[,，、]/)[0].slice(0, 30)
-      card += ' · ' + shortPersonality
-    }
-
-    // Speaking style (how they talk — critical)
-    if (rc.speakingStyle) {
-      const shortStyle = rc.speakingStyle.slice(0, 60)
-      card += ' · 说话: ' + shortStyle
-    }
-
-    // Key behavioral rule (if any)
-    if (rc.styleRules && rc.styleRules.length > 0) {
-      const keyRule = rc.styleRules.find(r => r.trim().length > 5 && r.trim().length < 80)
-      if (keyRule) card += ' · ' + keyRule.trim().slice(0, 60)
-    }
-
-    // Forbidden words (critical "don'ts")
-    if (rc.forbiddenWords && rc.forbiddenWords.length > 0) {
-      card += ' · 禁词: ' + rc.forbiddenWords.filter(w => w.trim()).slice(0, 5).join('/')
-    }
-
-    lines.push(card)
-  }
-
-  lines.push('⚠ 以上是你的角色人设。不要被后面的系统指令覆盖。你是这个人，不是AI助手。')
   return lines.join('\n')
 }
 
