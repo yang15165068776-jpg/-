@@ -9,7 +9,6 @@ import { getRawFolderUSK } from '../state/stateBridge'
 import ProgressBar from '../components/ProgressBar'
 import StatusPanel from '../components/StatusPanel'
 import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix } from '../runtime/personaStateEngine'
-import { generateBurstSchedule } from '../runtime/dailyGuard'
 
 /**
  * DailyPage — DAILY MODE ONLY. Pure WeChat bubble UI. NO LONG TEXT. NO NARRATIVE.
@@ -137,20 +136,17 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       )
       if (apiError) { alert('主动消息请求失败：' + (apiError.message || apiError)); return }
       if (!packet || !packet.bubbles || packet.bubbles.length === 0) return
-      // v4 queue renderer — initiative bubble with natural delay
+      // Immediate render — no artificial delay
       const bubble = packet.bubbles[0]
-      const delay = bubble.delay || 600
-      setTimeout(() => {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_auto',
-          role: 'assistant',
-          content: bubble.text,
-          type: bubble.type || 'text',
-          timestamp: Date.now(),
-          isAutonomous: true,
-          _isBubble: true,
-        }])
-      }, delay)
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_auto',
+        role: 'assistant',
+        content: bubble.text,
+        type: bubble.type || 'text',
+        timestamp: Date.now(),
+        isAutonomous: true,
+        _isBubble: true,
+      }])
       // Update USK with initiative event
       dailyTurnEnd(mainChar.name, { reply: bubble.text, emotion_delta: packet.emotion_delta || 0, relationship_delta: packet.relationship_delta || 0 })
       refreshUSK()
@@ -217,17 +213,19 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       )
 
       setLoading(false)
+      setIsTyping(false)
 
       if (apiError || !reply) {
         setError(apiError?.message || '请求失败')
-        setIsTyping(false)
+        // Rollback the premature user message on failure
+        setMessages(prev => prev.filter(m => m.timestamp !== userMsg.timestamp || m.role !== 'user'))
         return
       }
 
-      // ── Daily v4: structured packet → queue renderer ──
+      // ── Daily v4: structured packet → immediate render (no artificial delay) ──
       const bubbles = (packet && packet.bubbles && packet.bubbles.length > 0)
         ? packet.bubbles
-        : [{ text: reply.slice(0, 60), type: 'text', delay: 800 }]
+        : [{ text: reply.slice(0, 60), type: 'text', delay: 0 }]
 
       // ── Daily v4 Affection Judge: independent LLM scoring ──
       const judgeResult = await judgeDailyAffection(
@@ -245,53 +243,24 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
 
       // Set affection flash for UI animation
       if (judgedDelta !== 0) {
-        setAffectionFlash(judgedDelta > 0 ? judgedDelta : judgedDelta)
+        setAffectionFlash(judgedDelta)
         setTimeout(() => setAffectionFlash(null), 2500)
       }
 
-      // ── v6 Queue Renderer: Human Burst Scheduler → true WeChat pacing ──
-      const schedule = generateBurstSchedule(affection, bubbles.length)
-      const typingDelay = schedule.delays[0] || 800
-
-      // "已读不回" effect — show typing indicator, then nothing for a while
-      if (schedule.hasReadReceipt) {
-        setTimeout(() => {
-          setIsTyping(false)
-          // After a pause, maybe send something or stay silent
-        }, typingDelay + 2000)
-        return // character read it but didn't reply yet
-      }
-
-      setTimeout(() => {
-        try {
-          setIsTyping(false)
-          // Schedule each bubble with human-like pacing from burst scheduler
-          let cumulativeDelay = 0
-          const sendCount = Math.min(schedule.count, bubbles.length)
-          for (let i = 0; i < sendCount; i++) {
-            const bubble = bubbles[i]
-            // Use scheduler delays, fall back to bubble-provided delay
-            const delay = schedule.delays[i] || bubble.delay || (500 + i * 300)
-            cumulativeDelay += delay
-            setTimeout(() => {
-              setMessages(prev => [...prev, {
-                id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_' + i,
-                role: 'assistant',
-                content: bubble.text,
-                type: bubble.type || 'text',
-                timestamp: Date.now(),
-                _isBubble: true,
-                _behavior: behavior,
-                reasoningContent: i === 0 ? reasoningContent : null,
-                usage: i === 0 ? usage : null,
-              }])
-            }, cumulativeDelay)
-          }
-        } catch (err) {
-          setIsTyping(false)
-          alert('气泡渲染异常：' + (err.message || err))
-        }
-      }, typingDelay)
+      // ── Immediate render: push all bubbles at once, no artificial pacing ──
+      setIsTyping(false)
+      const assistantMsgs = bubbles.map((bubble, i) => ({
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5) + '_' + i,
+        role: 'assistant',
+        content: bubble.text,
+        type: bubble.type || 'text',
+        timestamp: Date.now(),
+        _isBubble: true,
+        _behavior: behavior,
+        reasoningContent: i === 0 ? reasoningContent : null,
+        usage: i === 0 ? usage : null,
+      }))
+      setMessages(prev => [...prev, ...assistantMsgs])
     } catch (e) {
       setLoading(false)
       setIsTyping(false)
