@@ -149,6 +149,10 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   if (character._ledgerBlock) {
     sections.push(character._ledgerBlock)
   }
+  // 📊 Event Graph: causal trace + event nodes
+  if (character._eventGraphContext) {
+    sections.push(character._eventGraphContext)
+  }
   // 🌍 World context: ARSL + Agency + Attention + World Events (unified)
   if (character._worldContext) {
     sections.push(character._worldContext)

@@ -43,6 +43,7 @@ import { RelationshipPhysics } from '../runtime/relationshipPhysics'
 import { AutonomousWorldEngine } from '../runtime/autonomousWorldEngine'
 import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedgerBlock, enforceSceneContinuity } from '../runtime/factLedger'
 import { buildConstitution } from '../runtime/characterConstitution'
+import { EventGraph } from '../runtime/eventGraph'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -242,6 +243,11 @@ export const InteractionKernel = {
     if (mainChar) {
       seedIdentityFacts(this.state._ledger, mainChar, mainChar._playerProfile)
       saveLedger(charId, this.state.saveId, this.state._ledger)
+    }
+
+    // ── 📊 Event Graph v1: init structured event nodes ──
+    if (mode === 'drama' && mainChar) {
+      EventGraph.init(mainChar)
     }
 
     this.state._initialized = true
@@ -797,13 +803,19 @@ export const InteractionKernel = {
 
       // 2.14. 🔒 Fact Ledger — enforce scene continuity + inject before LLM
       if (this.state.mode === 'drama' && this.state._ledger) {
-        // Enforce continuity from last turn's state
         const lastMsg = this.state.messages[this.state.messages.length - 1]
         if (lastMsg?.role === 'assistant' && lastMsg.content) {
           enforceSceneContinuity(this.state._ledger, lastMsg.content)
         }
-        // Inject ledger block into prompt
         character._ledgerBlock = buildLedgerBlock(this.state._ledger)
+      }
+
+      // 2.15. 📊 Event Graph — inject causal trace context before LLM
+      if (this.state.mode === 'drama') {
+        const graphCtx = EventGraph.buildContext()
+        if (graphCtx) {
+          character._eventGraphContext = graphCtx
+        }
       }
 
       // 3. Call agent coordinator
@@ -922,7 +934,12 @@ export const InteractionKernel = {
         { uskState: uskContext, turnCount: this.state.lifecycle.turnCount, character },
       )
 
-      // 12. 🔒 Fact Ledger — extract new facts from this turn
+      // 12. 📊 Event Graph — record turn events into structured nodes
+      EventGraph.processTurn(userText, cleanReply, {
+        characterNames: Object.keys(this.state.affections),
+      })
+
+      // 13. 🔒 Fact Ledger — extract new facts from this turn
       if (this.state._ledger && cleanReply) {
         const charId = mainChar?.name || folderId
         extractTurnFacts(this.state._ledger, userText, cleanReply, {
@@ -932,7 +949,7 @@ export const InteractionKernel = {
         saveLedger(charId, this.state.saveId, this.state._ledger)
       }
 
-      // 13. Persist
+      // 14. Persist
       this._autoSave()
       this._saveToHydration()
 
