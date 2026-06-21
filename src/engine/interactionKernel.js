@@ -37,6 +37,7 @@ import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 import { CausalEngine } from '../runtime/causalEngine'
 import { DramaOrchestrator, syncConflictGraph } from '../runtime/dramaOrchestrator'
 import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from '../runtime/darkActionKernel'
+import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from '../runtime/desireKernel'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -727,6 +728,33 @@ export const InteractionKernel = {
         trackLevel(darkAction.level)
         character._darkActionDirective = darkAction.directive
         character._darkActionLevel = darkAction.level
+      }
+
+      // 2.10. 🔥 Desire & Physicality Kernel — desire push BEFORE language
+      if (this.state.mode === 'drama') {
+        const uskState2 = mainCharName ? getFolderUIState(mainCharName) : {}
+        const desireDecision = decideDesireLevel(character, uskState2, this.state.lifecycle.turnCount, {
+          decisionType: decision?.type || null,
+          darkActionLevel: character._darkActionLevel || 1,
+          alone: true, // Drama scenes default to intimate — refine later with scene detection
+        })
+
+        if (desireDecision.active) {
+          // Anti-averaging for desire
+          const isDesireChar = desireDecision.level > 0
+          const desireOverride = getDesireAntiAveragingOverride(isDesireChar)
+          if (desireOverride > desireDecision.level) {
+            desireDecision.level = desireOverride
+            desireDecision.directive = desireDecision.directive.replace(
+              /当前欲望层：LEVEL \d/,
+              '当前欲望层：LEVEL ' + desireOverride + ' [反均值化强制提升]'
+            )
+          }
+
+          trackDesireLevel(desireDecision.level)
+          character._desireDirective = desireDecision.directive
+          character._desireLevel = desireDecision.level
+        }
       }
 
       // 3. Call agent coordinator

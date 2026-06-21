@@ -121,6 +121,17 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     sections.push('【玩家本轮行动】\n' + userAction)
   }
 
+  // ── Director directives (every turn, highest priority for THIS response) ──
+  if (character._sceneContext) {
+    sections.push(character._sceneContext)
+  }
+  if (character._darkActionDirective) {
+    sections.push(character._darkActionDirective)
+  }
+  if (character._desireDirective) {
+    sections.push(character._desireDirective)
+  }
+
   // Assembly: core prefix (cached) + variable sections
   const variableSuffix = sections.join('\n\n')
 
