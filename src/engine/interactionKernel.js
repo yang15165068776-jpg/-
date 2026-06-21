@@ -44,6 +44,7 @@ import { AutonomousWorldEngine } from '../runtime/autonomousWorldEngine'
 import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedgerBlock, enforceSceneContinuity } from '../runtime/factLedger'
 import { buildConstitution } from '../runtime/characterConstitution'
 import { EventGraph } from '../runtime/eventGraph'
+import { RuntimeOrchestrator } from '../runtime/runtimeOrchestrator'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -731,91 +732,22 @@ export const InteractionKernel = {
         }
       }
 
-      // 2.9. 🔴 Drama Dark Action Kernel — behavior level BEFORE language
-      if (this.state.mode === 'drama') {
-        const uskState = mainCharName ? getFolderUIState(mainCharName) : {}
-        const darkAction = decideDarkActionLevel(character, uskState, this.state.lifecycle.turnCount, {
-          decisionType: decision?.type || null,
-        })
-
-        // Anti-averaging: force higher level if history is too flat
-        const isDark = _detectDarkColor(character)
-        const override = getAntiAveragingOverride(isDark)
-        if (override > darkAction.level) {
-          darkAction.level = override
-          darkAction.directive = darkAction.directive.replace(
-            /当前行为层：LEVEL \d/,
-            '当前行为层：LEVEL ' + override + ' [反均值化强制提升]'
-          )
-        }
-
-        trackLevel(darkAction.level)
-        character._darkActionDirective = darkAction.directive
-        character._darkActionLevel = darkAction.level
-      }
-
-      // 2.10. 🔥 Desire & Physicality Kernel — desire push BEFORE language
-      if (this.state.mode === 'drama') {
-        const uskState2 = mainCharName ? getFolderUIState(mainCharName) : {}
-        const desireDecision = decideDesireLevel(character, uskState2, this.state.lifecycle.turnCount, {
-          decisionType: decision?.type || null,
-          darkActionLevel: character._darkActionLevel || 1,
-          alone: true, // Drama scenes default to intimate — refine later with scene detection
-        })
-
-        if (desireDecision.active) {
-          // Anti-averaging for desire
-          const isDesireChar = desireDecision.level > 0
-          const desireOverride = getDesireAntiAveragingOverride(isDesireChar)
-          if (desireOverride > desireDecision.level) {
-            desireDecision.level = desireOverride
-            desireDecision.directive = desireDecision.directive.replace(
-              /当前欲望层：LEVEL \d/,
-              '当前欲望层：LEVEL ' + desireOverride + ' [反均值化强制提升]'
-            )
-          }
-
-          trackDesireLevel(desireDecision.level)
-          character._desireDirective = desireDecision.directive
-          character._desireLevel = desireDecision.level
-        }
-      }
-
-      // 2.11. ⚖️ CCL — Character Constitution (every turn, top of dynamic section)
-      if (this.state.mode === 'drama') {
-        const uskForCCL = mainCharName ? getRawFolderUSK() : null
-        character._constitution = buildConstitution(character, uskForCCL)
-      }
-
-      // 2.13. 🌍 Autonomous World Engine — unified world tick
+      // 2.X. 🚀 NOS Runtime Orchestrator — run pre-generation pipeline
+      //   INPUT → CCL → NTK → USK → ARSL → EVENTS → CAUSAL → BUILD → RENDER
       if (this.state.mode === 'drama') {
         const rawUSK = getRawFolderUSK()
-        const worldSnapshot = AutonomousWorldEngine.tick(rawUSK, userText)
-        if (worldSnapshot) {
-          character._worldContext = AutonomousWorldEngine.buildNarrativeContext()
-          // Sync world tension back to scene for DramaOrchestrator compatibility
-          if (this.state.scene) {
-            this.state.scene.tension = worldSnapshot.tension
-            this.state.scene.stability = 100 - worldSnapshot.instability
-          }
-        }
-      }
-
-      // 2.14. 🔒 Fact Ledger — enforce scene continuity + inject before LLM
-      if (this.state.mode === 'drama' && this.state._ledger) {
-        const lastMsg = this.state.messages[this.state.messages.length - 1]
-        if (lastMsg?.role === 'assistant' && lastMsg.content) {
-          enforceSceneContinuity(this.state._ledger, lastMsg.content)
-        }
-        character._ledgerBlock = buildLedgerBlock(this.state._ledger)
-      }
-
-      // 2.15. 📊 Event Graph — inject causal trace context before LLM
-      if (this.state.mode === 'drama') {
-        const graphCtx = EventGraph.buildContext()
-        if (graphCtx) {
-          character._eventGraphContext = graphCtx
-        }
+        const uskState = mainCharName ? getFolderUIState(mainCharName) : {}
+        RuntimeOrchestrator.runPreGeneration({
+          userText,
+          character,
+          usk: rawUSK,
+          uskState,
+          ledger: this.state._ledger,
+          messages: this.state.messages,
+          turnCount: this.state.lifecycle.turnCount,
+          decision,
+          mainCharName,
+        })
       }
 
       // 3. Call agent coordinator
