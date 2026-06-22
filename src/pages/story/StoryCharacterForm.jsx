@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../../utils/storage'
-import { generateAutonomySummary, extractCharacterFromText, extractStoryFromText, generateStageBehaviors } from '../../utils/deepseek'
+import { generateAutonomySummary, fillCharacterFromSkeleton, extractStoryFromText, generateStageBehaviors } from '../../utils/deepseek'
 
 const emptyStage = () => ({
   name: '',
@@ -10,6 +10,8 @@ const emptyStage = () => ({
   playerStrategy: '',
   riseCondition: '',
   languageSamples: '',
+  classicLines: '',
+  innerMonologue: '',
   forbiddenBehaviors: '',
   stageDetails: '',
   emotionalTraits: '',
@@ -75,6 +77,9 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
   const [showExtractModal, setShowExtractModal] = useState(false)
   const [extractText, setExtractText] = useState('')
   const [extracting, setExtracting] = useState(false)
+  const [skeletonText, setSkeletonText] = useState('')
+  const [showSkeletonModal, setShowSkeletonModal] = useState(false)
+  const [fillingSkeleton, setFillingSkeleton] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [expandedRC, setExpandedRC] = useState(0)
   const [expandedNPC, setExpandedNPC] = useState(0)
@@ -139,6 +144,8 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                       ...emptyStage(),
                       ...s,
                       languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
+                      classicLines: Array.isArray(s.classicLines) ? s.classicLines.join('\n') : (s.classicLines || ''),
+                      innerMonologue: Array.isArray(s.innerMonologue) ? s.innerMonologue.join('\n') : (s.innerMonologue || ''),
                       forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
                     }))
                   : [emptyStage()],
@@ -325,6 +332,8 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
               playerStrategy: s.playerStrategy.trim(),
               riseCondition: s.riseCondition.trim(),
               languageSamples: parseLines(s.languageSamples),
+              classicLines: parseLines(s.classicLines),
+              innerMonologue: parseLines(s.innerMonologue),
               forbiddenBehaviors: parseLines(s.forbiddenBehaviors),
               selfDriveBehaviors: (s.selfDriveBehaviors || []).filter(b => b.description.trim()),
               stageDetails: s.stageDetails?.trim() || '',
@@ -411,6 +420,8 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   playerStrategy: s.playerStrategy || '',
                   riseCondition: s.riseCondition || '',
                   languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
+                  classicLines: Array.isArray(s.classicLines) ? s.classicLines.join('\n') : (s.classicLines || ''),
+                  innerMonologue: Array.isArray(s.innerMonologue) ? s.innerMonologue.join('\n') : (s.innerMonologue || ''),
                   forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
                   selfDriveBehaviors: Array.isArray(s.selfDriveBehaviors)
                     ? s.selfDriveBehaviors.map(b => ({
@@ -445,6 +456,87 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     setShowExtractModal(false)
     setExtractText('')
     if (rc.length > 0) setExpandedRC(0)
+  }
+
+  // ── Fill character from skeleton ──
+  const handleFillSkeleton = async () => {
+    const text = skeletonText.trim()
+    if (!text) return
+    const apiKey = getApiKey()
+    if (!apiKey) {
+      alert('请先在设置页面填写 DeepSeek API Key')
+      return
+    }
+    setFillingSkeleton(true)
+    const { result, error } = await fillCharacterFromSkeleton(text, apiKey)
+    setFillingSkeleton(false)
+    if (error || !result) {
+      alert('骨架填充失败：' + (error?.message || '未知错误'))
+      return
+    }
+
+    // Map skeleton output to currently expanded romance character
+    const rcIdx = expandedRC
+    const updatedRC = [...form.romanceCharacters]
+    const current = { ...(updatedRC[rcIdx] || emptyRomanceChar()) }
+
+    // Core identity
+    if (result['角色名']) current.name = result['角色名']
+    if (result['背景']) current.background = result['背景']
+    if (result['性格']) current.personality = result['性格']
+    if (result['说话风格']) current.speakingStyle = result['说话风格']
+
+    // Arrays → join with newlines
+    if (Array.isArray(result['文风规则'])) current.styleRules = result['文风规则'].join('\n')
+    else if (result['文风规则']) current.styleRules = result['文风规则']
+    if (Array.isArray(result['禁止行为'])) current.forbiddenWords = result['禁止行为'].join('\n')
+    else if (result['禁止行为']) current.forbiddenWords = result['禁止行为']
+
+    // Affection
+    if (result['好感度初始'] != null) current.affectionInitial = result['好感度初始']
+
+    // Affection stages → map extensively
+    const rawStages = result['好感度阶段'] || []
+    if (rawStages.length > 0) {
+      current.affectionStages = rawStages.map(s => ({
+        ...emptyStage(),
+        name: s.label || s.name || '',
+        min: s.min != null ? Number(s.min) : 0,
+        max: s.max != null ? Number(s.max) : 50,
+        coreState: s.coreState || '',
+        playerStrategy: s.playerStrategy || '',
+        riseCondition: s.riseCondition || '',
+        languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
+        classicLines: Array.isArray(s.classicLines) ? s.classicLines.join('\n') : (s.classicLines || ''),
+        innerMonologue: Array.isArray(s.innerMonologue) ? s.innerMonologue.join('\n') : (s.innerMonologue || ''),
+        forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
+        stageDetails: Array.isArray(s.stageDetails) ? s.stageDetails.join('\n') : (s.stageDetails || ''),
+        emotionalTraits: Array.isArray(s.emotionalTraits) ? s.emotionalTraits.join('\n') : (s.emotionalTraits || ''),
+        stageExplosion: s.stageExplosion || '',
+        selfDriveBehaviors: Array.isArray(s.selfDriveBehaviors)
+          ? s.selfDriveBehaviors.map(b => ({
+              description: b.behavior || b.description || '',
+              trigger: b.trigger || 'overNrounds',
+            }))
+          : [],
+      }))
+    }
+
+    // Advanced fields
+    if (result['transitionTriggers']) current.transitionTriggers = result['transitionTriggers']
+    if (result['irreversibleMoment']) current.irreversibleMoment = result['irreversibleMoment']
+    if (result['erosionCondition']) current.erosionCondition = result['erosionCondition']
+    if (result['anchorSuppression']) current.anchorSuppression = result['anchorSuppression']
+
+    // Opening scene → form-level field
+    updatedRC[rcIdx] = current
+    const newForm = { ...form, romanceCharacters: updatedRC }
+    if (result['openingScene']) newForm.openingScenario = result['openingScene']
+
+    setForm(newForm)
+    setShowSkeletonModal(false)
+    setSkeletonText('')
+    alert('✅ 角色骨架填充完成！请检查各字段，特别是好感度阶段数值范围。')
   }
 
   const handleGenerateBehaviors = async () => {
@@ -623,15 +715,24 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
             <h3 className="text-sm font-medium text-gray-200">💕 可攻略角色</h3>
             <p className="text-xs text-gray-500 mt-0.5">最少1个，最多3个</p>
           </div>
-          {form.romanceCharacters.length < 3 && (
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={addRomanceChar}
-              className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-medium transition-colors"
+              onClick={() => setShowSkeletonModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition-colors"
             >
-              + 添加攻略角色
+              🧬 从骨架填充
             </button>
+            {form.romanceCharacters.length < 3 && (
+              <button
+                type="button"
+                onClick={addRomanceChar}
+                className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-medium transition-colors"
+              >
+                + 添加攻略角色
+              </button>
           )}
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -711,12 +812,12 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
 
                   {/* Background */}
                   <div>
-                    <label style={labelStyle}>详细背景设定</label>
+                    <label style={labelStyle}>详细背景设定（内部真相、身世、行为根源）</label>
                     <textarea
-                      className={inputClass + " h-24 resize-none"}
+                      className={inputClass + " h-36 resize-y"}
                       value={rc.background}
                       onChange={e => updateRC(i, 'background', e.target.value)}
-                      placeholder="描述角色的身份、过往经历、世界观中的位置..."
+                      placeholder="角色的完整背景。包括：童年/身世、核心创伤、行为根源、私生活状态、外貌武器化方式、对感情的态度……越详细AI越能准确扮演。"
                     />
                   </div>
 
@@ -724,21 +825,21 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   <div>
                     <label style={labelStyle}>性格核心</label>
                     <textarea
-                      className={inputClass + " h-20 resize-none"}
+                      className={inputClass + " h-24 resize-y"}
                       value={rc.personality}
                       onChange={e => updateRC(i, 'personality', e.target.value)}
-                      placeholder="角色的核心性格特征、价值观、行为模式..."
+                      placeholder="核心性格特征、价值观、行为模式、对外展示vs内部真相的双层结构..."
                     />
                   </div>
 
                   {/* Style rules */}
                   <div>
-                    <label style={labelStyle}>文风规则（每行一条）</label>
+                    <label style={labelStyle}>文风规则 & 体态动作（每行一条）</label>
                     <textarea
-                      className={inputClass + " h-20 resize-none"}
+                      className={inputClass + " h-24 resize-y"}
                       value={rc.styleRules}
                       onChange={e => updateRC(i, 'styleRules', e.target.value)}
-                      placeholder="该角色的对话和叙事风格规则"
+                      placeholder="该角色的对话风格、肢体语言、习惯性动作、说话节奏。例如：站姿松散像猫科动物、说话时精确控制目光停留时长、靠在门框上时重心压在一条腿上…"
                     />
                   </div>
 
@@ -746,7 +847,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   <div>
                     <label style={labelStyle}>禁止行为（每行一条）</label>
                     <textarea
-                      className={inputClass + " h-20 resize-none"}
+                      className={inputClass + " h-24 resize-y"}
                       value={rc.forbiddenWords}
                       onChange={e => updateRC(i, 'forbiddenWords', e.target.value)}
                       placeholder="该角色不应出现的言行"
@@ -812,15 +913,17 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                                   <input type="number" min="0" max="100" style={inputStyle} value={stage.min} onChange={e => updateRCStage(i, si, 'min', parseInt(e.target.value) || 0)} placeholder="下限" />
                                   <input type="number" min="0" max="100" style={inputStyle} value={stage.max} onChange={e => updateRCStage(i, si, 'max', parseInt(e.target.value) || 0)} placeholder="上限" />
                                 </div>
-                                <textarea className={inputClass + " h-12 resize-none"} value={stage.coreState} onChange={e => updateRCStage(i, si, 'coreState', e.target.value)} placeholder="角色状态描述" />
-                                <textarea className={inputClass + " h-12 resize-none"} value={stage.playerStrategy} onChange={e => updateRCStage(i, si, 'playerStrategy', e.target.value)} placeholder="对玩家的核心策略" />
-                                <textarea className={inputClass + " h-12 resize-none"} value={stage.riseCondition} onChange={e => updateRCStage(i, si, 'riseCondition', e.target.value)} placeholder="上涨触发条件（预期被打破，不是被善待）" />
-                                <textarea className={inputClass + " h-12 resize-none"} value={stage.languageSamples} onChange={e => updateRCStage(i, si, 'languageSamples', e.target.value)} placeholder="本阶段语言样本（每行一句，2-3句）" />
-                                <textarea className={inputClass + " h-12 resize-none"} value={stage.forbiddenBehaviors} onChange={e => updateRCStage(i, si, 'forbiddenBehaviors', e.target.value)} placeholder="本阶段禁止行为（每行一条）" />
+                                <textarea className={inputClass + " h-20 resize-y"} value={stage.coreState} onChange={e => updateRCStage(i, si, 'coreState', e.target.value)} placeholder="角色状态描述（越详细越好——AI会根据此描述塑造角色的整体气场和存在方式）" />
+                                <textarea className={inputClass + " h-20 resize-y"} value={stage.playerStrategy} onChange={e => updateRCStage(i, si, 'playerStrategy', e.target.value)} placeholder="对玩家的核心策略（他怎么对待你？用什么手段？目的是什么？）" />
+                                <textarea className={inputClass + " h-20 resize-y"} value={stage.riseCondition} onChange={e => updateRCStage(i, si, 'riseCondition', e.target.value)} placeholder="上涨触发条件（什么行为会让他好感上升？不是被善待——是预期被打破）" />
+                                <textarea className={inputClass + " h-24 resize-y"} value={stage.languageSamples} onChange={e => updateRCStage(i, si, 'languageSamples', e.target.value)} placeholder="【语言样本】本阶段角色的实际对话示例。每行一句。AI会严格模仿此语气和句式。越多越准确。" />
+                                <textarea className={inputClass + " h-24 resize-y"} value={stage.classicLines} onChange={e => updateRCStage(i, si, 'classicLines', e.target.value)} placeholder="【经典台词】本阶段最具代表性的台词（带情境）。格式：情境描述 + 台词。例如：你加班晚归时——他靠在门框上：「钥匙在门垫下面。热水器按两次。」" />
+                                <textarea className={inputClass + " h-24 resize-y"} value={stage.innerMonologue} onChange={e => updateRCStage(i, si, 'innerMonologue', e.target.value)} placeholder="【内心独白】本阶段角色的典型内心活动。AI会在<think>标签中参考此内容。例如：'又一个。两周，撑死三周。'" />
+                                <textarea className={inputClass + " h-24 resize-y"} value={stage.forbiddenBehaviors} onChange={e => updateRCStage(i, si, 'forbiddenBehaviors', e.target.value)} placeholder="本阶段禁止行为（每行一条。违反即重写）" />
 
-                                <textarea className={inputClass + " h-16 resize-none"} value={stage.stageDetails} onChange={e => updateRCStage(i, si, 'stageDetails', e.target.value)} placeholder="【本阶段表现细节】每行一条具体行为（如：远远看见你脚步一顿转身走开）。AI会将其作为高频自发动作执行。" />
-                                <textarea className={inputClass + " h-16 resize-none"} value={stage.emotionalTraits} onChange={e => updateRCStage(i, si, 'emotionalTraits', e.target.value)} placeholder="【核心情绪与语言特征】每行一条情绪锁（如：任何你对他的冷淡都会让他陷入恐慌）。AI会将其作为底层心理逻辑。" />
-                                <textarea className={inputClass + " h-20 resize-none"} value={stage.stageExplosion} onChange={e => updateRCStage(i, si, 'stageExplosion', e.target.value)} placeholder="【阶段爆发/转折点名场面】描述一个当好感度到达临界或转折时的具体剧情高光（如：血色、车祸、失控大哭等名场面）。AI会在剧情需要时强行触发。" />
+                                <textarea className={inputClass + " h-28 resize-y"} value={stage.stageDetails} onChange={e => updateRCStage(i, si, 'stageDetails', e.target.value)} placeholder="【本阶段表现细节】每行一条具体行为。AI会将其作为高频自发动作执行。写得越细，角色越活。" />
+                                <textarea className={inputClass + " h-28 resize-y"} value={stage.emotionalTraits} onChange={e => updateRCStage(i, si, 'emotionalTraits', e.target.value)} placeholder="【核心情绪与心理逻辑】每行一条情绪锁。AI会将其作为底层心理驱动力。例如：任何你对他的冷淡都会让他陷入恐慌，但他会用更恶劣的态度掩饰。" />
+                                <textarea className={inputClass + " h-32 resize-y"} value={stage.stageExplosion} onChange={e => updateRCStage(i, si, 'stageExplosion', e.target.value)} placeholder="【阶段爆发/转折点名场面】描述本阶段可能引爆的关键剧情高光。AI会在剧情冲突激化时参考此场景进行收拢或爆发。" />
 
                                 {/* Self-drive behaviors */}
                                 <div className="border-t border-gray-600/50 pt-1.5 mt-1.5">
@@ -1089,6 +1192,55 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                 className="flex-[2] py-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-medium transition-all disabled:opacity-50 active:scale-[0.98]"
               >
                 {extracting ? '提取中...' : '🤖 开始提取'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Skeleton Fill modal */}
+      {showSkeletonModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 bg-black/60 backdrop-blur-sm" onClick={() => { setShowSkeletonModal(false); setSkeletonText('') }}>
+          <div className="bg-gray-800 rounded-2xl border border-amber-700/50 p-5 mx-4 w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-medium text-amber-300 mb-1">🧬 从角色骨架填充表单</h3>
+            <p className="text-xs text-gray-400 mb-3">
+              粘贴"角色扮演设计骨架"模板的完整内容。AI会逐段搬运到表单的对应字段——不概括、不缩水、不改编。填充对象为当前展开的可攻略角色。
+            </p>
+
+            <textarea
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-3 text-sm text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none transition-colors flex-1 resize-y"
+              value={skeletonText}
+              onChange={e => setSkeletonText(e.target.value)}
+              placeholder={`# 【角色扮演设计骨架】\n\n## 一、核心身份层\n【角色名】：\n【外部标签】：\n【内部真相】：\n【进场目的】：\n【核心矛盾】：\n\n## 二、皮相与感官层\n【外貌核心】：\n【感官侵略设计】：\n【体态语言】：\n\n## 三、好感度 / 状态进度系统\n阶段一：【0–X】标题：\n  · 角色状态描述：\n  · 对玩家的核心策略：\n  · 上涨触发条件：\n  · 本阶段语言样本：\n  · 典型发言：\n  · 本阶段禁止行为：\n阶段二：【X–X】...\n（可只填2-3个阶段，其余AI推断）\n\n## 四、行为铁律层\n...\n\n## 六、说话风格校准层\n...\n\n## 七、关系差异表\n...\n\n## 八、主动性驱动模块\n...\n\n## 十、开场锚点\n...\n\n提示：骨架不需要填满所有模块。缺失的部分AI会基于已有信息合理推断填充。`}
+              rows={16}
+            />
+
+            {fillingSkeleton && (
+              <div className="flex items-center gap-2 py-2 text-sm text-amber-400">
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                AI正在逐段搬运骨架内容到表单字段...
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={() => { setShowSkeletonModal(false); setSkeletonText('') }}
+                className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleFillSkeleton}
+                disabled={fillingSkeleton || !skeletonText.trim()}
+                className="flex-[2] py-2 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-sm font-medium transition-all disabled:opacity-50 active:scale-[0.98]"
+              >
+                {fillingSkeleton ? '填充中...' : '🧬 填充到当前角色'}
               </button>
             </div>
           </div>

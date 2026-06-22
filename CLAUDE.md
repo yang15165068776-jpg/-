@@ -1,6 +1,6 @@
 # JSJG Character OS v8.0 — Narrative Operating System (NOS)
 
-> 最后更新：2026-06-21（晚上）
+> 最后更新：2026-06-22（好感度系统大修）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -170,6 +170,10 @@ src/
 | Daily气泡不拆分 | 模型用\\n拼多句到一个气泡里 | 后处理按\\n拆分 + 上限5条 |
 | Daily长文 | 格式规则在prompt中间被淹没 | 挪到末尾+近因效应+≤20字+拆分铁律 |
 | executeTurn里mainChar未定义 | init()局部变量在executeTurn()里引用 | 改用character.name |
+| 好感度增长过快（+10/轮） | USK updateUSK的intimacy case硬编码+8，叠加applyEventImpact再+delta → +8+delta | 移除硬编码+8，affection delta单次通过applyEventImpact生效 |
+| 好感度LLM裁判无AI回复 | coordinator在LLM生成前调用judgeAffectionDelta（aiReply为空） | 裁判移至executeTurn步骤5.6（拿到cleanReply后），用实际回复评估 |
+| Daily模式改变好感度 | DailyPage调用judgeDailyAffection修改affection | 移除judgeDailyAffection，relationship_delta恒为0，好感度仅剧情模式裁决 |
+| LLM裁判过于频繁 | 每3轮触发 + 宽泛高信号关键词 | 改为每5轮触发 |
 
 ---
 

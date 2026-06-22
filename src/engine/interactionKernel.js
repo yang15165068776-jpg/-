@@ -32,6 +32,7 @@ import { HydrationEngine } from './hydrationEngine'
 import { AgentDecisionLayer } from './agentDecisionLayer'
 import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
 import { runAgentTurn, resetAgentTurn } from '../agents/coordinator'
+import { judgeAffectionDelta } from '../utils/deepseek'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
 import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 import { CausalEngine } from '../runtime/causalEngine'
@@ -800,6 +801,35 @@ export const InteractionKernel = {
         })
       }
 
+      // 5.6. 🔥 v8.0.1: LLM judge AFTER reply — evaluates the actual interaction
+      const turnReport = result.turnReport || {}
+      turnReport.affectionDeltas = turnReport.affectionDeltas || {}
+      const needsLLM = turnReport.affectionLLMNeeded || []
+      if (needsLLM.length > 0 && apiKey && cleanReply) {
+        console.log('[executeTurn] Post-reply LLM judge needed for:', needsLLM.join(', '))
+        try {
+          const { changes, error: judgeErr } = await judgeAffectionDelta(
+            character, { ...this.state.affections }, userText, cleanReply, apiKey
+          )
+          if (!judgeErr && changes && changes.length > 0) {
+            // Merge judge deltas into affections + turnReport
+            for (const { name, delta } of changes) {
+              if (delta !== 0) {
+                this.state.affections[name] = clamp(
+                  (this.state.affections[name] ?? 50) + delta, -100, 100
+                )
+                turnReport.affectionDeltas[name] = (turnReport.affectionDeltas[name] || 0) + delta
+                console.log('[executeTurn] LLM judge delta:', name, delta)
+              }
+            }
+            // Patch result so dramaTurnEnd picks up correct deltas
+            if (!result.turnReport) result.turnReport = turnReport
+          }
+        } catch (judgeErr) {
+          console.error('[executeTurn] LLM judge failed:', judgeErr)
+        }
+      }
+
       // 6. Add assistant message + reset passive turns
       const assistantMsg = {
         id: generateMsgId(),
@@ -818,14 +848,21 @@ export const InteractionKernel = {
         this._trackUsage(result.usage)
       }
 
-      // 8. Update affections map from coordinator result
+      // 8. Sync affections: start from coordinator base, then merge judge deltas.
+      // (Judge deltas were already applied in step 5.6 above.)
+      // coordinator's updatedAffections = base affections (no judge since v8.0.1)
       if (result.updatedAffections) {
-        this.state.affections = { ...result.updatedAffections }
+        for (const [name, val] of Object.entries(result.updatedAffections)) {
+          // Only set if not already modified by judge (step 5.6)
+          if (!(name in turnReport.affectionDeltas)) {
+            this.state.affections[name] = val
+          }
+        }
       }
 
       // 9. Build affectionFlash for UI animation
       let affectionFlash = null
-      const turnReport = result.turnReport || {}
+      // turnReport already declared above (step 5.6)
       if (turnReport.affectionDeltas) {
         const deltas = {}
         for (const [name, delta] of Object.entries(turnReport.affectionDeltas)) {

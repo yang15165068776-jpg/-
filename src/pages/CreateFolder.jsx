@@ -13,7 +13,7 @@ function safeFloat(val, fallback = 0.9) {
 import { createFolder, addInlineCharacter, generateId } from '../state/folderStore'
 import { createFolderUSK, saveFolderUSK } from '../state/unifiedStateKernel'
 import { getApiKey } from '../utils/storage'
-import { extractStoryFromText } from '../utils/deepseek'
+import { fillCharactersFromText } from '../utils/deepseek'
 import { getActiveAccountId } from '../state/accountStore'
 
 // ═══════════════════════ Shared mini-components ═══════════════════════
@@ -93,7 +93,7 @@ function emptyChar() {
     styleRules: [], forbiddenWords: [],
     worldSetting: '', openingScenario: '', storyTone: '甜虐',
     affectionEnabled: true, affectionInitial: 50,
-    affectionStages: [{ name: '', min: 0, max: 100, behavior: '', coreState: '', playerStrategy: '', riseCondition: '', languageSamples: '', forbiddenBehaviors: '', stageDetails: '', emotionalTraits: '', stageExplosion: '' }],
+    affectionStages: [{ name: '', min: 0, max: 100, behavior: '', coreState: '', playerStrategy: '', riseCondition: '', languageSamples: '', classicLines: '', innerMonologue: '', forbiddenBehaviors: '', stageDetails: '', emotionalTraits: '', stageExplosion: '' }],
     transitionTriggers: '', irreversibleMoment: '', erosionCondition: '', anchorSuppression: '',
     thinkingEnabled: false, thinkingPrompt: '',
     activeMessageEnabled: false, activePrompt: '',
@@ -131,8 +131,8 @@ export default function CreateFolder({ onBack, onCreated }) {
     })
   }
 
-  // ── AI Generate ──
-  const handleAIGenerate = async () => {
+  // ── AI Fill (unified: prose OR skeleton, single OR multi-character) ──
+  const handleAIFill = async () => {
     if (!aiInput.trim() || !apiKey) {
       setAiError(apiKey ? '' : '请先在设置中配置 API Key')
       return
@@ -140,11 +140,12 @@ export default function CreateFolder({ onBack, onCreated }) {
     setAiLoading(true)
     setAiError('')
     try {
-      const { result, error } = await extractStoryFromText(aiInput.trim(), apiKey)
-      if (error) { setAiError('生成失败：' + (error.message || '未知错误')); return }
+      const { result, error } = await fillCharactersFromText(aiInput.trim(), apiKey)
+      if (error) { setAiError('填充失败：' + (error.message || '未知错误')); return }
       if (!result) { setAiError('AI 返回空结果'); return }
 
-      const chars = (result['可攻略角色'] || result.可攻略角色 || []).map(rc => ({
+      const rawChars = result['可攻略角色'] || result.可攻略角色 || []
+      const chars = rawChars.map(rc => ({
         ...emptyChar(),
         id: generateId(),
         name: rc['角色名'] || rc.角色名 || '',
@@ -156,13 +157,20 @@ export default function CreateFolder({ onBack, onCreated }) {
         affectionEnabled: true,
         affectionInitial: rc['好感度初始'] ?? rc.好感度初始 ?? 50,
         affectionStages: (rc['好感度阶段'] || rc.好感度阶段 || []).map(s => ({
-          name: s.label || s.name || '', min: s.min || 0, max: s.max || 100,
-          behavior: s.behavior || (Array.isArray(s.behaviors) ? s.behaviors.map(b => (typeof b === 'string' ? b : b.behavior || b.description || '')).join('；') : ''),
-          coreState: s.coreState || s.coreStateDesc || '',
-          playerStrategy: s.playerStrategy || s.userStrategy || '',
-          riseCondition: s.riseCondition || '', languageSamples: s.languageSamples || '',
-          forbiddenBehaviors: s.forbiddenBehaviors || '', stageDetails: s.stageDetails || '',
-          emotionalTraits: s.emotionalTraits || '', stageExplosion: s.stageExplosion || '',
+          name: s.label || s.name || '',
+          min: s.min != null ? Number(s.min) : 0,
+          max: s.max != null ? Number(s.max) : 100,
+          behavior: s.behavior || [s.coreState, s.playerStrategy, Array.isArray(s.stageDetails) ? s.stageDetails.slice(0, 2).join('；') : ''].filter(Boolean).join('。') || s.name || '',
+          coreState: s.coreState || '',
+          playerStrategy: s.playerStrategy || '',
+          riseCondition: s.riseCondition || '',
+          languageSamples: Array.isArray(s.languageSamples) ? s.languageSamples.join('\n') : (s.languageSamples || ''),
+          classicLines: Array.isArray(s.classicLines) ? s.classicLines.join('\n') : (s.classicLines || ''),
+          innerMonologue: Array.isArray(s.innerMonologue) ? s.innerMonologue.join('\n') : (s.innerMonologue || ''),
+          forbiddenBehaviors: Array.isArray(s.forbiddenBehaviors) ? s.forbiddenBehaviors.join('\n') : (s.forbiddenBehaviors || ''),
+          stageDetails: Array.isArray(s.stageDetails) ? s.stageDetails.join('\n') : (s.stageDetails || ''),
+          emotionalTraits: Array.isArray(s.emotionalTraits) ? s.emotionalTraits.join('\n') : (s.emotionalTraits || ''),
+          stageExplosion: s.stageExplosion || '',
         })),
         transitionTriggers: rc['transitionTriggers'] || rc.transitionTriggers || '',
         irreversibleMoment: rc['irreversibleMoment'] || rc.irreversibleMoment || '',
@@ -171,18 +179,16 @@ export default function CreateFolder({ onBack, onCreated }) {
         expanded: false,
       }))
 
-      setFolderName(result['故事名称'] || result.故事名称 || '')
-      setWorldview(result['世界观'] || result.世界观 || '')
-      setStoryIntro(result['开场剧情'] || result.开场剧情 || '')
+      setFolderName(result['故事名称'] || result.故事名称 || folderName || '')
+      setWorldview(result['世界观'] || result.世界观 || worldview || '')
+      setStoryIntro(result['开场剧情'] || result.开场剧情 || storyIntro || '')
       setCharacters(chars)
     } catch (err) {
-      setAiError('生成失败：' + err.message)
+      setAiError('填充失败：' + err.message)
     } finally {
       setAiLoading(false)
     }
   }
-
-  // ── Create Folder ──
   const handleCreate = () => {
     const name = folderName.trim() || '未命名世界'
     const folder = createFolder(name, worldview.trim(), storyIntro.trim(), getActiveAccountId())
@@ -293,14 +299,23 @@ export default function CreateFolder({ onBack, onCreated }) {
       <div style={S.body}>
         {/* ── AI Generate ── */}
         <div style={S.aiBox}>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>🤖 AI 一键生成</div>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>🤖 AI 智能填充</div>
           <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '8px', lineHeight: 1.4 }}>
-            输入世界观或故事描述，AI 自动生成角色（名字/性格/背景/好感度阶段/风格规则）
+            粘贴角色骨架或故事描述，AI 自动识别格式并填充。骨架模式逐段搬运、缺失推断；散文模式提取角色+世界观。支持多角色。
           </div>
-          <textarea style={{ ...S.textarea, minHeight: '72px', marginBottom: '6px' }} value={aiInput} onChange={e => setAiInput(e.target.value)} placeholder="例如：现代都市背景下，一个冷面CEO与实习生的契约婚姻故事…" />
+          <textarea
+            style={{ ...S.textarea, minHeight: '100px', marginBottom: '6px' }}
+            value={aiInput}
+            onChange={e => setAiInput(e.target.value)}
+            placeholder={`骨架示例：\n# 【角色扮演设计骨架】\n## 一、核心身份层\n【角色名】：陆沉舟\n【外部标签】：...\n\n散文示例：\n现代都市背景下，一个冷面CEO与实习生的契约婚姻故事…\n\n多角色：重复骨架的"## 一"模块，或散文中描述多个角色。`}
+          />
           {aiError && <div style={{ padding: '8px', borderRadius: '8px', background: 'var(--coral-l)', color: 'var(--coral)', fontSize: '12px', marginBottom: '6px' }}>{aiError}</div>}
-          <button style={{ ...S.btn, width: '100%', padding: '10px', opacity: aiLoading || !aiInput.trim() ? 0.5 : 1 }} onClick={handleAIGenerate} disabled={aiLoading || !aiInput.trim()}>
-            {aiLoading ? '⏳ AI 生成中...' : '✨ AI 生成角色与世界'}
+          <button
+            style={{ ...S.btn, width: '100%', padding: '10px', opacity: aiLoading || !aiInput.trim() ? 0.5 : 1 }}
+            onClick={handleAIFill}
+            disabled={aiLoading || !aiInput.trim()}
+          >
+            {aiLoading ? '⏳ AI 处理中...' : '✨ 智能填充角色与世界'}
           </button>
         </div>
 

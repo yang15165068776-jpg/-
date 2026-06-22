@@ -636,6 +636,8 @@ export function updateUSK(event, usk, charName) {
 
   switch (event.type) {
     case 'conflict':
+      // 🔥 v8.0.1 fix: let applyEventImpact handle affection (via impact.affection).
+      // The switch case only manages secondary tension effects.
       ten.unresolved_conflict = clamp((ten.unresolved_conflict ?? 0) + 10, 0, 100)
       rel.trust = clamp((rel.trust ?? 30) - 5, 0, 100)
       emo.anger = clamp((emo.anger ?? 5) + 15, 0, 100)
@@ -643,7 +645,8 @@ export function updateUSK(event, usk, charName) {
       break
 
     case 'intimacy':
-      rel.affection = clamp((rel.affection ?? 50) + 8, 0, 100)
+      // 🔥 v8.0.1 fix: let applyEventImpact handle affection (via impact.affection).
+      // The switch case only manages secondary effects — dependency, excitement, tension.
       rel.dependency = clamp((rel.dependency ?? 30) + 5, 0, 100)
       emo.excitement = clamp((emo.excitement ?? 20) + 10, 0, 100)
       ten.attraction_tension = clamp((ten.attraction_tension ?? 40) + 5, 0, 100)

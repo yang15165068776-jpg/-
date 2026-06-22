@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { sendDailyChatMessage, judgeDailyAffection } from '../utils/deepseek'
+import { sendDailyChatMessage } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
 import { initBridgeForFolder, getFolderUIState, dailyTurnStart, dailyTurnEnd } from '../state/stateBridge'
 import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, getFolder } from '../state/folderStore'
@@ -242,25 +242,15 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       // Cap at 5 bubbles
       if (bubbles.length > 5) bubbles = bubbles.slice(0, 5)
 
-      // ── Daily v4 Affection Judge: independent LLM scoring ──
-      const judgeResult = await judgeDailyAffection(
-        char, affection, userText, reply, apiKey
-      ).catch(() => ({ delta: 0 }))
-      const judgedDelta = judgeResult.delta || 0
-
-      // Update USK with JUDGE's delta (NOT LLM's self-report)
+      // ── v8.0.1: Daily mode no longer changes affection.
+      // All affection changes are governed by drama mode only.
+      // emotion_delta still applies (mood/life only, not affection).
       dailyTurnEnd(mainChar.name, {
         reply,
         emotion_delta: packet?.emotion_delta ?? 0,
-        relationship_delta: judgedDelta,
+        relationship_delta: 0,  // 🔒 Affection frozen in daily mode
       })
       refreshUSK()
-
-      // Set affection flash for UI animation
-      if (judgedDelta !== 0) {
-        setAffectionFlash(judgedDelta)
-        setTimeout(() => setAffectionFlash(null), 2500)
-      }
 
       // ── Immediate render: push all bubbles at once, no artificial pacing ──
       setIsTyping(false)

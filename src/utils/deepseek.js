@@ -342,17 +342,21 @@ function buildGMPrompt(character, affections) {
       if (rc.affectionEnabled && affections) {
         const affValue = affections[rc.name] ?? rc.affectionInitial ?? 50
         const stage = getCurrentAffectionStage(rc, affValue)
+        // normalize: array fields may arrive as arrays from storage, join to string
+        const _s = (v) => Array.isArray(v) ? v.join('\n') : (v || '')
         if (stage) {
           lines.push(
             '\n⚠️【' + rc.name + ' 当前行为锁——本轮必须严格执行，优先于一切其他指令】\n' +
             '当前阶段：' + stage.name + '\n' +
             '当前核心状态：' + (stage.coreState || '') + '\n' +
             '对玩家的策略：' + (stage.playerStrategy || '') + '\n' +
-            (stage.languageSamples ? '本阶段语言样本（必须模仿此风格和语气）：\n' + stage.languageSamples + '\n' : '') +
-            (stage.forbiddenBehaviors ? '本阶段绝对禁止（违反即重写）：\n' + stage.forbiddenBehaviors + '\n' : '') +
-            (stage.stageDetails ? '【必须高频自发穿插的表现细节】：\n' + stage.stageDetails + '\n' : '') +
-            (stage.emotionalTraits ? '【必须严格遵循的底层情绪特征】：\n' + stage.emotionalTraits + '\n' : '') +
-            (stage.stageExplosion ? '【本阶段随时可能引爆的转折点名场面（当剧情冲突激化时，GM必须参考此场景进行强行收拢或突发执行）】：\n' + stage.stageExplosion + '\n' : '') +
+            (_s(stage.languageSamples) ? '【语言样本——必须严格模仿此风格和语气】\n' + _s(stage.languageSamples) + '\n' : '') +
+            (_s(stage.classicLines) ? '【经典台词——本阶段标志性对话（含情境），必须模仿此类台词的口吻和节奏】\n' + _s(stage.classicLines) + '\n' : '') +
+            (_s(stage.innerMonologue) ? '【内心独白参考——本阶段角色的典型内心活动。在<think>标签中参考此内容进行心理分析】\n' + _s(stage.innerMonologue) + '\n' : '') +
+            (_s(stage.forbiddenBehaviors) ? '【绝对禁止（违反即重写）】\n' + _s(stage.forbiddenBehaviors) + '\n' : '') +
+            (_s(stage.stageDetails) ? '【必须高频自发穿插的表现细节】\n' + _s(stage.stageDetails) + '\n' : '') +
+            (_s(stage.emotionalTraits) ? '【必须严格遵循的底层情绪特征】\n' + _s(stage.emotionalTraits) + '\n' : '') +
+            (_s(stage.stageExplosion) ? '【本阶段随时可能引爆的转折点名场面（当剧情冲突激化时，GM必须参考此场景进行强行收拢或突发执行）】\n' + _s(stage.stageExplosion) + '\n' : '') +
             '⚠️ 任何温柔/体贴/居家/暖心的表达都是人设违规，宁愿沉默爆发也不能变软。'
           )
         }
@@ -439,12 +443,18 @@ function buildGMPrompt(character, affections) {
             }
 
             const slines = []
+            const _s2 = (v) => Array.isArray(v) ? v.join('\n') : (v || '')
             slines.push('━━ 【当前阶段】' + (s.name || s.label || '未命名') + ' (' + s.min + '-' + s.max + ') ━━')
             if (s.coreState) slines.push('状态：' + s.coreState)
             if (s.playerStrategy) slines.push('对玩家策略：' + s.playerStrategy)
             if (s.riseCondition) slines.push('上涨条件：' + s.riseCondition)
-            if (s.languageSamples) slines.push('语言样本：' + s.languageSamples)
-            if (s.forbiddenBehaviors) slines.push('本阶段禁止：' + s.forbiddenBehaviors)
+            if (_s2(s.languageSamples)) slines.push('语言样本：' + _s2(s.languageSamples))
+            if (_s2(s.classicLines)) slines.push('经典台词：\n' + _s2(s.classicLines))
+            if (_s2(s.innerMonologue)) slines.push('内心独白参考：\n' + _s2(s.innerMonologue))
+            if (_s2(s.forbiddenBehaviors)) slines.push('本阶段禁止：' + _s2(s.forbiddenBehaviors))
+            if (_s2(s.stageDetails)) slines.push('表现细节：' + _s2(s.stageDetails))
+            if (_s2(s.emotionalTraits)) slines.push('情绪特征：' + _s2(s.emotionalTraits))
+            if (_s2(s.stageExplosion)) slines.push('爆发场面：' + _s2(s.stageExplosion))
             if (s.selfDriveBehaviors && s.selfDriveBehaviors.length > 0) {
               slines.push('自驱行为：\n' + s.selfDriveBehaviors.map(b =>
                 '- ' + (b.behavior || b.description || '') + '（触发：' + (b.trigger || '') + '）'
@@ -1839,58 +1849,129 @@ async function scheduleGraphUpdate(characterId, saveId, graph, cpsState, message
   }
 }
 
-export async function extractCharacterFromText(text, apiKey) {
+export async function fillCharacterFromSkeleton(skeletonText, apiKey) {
   const model = getModel()
 
   const prompt =
-    '你是角色设定解析器。\n' +
-    '从以下文本提取所有信息，\n' +
-    '严格只返回JSON，不要任何其他内容，\n' +
-    '不要markdown代码块，直接输出花括号开头的JSON。\n' +
+    '你是角色设定填充器。用户提供了一份"角色扮演设计骨架"——可能完整，也可能只填了部分模块。\n' +
+    '你的任务：\n' +
+    '  ① 骨架里有内容的模块 → 逐段搬运，原文优先，不概括不缩水不改编\n' +
+    '  ② 骨架里缺失或空白的模块 → 基于已有的角色信息，合理推断并填充默认值。\n' +
+    '     不要让任何字段空着——空的字段意味着AI在扮演时没有依据。\n' +
+    '     推断原则：从角色已有性格/身世/行为模式出发，自然延伸。\n' +
+    '     不确定的用"中性/待补充"，不要编造与已有设定矛盾的内容。\n' +
     '\n' +
+    '━━━ 核心原则 ━━━\n' +
+    '1. 原文优先：骨架里写了的，原句搬入，不改写不润色\n' +
+    '2. 缺失推断：骨架里没写的，基于已有信息合理填充，保证每个字段都有内容\n' +
+    '3. 数组字段：将内容拆成逐条，每条一行\n' +
+    '4. 严格JSON：只输出花括号开头的JSON，不要markdown，不要解释\n' +
+    '\n' +
+    '━━━ 骨架→字段映射表 ━━━\n' +
+    '\n' +
+    '■ 一、核心身份层 → name + background + personality\n' +
+    '  · name = 角色名\n' +
+    '  · background = 将"外部标签""内部真相""进场目的""核心矛盾""一句话总结"全部原文搬入，用换行分隔\n' +
+    '  · personality = 提取性格关键词和核心矛盾\n' +
+    '\n' +
+    '■ 二、皮相与感官层 → background（外貌部分）+ styleRules（体态+感官）\n' +
+    '  · background追加：外貌核心（骨相/皮相）\n' +
+    '  · styleRules：体态语言（常态/应激/修复）+ 感官侵略设计（气味/声音/触感+阶段性变化）\n' +
+    '  · 将"感官侵略设计"的阶段性变化规则写入styleRules\n' +
+    '\n' +
+    '■ 三、好感度/状态进度系统 → affectionStages + 数值规则\n' +
+    '  · affectionInitial = 初始值（默认50）\n' +
+    '  · 每个阶段映射到affectionStages数组的一项：\n' +
+    '    - label = 阶段标题\n' +
+    '    - min/max = 数值范围\n' +
+    '    - coreState = "角色状态描述"\n' +
+    '    - playerStrategy = "对玩家的核心策略"\n' +
+    '    - riseCondition = "上涨触发条件"（原文搬入，包括具体触发项和数值）\n' +
+    '    - languageSamples = "典型发言"+"情绪表现"（合并为语言样本数组）\n' +
+    '    - classicLines = "典型发言"中以"情境——台词"格式的经典对白\n' +
+    '    - innerMonologue = 骨架中如果有内心独白类文字（如"又一个。两周，撑死三周。"），提取到此处\n' +
+    '    - forbiddenBehaviors = "本阶段禁止行为"\n' +
+    '    - stageDetails = "行为逻辑"+"设定细节"中涉及的具体动作和表现\n' +
+    '    - emotionalTraits = 阶段描述中涉及情绪特征的部分\n' +
+    '    - stageExplosion = 如果有爆发/转折相关描述\n' +
+    '    - selfDriveBehaviors: 来自"八、主动性驱动模块"的对应阶段，格式 [{ behavior, trigger }]\n' +
+    '  · 如果骨架写了4+阶段但只有3个，保留全部，不要强行合并\n' +
+    '  · transitionTriggers = "阶段转折锚点"原文\n' +
+    '  · irreversibleMoment = "不可逆的转折"原文\n' +
+    '  · erosionCondition = "反向侵蚀条件"原文\n' +
+    '  · anchorSuppression = "现实锚点压制"原文\n' +
+    '\n' +
+    '■ 四、行为铁律层 → styleRules（追加）+ forbiddenWords\n' +
+    '  · 每条铁律拆成一条styleRules\n' +
+    '  · 铁律中"绝对禁止""禁用表达"类内容 → forbiddenWords\n' +
+    '  · "核心禁忌"中永不承认的内容 → 写入每个阶段的forbiddenBehaviors\n' +
+    '\n' +
+    '■ 六、说话风格校准层 → speakingStyle + 阶段级languageSamples/classicLines/innerMonologue\n' +
+    '  · speakingStyle = "语速节奏"+惯用句式+禁用表达的摘要\n' +
+    '  · "内心独白文体" → 每个阶段的innerMonologue字段追加此约束\n' +
+    '  · "标志性的沉默方式" → styleRules（追加）\n' +
+    '\n' +
+    '■ 七、关系差异表 → styleRules（追加，标注"✦ 关系差异："）\n' +
+    '\n' +
+    '■ 八、主动性驱动模块 → 每个阶段的selfDriveBehaviors数组\n' +
+    '  · 阶段一自驱行为 → 阶段一的selfDriveBehaviors\n' +
+    '  · 阶段二自驱行为 → 阶段二的selfDriveBehaviors\n' +
+    '  · 以此类推\n' +
+    '  · "触发自驱的条件" → autonomyBehavior字段（字符串，原文）\n' +
+    '\n' +
+    '■ 九、NPC生态模块 → 不映射到角色字段（NPC模块由独立表单管理）。\n' +
+    '  但NPC类型预设中的角色关系信息可融入background\n' +
+    '\n' +
+    '■ 十、开场锚点 → openingScene\n' +
+    '  · 将"开场场景""角色此刻的外部/内部状态""第一句话的基调"合并\n' +
+    '  · 保留原句格式，不改编\n' +
+    '\n' +
+    '■ 随机事件指令模块 → 不映射到角色字段（这是系统级设置）。\n' +
+    '  但"事件禁忌""执行格式"可融入styleRules（标注"◆ 随机事件约束："）\n' +
+    '\n' +
+    '━━━ 输出JSON结构 ━━━\n' +
     '{\n' +
-    '  name: 角色名,\n' +
-    '  background: 背景设定,\n' +
-    '  userTitle: 对用户的称呼,\n' +
-    '  styleRules: [文风规则数组],\n' +
-    '  forbiddenBehaviors: [禁止行为数组],\n' +
-    '  \n' +
-    '  affectionEnabled: 布尔值,\n' +
-    '  affectionInitial: 初始好感度数字,\n' +
-    '  affectionStages: [\n' +
+    '  "角色名": "...",\n' +
+    '  "背景": "完整背景（核心身份层全部 + 外貌核心 + 感官侵略）",\n' +
+    '  "性格": "核心性格概括",\n' +
+    '  "文风规则": ["规则1", "规则2", ...],\n' +
+    '  "禁止行为": ["禁1", "禁2", ...],\n' +
+    '  "说话风格": "...",\n' +
+    '  "好感度初始": 50,\n' +
+    '  "好感度阶段": [\n' +
     '    {\n' +
-    '      label: 阶段标题,\n' +
-    '      min: 下限数字,\n' +
-    '      max: 上限数字,\n' +
-    '      coreState: 角色状态描述,\n' +
-    '      playerStrategy: 对玩家的核心策略,\n' +
-    '      riseCondition: 上涨触发条件,\n' +
-    '      languageSamples: 本阶段语言样本,\n' +
-    '      forbiddenBehaviors: 本阶段禁止行为,\n' +
-    '      autonomousBehaviors: [\n' +
-    '        {\n' +
-    '          behavior: 自驱行为描述,\n' +
-    '          trigger: 触发条件描述\n' +
-    '        }\n' +
-    '      ]\n' +
+    '      "label": "阶段标题",\n' +
+    '      "min": 0, "max": 25,\n' +
+    '      "coreState": "角色状态",\n' +
+    '      "playerStrategy": "对玩家策略",\n' +
+    '      "riseCondition": "上涨条件原文",\n' +
+    '      "languageSamples": ["语言样本1", "样本2"],\n' +
+    '      "classicLines": ["情境——台词1", "情境——台词2"],\n' +
+    '      "innerMonologue": ["内心独白1", "独白2"],\n' +
+    '      "forbiddenBehaviors": ["禁止1"],\n' +
+    '      "stageDetails": ["细节1", "细节2"],\n' +
+    '      "emotionalTraits": ["情绪锁1"],\n' +
+    '      "stageExplosion": "爆发场面描述",\n' +
+    '      "selfDriveBehaviors": [{"behavior": "...", "trigger": "..."}]\n' +
     '    }\n' +
     '  ],\n' +
-    '  \n' +
-    '  transitionTriggers: 阶段转折锚点描述,\n' +
-    '  irreversibleMoment: 不可逆转折描述,\n' +
-    '  erosionCondition: 反向侵蚀条件,\n' +
-    '  anchorSuppression: 现实锚点压制场景,\n' +
-    '  \n' +
-    '  thinkingEnabled: 布尔值,\n' +
-    '  thinkingPrompt: 思考层指令,\n' +
-    '  autonomyBehavior: 自主行为总体描述,\n' +
-    '  openingScene: 开场剧情\n' +
+    '  "transitionTriggers": "阶段转折锚点原文",\n' +
+    '  "irreversibleMoment": "不可逆转折原文",\n' +
+    '  "erosionCondition": "反向侵蚀条件原文",\n' +
+    '  "anchorSuppression": "现实锚点压制原文",\n' +
+    '  "autonomyBehavior": "触发自驱的条件原文",\n' +
+    '  "openingScene": "开场场景全文"\n' +
     '}\n' +
     '\n' +
-    '找不到的字段：数组返回[]，字符串返回空字符串，\n' +
-    '数字返回0，布尔值返回false。\n' +
+    '━━━ 最后检查 ━━━\n' +
+    '□ 骨架有内容的模块：原文搬入了吗？\n' +
+    '□ 骨架缺失的模块：基于已有信息合理填充了吗？每个字段都不能空。\n' +
+    '□ 经典台词带情境了吗？（情境——台词 格式）\n' +
+    '□ 上涨触发条件原文搬入了吗？（不要只写"见到特定行为"）\n' +
+    '□ stageDetails里的每一条都是具体可执行的动作/微表情吗？\n' +
+    '□ selfDriveBehaviors分到对应阶段了吗？\n' +
     '\n' +
-    '待解析文字：\n' + text
+    '用户提供的角色骨架：\n' + skeletonText
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {
@@ -1918,7 +1999,127 @@ export async function extractCharacterFromText(text, apiKey) {
     try {
       parsed = JSON.parse(reply)
     } catch (parseErr) {
-      console.error('[extractCharacter] JSON解析失败，原始返回:', reply)
+      console.error('[fillSkeleton] JSON解析失败，原始返回:', reply)
+      throw new Error('JSON解析失败，AI返回格式异常')
+    }
+    return { result: parsed, error: null }
+  } catch (err) {
+    return { result: null, error: err }
+  }
+}
+
+// Keep old function as alias for backward compatibility
+export async function extractCharacterFromText(text, apiKey) {
+  return fillCharacterFromSkeleton(text, apiKey)
+}
+
+/**
+ * Unified fill — handles ANY input format.
+ * Skeleton template → fills fields from skeleton sections.
+ * Prose/story text → extracts characters + world info.
+ * Single character or multiple — AI detects and returns accordingly.
+ */
+export async function fillCharactersFromText(text, apiKey) {
+  const model = getModel()
+
+  const prompt =
+    '你是角色与世界设定解析器。用户会给你一段文字——可能是"角色扮演设计骨架"模板，\n' +
+    '也可能是散文式的故事/角色描述。你需要自动识别格式，然后填充所有信息。\n' +
+    '\n' +
+    '━━━ 识别规则 ━━━\n' +
+    '· 如果文字包含"【角色名】""【外部标签】""## 一、核心身份层"等骨架标记 → 骨架模式\n' +
+    '· 如果文字包含"## 三、好感度"且有"阶段一""阶段二" → 骨架模式\n' +
+    '· 否则 → 散文模式（像小说简介、角色设定文档）\n' +
+    '\n' +
+    '━━━ 骨架模式处理 ━━━\n' +
+    '与 fillCharacterFromSkeleton 相同：逐段搬运骨架内容到对应字段，原文优先，\n' +
+    '缺失模块基于已有信息合理推断填充。每个"## 一、核心身份层" = 一个角色。\n' +
+    '如果有多个角色（多组"## 一"），全部提取。\n' +
+    '\n' +
+    '━━━ 散文模式处理 ━━━\n' +
+    '从故事描述中提取：故事名称、世界观、开场剧情、所有可攻略角色。\n' +
+    '每个角色必须完整填充：名字、背景、性格、说话风格、文风规则、禁止行为、\n' +
+    '好感度阶段（至少3个阶段。如果文本没写全，根据角色性格推断合理填充）。\n' +
+    '\n' +
+    '━━━ 通用原则（两种模式都遵守）━━━\n' +
+    '1. 每个字段都要有内容——空的字段 = AI 扮演时没有依据\n' +
+    '2. 缺失内容基于已有信息推断，不要编造与设定矛盾的东西\n' +
+    '3. 数组字段拆成逐条，字符串字段保留原文\n' +
+    '4. 好感度阶段至少2个，最多5个，数值范围合理分布（如 0-25, 26-55, 56-75, 76-100）\n' +
+    '\n' +
+    '━━━ 输出JSON ━━━\n' +
+    '{\n' +
+    '  "故事名称": "...",\n' +
+    '  "世界观": "...",\n' +
+    '  "开场剧情": "...",\n' +
+    '  "故事基调": "甜虐/纯爱/悬疑/黑暗",\n' +
+    '  "可攻略角色": [\n' +
+    '    {\n' +
+    '      "角色名": "...",\n' +
+    '      "背景": "完整背景（身世/核心创伤/行为根源/私生活/外貌等）",\n' +
+    '      "性格": "核心性格（对外标签 vs 内部真相）",\n' +
+    '      "说话风格": "...",\n' +
+    '      "文风规则": ["规则1", "规则2"],\n' +
+    '      "禁止行为": ["禁1"],\n' +
+    '      "好感度初始": 50,\n' +
+    '      "好感度阶段": [\n' +
+    '        {\n' +
+    '          "label": "阶段标题",\n' +
+    '          "min": 0, "max": 25,\n' +
+    '          "behavior": "本阶段核心行为概括（2-3句话，结合coreState+playerStrategy+stageDetails的精华摘要）",\n' +
+    '          "coreState": "角色状态",\n' +
+    '          "playerStrategy": "对玩家策略",\n' +
+    '          "riseCondition": "上涨条件",\n' +
+    '          "languageSamples": ["语言样本"],\n' +
+    '          "classicLines": ["情境——台词"],\n' +
+    '          "innerMonologue": ["内心独白"],\n' +
+    '          "forbiddenBehaviors": ["禁止行为"],\n' +
+    '          "stageDetails": ["表现细节"],\n' +
+    '          "emotionalTraits": ["情绪锁"],\n' +
+    '          "stageExplosion": "爆发场面",\n' +
+    '          "selfDriveBehaviors": [{"behavior": "...", "trigger": "..."}]\n' +
+    '        }\n' +
+    '      ],\n' +
+    '      "transitionTriggers": "阶段转折锚点",\n' +
+    '      "irreversibleMoment": "不可逆转折",\n' +
+    '      "erosionCondition": "反向侵蚀条件",\n' +
+    '      "anchorSuppression": "现实锚点压制",\n' +
+    '      "autonomyBehavior": "自驱触发条件"\n' +
+    '    }\n' +
+    '  ]\n' +
+    '}\n' +
+    '\n' +
+    '严格只返回JSON，不要markdown，不要解释。直接输出花括号。\n' +
+    '\n' +
+    '用户输入：\n' + text
+
+  try {
+    const response = await fetch(BASE_URL + '/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        response_format: { type: 'json_object' },
+      }),
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.error?.message || `API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const reply = data.choices?.[0]?.message?.content || ''
+    let parsed
+    try {
+      parsed = JSON.parse(reply)
+    } catch (parseErr) {
+      console.error('[fillCharacters] JSON解析失败，原始返回:', reply)
       throw new Error('JSON解析失败，AI返回格式异常')
     }
     return { result: parsed, error: null }

@@ -21,7 +21,7 @@ import { runAllNPCAgents } from './npcAgent'
 import { buildNarratorPrompt } from '../prompt/v3/narratorPrompt'
 import { scoreAllAffections } from '../runtime/affectionRules'
 import { formatEventLogForPrompt } from '../memory/eventMemory'
-import { judgeAffectionDelta, getCurrentAffectionStage, streamCompletion, findForbiddenWord } from '../utils/deepseek'
+import { streamCompletion, findForbiddenWord } from '../utils/deepseek'
 import { getModel } from '../utils/storage'
 import { CORE_SYSTEM_PREFIX } from '../prompt/cachePrefix'
 import { buildCPSInjection, loadConflictState, saveConflictState, ConflictStateEngine } from '../runtime/conflictPersistence'
@@ -203,11 +203,14 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
-  // ── Phase 4: Affection scoring ──
-  // First pass: rule-based (handles ~85% of turns)
+  // ── Phase 4: Affection scoring (trigger evaluation only) ──
+  // 🔥 v8.0.1: LLM judge moved to AFTER the AI reply (in executeTurn).
+  // scoreAllAffections only determines WHETHER to call the judge.
+  // The actual judge call happens in InteractionKernel.executeTurn()
+  // with the real AI reply, so it can properly evaluate the interaction.
   const affectionResult = scoreAllAffections(_worldState, userInput, '', _worldState.roundIndex)
 
-  // Apply rule-based deltas
+  // Apply rule-based deltas (rare — only non-zero for hard anchors)
   for (const [name, delta] of Object.entries(affectionResult.deltas)) {
     _worldState = applyEvent(_worldState, {
       type: 'RELATIONSHIP_CHANGE',
@@ -215,31 +218,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     })
   }
 
-  // Second pass: LLM judge for ambiguous cases
-  // 🔥 v7.1 fix: LLM changes MUST be merged back into affectionResult.deltas
-  // so they propagate to updatedAffections and turnReport downstream
-  if (affectionResult.needsLLM.length > 0 && apiKey) {
-    console.log('[Coordinator] LLM裁判需求:', affectionResult.needsLLM.join(', '))
-    try {
-      const { changes, error } = await judgeAffectionDelta(
-        character, affections, userInput, '', apiKey
-      )
-      if (!error && changes) {
-        for (const { name, delta } of changes) {
-          if (delta !== 0) {
-            _worldState = applyEvent(_worldState, {
-              type: 'RELATIONSHIP_CHANGE',
-              data: { source: name, target: 'player', delta, trigger: 'LLM裁判' },
-            })
-            // 🔥 Merge into affectionResult so it reaches updatedAffections + turnReport
-            affectionResult.deltas[name] = (affectionResult.deltas[name] || 0) + delta
-          }
-        }
-      }
-    } catch (e) {
-      console.error('[Coordinator] LLM裁判失败:', e)
-    }
-  }
+  // LLM judge is deferred — executeTurn will call it with the actual AI reply.
+  // Store needsLLM on affectionResult for executeTurn to check.
 
   // ── Phase 5: CPS Advance + Conflict Detection ──
   // Advance CPS state (decrement conflict lifespans, enforce tension floor)
