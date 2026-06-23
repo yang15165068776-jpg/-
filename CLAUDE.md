@@ -1,6 +1,6 @@
 # JSJG Character OS v8.0 — Narrative Operating System (NOS)
 
-> 最后更新：2026-06-22（好感度大修 + 角色骨架填充系统 + 角色表单升级）
+> 最后更新：2026-06-23（角色边界侵犯系统 + 物理行动主动权层 + 人设忠诚原则）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -11,6 +11,7 @@ v6.5: 聊天式 AI（prompt 拼接 → 模型自由发挥）
 v7.0: 叙事状态机（Identity + Canon 双核 → 4 锁约束）
 v7.1: 双行为核（DarkAction + Desire 并行）
 v8.0: NOS 叙事操作系统（五层架构 + 运行时编排器）
+v8.1: 角色边界侵犯系统（人格感知闸门 + 物理行动主动权 + 人设忠诚原则）
 ```
 
 ---
@@ -42,6 +43,9 @@ v8.0: NOS 叙事操作系统（五层架构 + 运行时编排器）
 ├─────────────────────────────────────────┤
 │  🌍 ADOE  Autonomous Drama Engine       │  autonomousWorldEngine.js
 │          世界自驱事件 + 注意力系统        │  (+ agencyEngine.js, dramaOrchestrator.js)
+├─────────────────────────────────────────┤
+│  🎯 BPL   Boundary Push Layer           │  aggressionProfile.js
+│          人格侵略性分类 + 物理行动决策    │  (+ characterInitiativeKernel.js)
 └────────────┬────────────────────────────┘
              ↓
 ┌─────────────────────────────────────────┐
@@ -60,7 +64,7 @@ v8.0: NOS 叙事操作系统（五层架构 + 运行时编排器）
   ④ STATE_UPDATE     — USK 状态快照
   ⑤ RELATIONSHIP     — ARSL + Agency + World Engine tick
   ⑥ EVENT_TICK       — Event Graph 因果链上下文
-  ⑦ CAUSAL_UPDATE    — DarkAction + Desire 行为层指令
+  ⑦ CAUSAL_UPDATE    — DarkAction + Desire + Initiative 行为层指令
   ⑧ NARRATIVE_BUILD  — prompt 组装
   ⑨ OUTPUT_RENDER    — LLM 生成
 → ⑩ 事件提取 → Event Graph + Fact Ledger + 持久化
@@ -73,18 +77,20 @@ v8.0: NOS 叙事操作系统（五层架构 + 运行时编排器）
 ```
 src/
 ├── runtime/
-│   ├── characterConstitution.js  # ⚖️ CCL — 角色宪法层（每轮注入，最高优先级）
-│   ├── factLedger.js             # 🔒 Fact Ledger — 不可篡改事实账本
-│   ├── eventGraph.js             # 📊 Event Graph — 结构化事件节点 + 因果链
-│   ├── relationshipPhysics.js    # 🔗 ARSL — 非对称关系力场（自动演化）
-│   ├── autonomousWorldEngine.js  # 🌍 ADOE — 世界自驱引擎（注意力+概率事件）
-│   ├── agencyEngine.js           # 🚀 Agency Engine — 角色自主行动（非玩家驱动）
-│   ├── desireKernel.js           # 🔥 Desire Kernel — 5级欲望推进层
-│   ├── darkActionKernel.js       # 🔴 Dark Action Kernel — 5级冷暴力层
-│   ├── dramaOrchestrator.js      # 🎬 修罗场引擎（Conflict Graph + 注意力分配）
-│   ├── runtimeOrchestrator.js    # 🚀 NOS Runtime Orchestrator — 主时钟编排器
-│   ├── stateLocks.js             # 🔒 4 锁校验（Identity/Event/Persona/Shape）
-│   └── dailyGuard.js             # 💬 Daily 守护（关系门禁 + 叙事压制 + 意图生成）
+│   ├── characterConstitution.js    # ⚖️ CCL — 角色宪法层（每轮注入，最高优先级）
+│   ├── factLedger.js               # 🔒 Fact Ledger — 不可篡改事实账本
+│   ├── eventGraph.js               # 📊 Event Graph — 结构化事件节点 + 因果链
+│   ├── relationshipPhysics.js      # 🔗 ARSL — 非对称关系力场（自动演化）
+│   ├── autonomousWorldEngine.js    # 🌍 ADOE — 世界自驱引擎（注意力+概率事件）
+│   ├── agencyEngine.js             # 🚀 Agency Engine — 角色自主行动（非玩家驱动）
+│   ├── desireKernel.js             # 🔥 Desire Kernel — 5级欲望推进层
+│   ├── darkActionKernel.js         # 🔴 Dark Action Kernel — 5级冷暴力层（含物理动作锚点）
+│   ├── characterInitiativeKernel.js# 🎯 Initiative Kernel — 5级物理行动决策（桥接DarkAction+Desire）
+│   ├── aggressionProfile.js        # 🧬 人格侵略性分类（pursuer/confrontational/aloof/gentle）
+│   ├── dramaOrchestrator.js        # 🎬 修罗场引擎（Conflict Graph + 注意力分配）
+│   ├── runtimeOrchestrator.js      # 🚀 NOS Runtime Orchestrator — 主时钟编排器
+│   ├── stateLocks.js               # 🔒 4 锁校验（Identity/Event/Persona/Shape）
+│   └── dailyGuard.js               # 💬 Daily 守护（关系门禁 + 叙事压制 + 意图生成，人格感知）
 │
 ├── state/
 │   ├── identityKernel.js         # 🔵 玩家身份单源锁
@@ -110,17 +116,17 @@ src/
 
 ## 2. 行为核系统（每轮并行注入）
 
-### Dark Action Kernel — 5级冷暴力
+### Dark Action Kernel — 5级冷暴力（v1.1：含物理动作+第三人武器锚点）
 
 | Lv | 名称 | 行为 |
 |----|------|------|
 | 1 | 安全层 | 冷淡、敷衍 |
 | 2 | 轻冲突 | 讽刺、阻断话题 |
-| 3 | 关系破坏 | 取消约定、翻旧账 |
-| 4 | 极端行为 | 威胁断裂、冷暴力策略化 |
-| 5 | 黑暗核心 | 操控、情绪惩罚、心理博弈 |
+| 3 | 关系破坏 | 取消约定、翻旧账、与第三人亲密刺激玩家、堵路逼近 |
+| 4 | 极端行为 | 威胁断裂、动手推搡按墙、**当玩家面与第三人接吻/做爱** |
+| 5 | 黑暗核心 | 操控、情绪惩罚、物理强制、暴力升级、**当玩家面操别人、杀人虐杀** |
 
-### Desire & Physicality Kernel — 5级欲望推进
+### Desire & Physicality Kernel — 5级欲望推进（v1.1：攻略型曲线反转）
 
 | Lv | 名称 | 行为 |
 |----|------|------|
@@ -130,23 +136,49 @@ src/
 | 4 | 失控期 | 腰自己顶、啃咬不是亲吻 |
 | 5 | 崩坏期 | 器官名+动作+感受，不跳过不隐喻 |
 
+> **攻略型反转**：pursuer 角色欲望与好感度成反比——低好感高欲望（征服驱动）。
+
+### Character Initiative Kernel — 5级物理行动（Drama Mode）
+
+| Lv | 名称 | 行为 |
+|----|------|------|
+| 0 | 无物理动作 | 仅语言/存在 |
+| 1 | 物理存在感 | 逼近、堵路、俯视、呼吸打到皮肤上 |
+| 2 | 轻微接触 | 抓手腕、抬下巴逼对视、拽衣领、推肩膀 |
+| 3 | 物理压制 | 按在墙上/桌上、扣住双手、推倒在地、身体压住 |
+| 4 | 暴力冲突 | 扇耳光、掐脖子、拳打脚踢、撕衣物、摔打 |
+| 5 | 极限侵犯 | 强暴、持续殴打致伤、工具压制、不可逆侵犯 |
+
+> **人格上限**：pursuer=Lv5 / confrontational=Lv4 / aloof=Lv3 / gentle=Lv1
+> **决策**：桥接 DarkAction + Desire → 物理行动等级。权限解锁+自主判断（不强制每轮动手）。
+
+### Aggression Profile — 人格侵略性分类
+
+| Profile | 关键词 | 说明 |
+|---------|--------|------|
+| pursuer | 花心、霸道、轻浮、风流、病娇、疯批、邪魅、偏执… | 主动突破边界，追求/占有/征服驱动 |
+| confrontational | 傲娇、毒舌、腹黑、恶劣、暴戾、喜怒无常… | 制造冲突和张力，对抗驱动 |
+| aloof | 清冷、高冷、城府深、强势、冷酷、无情… | 疏离观察，控制距离 |
+| gentle | 温柔、善良、阳光、单纯、软萌、体贴… | 保持距离，不主动侵犯 |
+
 ---
 
 ## 3. Prompt 注入顺序（每轮）
 
 ```
-[DeepSeek 缓存前缀]     ← 首轮完整人设 + 写作范本（自动缓存，不重复计费）
-─────────────────────
-⚖️ CCL 宪法             ← 最高优先级（玩家/角色/世界/交互规则）
-📊 World Snapshot       ← 场景时间地点角色
-👤 User Action          ← 玩家本轮输入
-─────────────────────
-🔒 Fact Ledger          ← 不可篡改事实（紧凑格式 ~150 tokens）
-📊 Event Graph          ← 因果链 + 最近事件节点
-🌍 World Engine         ← 关系力场 + 注意力 + 事件（紧凑格式 ~200 tokens）
-🎬 Scene Context        ← 修罗场导演指令
-🔴 DarkAction Directive ← 冷暴力行为层
-🔥 Desire Directive     ← 欲望推进层
+[DeepSeek 缓存前缀]          ← 首轮：完整人设 + 创作自由基线 + 人设忠诚原则 + 玩家铁律（自动缓存）
+───────────────────────────────────
+⚖️ CCL 宪法                  ← 最高优先级（玩家/角色/世界/交互规则）
+📊 World Snapshot            ← 场景时间地点角色
+👤 User Action               ← 玩家本轮输入
+───────────────────────────────────
+🔒 Fact Ledger               ← 不可篡改事实（紧凑格式 ~150 tokens）
+📊 Event Graph               ← 因果链 + 最近事件节点
+🌍 World Engine              ← 关系力场 + 注意力 + 事件（紧凑格式 ~200 tokens）
+🎬 Scene Context             ← 修罗场导演指令
+🔴 DarkAction Directive      ← 冷暴力行为层
+🔥 Desire Directive          ← 欲望推进层
+🎯 Initiative Directive      ← 物理行动权限解锁层（Drama Mode）
 ```
 
 ---
@@ -177,6 +209,10 @@ src/
 | 角色AI提取丢信息 | extractCharacterFromText只提取部分字段，缺classicLines/innerMonologue/stageDetails等 | 新fillCharacterFromSkeleton：骨架→表单直接映射，逐段搬运不概括 |
 | 角色表单textareas太小 | h-12（3行）+ resize-none | 所有textarea高度翻倍+resize-y，placeholder引导写详细内容 |
 | 创建新世界AI需两次操作 | 骨架和散文分开两个按钮/模式 | 合并为fillCharactersFromText：一个输入框自动识别格式，支持多角色 |
+| 角色太温和/不敢侵犯玩家边界 | 所有闸门仅基于(affection,tension)，无视人格；"不控制玩家"被误解为不碰玩家 | 人格感知闸门+攻击性分类+物理行动权限解锁+人设忠诚原则 |
+| 花心角色不主动+不当面上别人 | 反感情暴走闸门强行保持界限；欲望与好感正比（低好感无欲望）；无第三人武器路径 | 攻略型闸门反转、欲望曲线反转、DarkAction L4-L5加第三人做爱/操别人锚点 |
+| 角色只能说话不能行动 | DarkAction最高物理是"砸东西"；玩家铁律无NPC对玩家物理行为的允许项 | Initiative Kernel 5级物理行动；重写GM约束+铁律明确排除物理行为误解 |
+| 每轮强制物理动作无节奏 | Initiative directive说"你必须每轮碰" | 改为权限解锁+自主判断——角色决定什么时候动手 |
 
 ## 4.5 新功能记录
 
@@ -187,6 +223,9 @@ src/
 | classicLines（经典台词） | 好感度阶段新字段 | 情境——台词格式，AI严格模仿 |
 | innerMonologue（内心独白） | 好感度阶段新字段 | AI在<think>标签中参考此内容 |
 | fillCharactersFromText | deepseek.js | 统一填充函数，替代extractStoryFromText+fillCharacterFromSkeleton |
+| 🎯 人格侵略性分类 | aggressionProfile.js | pursuer/confrontational/aloof/gentle 四档分类，驱动所有闸门 |
+| 🚀 物理行动主动权 | characterInitiativeKernel.js | 5级物理行动决策，桥接DarkAction+Desire，权限解锁+自主判断 |
+| 📜 人设忠诚原则 | cachePrefix.js + deepseek.js | 最高优先级——人设是唯一行为边界，AI安全训练全部作废 |
 
 ---
 
@@ -220,7 +259,8 @@ src/
 ✅ v7.6: CCL — Character Constitution Layer（角色宪法层）
 ✅ v7.7: Event Graph + Causal Trace（NTK v2）
 ✅ v8.0: NOS Runtime Orchestrator（五层架构 + 显式 Pipeline）
-⬜ v8.1: Conflict Reward System（冲突奖励幻觉 — 核心）
-⬜ v8.2: Emotion Drift System（情绪漂移 — 角色情绪随时间自然波动）
-⬜ v8.3: Timeline Forking（时间线分叉 — 多结局支持）
+✅ v8.1: 角色边界侵犯系统（人格感知闸门 + 物理行动主动权 + 人设忠诚原则）
+⬜ v8.2: Conflict Reward System（冲突奖励幻觉 — 核心）
+⬜ v8.3: Emotion Drift System（情绪漂移 — 角色情绪随时间自然波动）
+⬜ v8.4: Timeline Forking（时间线分叉 — 多结局支持）
 ```
