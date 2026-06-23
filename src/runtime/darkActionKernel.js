@@ -1,14 +1,20 @@
 /**
- * Drama Dark Action Kernel v1
+ * Drama Dark Action Kernel v1.1
  *
  * Core problem: characters have "setting intensity" but no "behavioral extremeness."
  * The model auto-averages personality into safe, mild expressions.
+ *
+ * v1.1: Warm-colored pursuer characters (花心 + warm traits) can now reach
+ *       level 3 instead of being hard-capped at level 1. Confrontational chars
+ *       (傲娇, 毒舌…) can reach level 4 instead of being capped at 3.
  *
  * This kernel forces a BEHAVIOR-LEVEL decision BEFORE language generation,
  * so the pipeline becomes:  人设 → 行为 → 语言  (not: 人设 → 语言)
  *
  * Drama Mode Only.
  */
+
+import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfile'
 
 // ═══════════════════════════════════════════════════════════
 // Behavior Level System (1-5)
@@ -31,6 +37,7 @@ const BEHAVIOR_LEVELS = {
       '取消约定', '删除/无视消息', '故意误导玩家',
       '与第三人互动刺激玩家', '突然改变态度', '翻旧账',
       '提出苛刻条件', '情绪勒索暗示',
+      '用身体堵住去路——不让对方走', '逼近到对方不得不后退——入侵个人空间',
     ],
     description: '角色用行为表明：这段关系不一定安全',
   },
@@ -42,6 +49,8 @@ const BEHAVIOR_LEVELS = {
       '情绪爆发——砸东西/摔门/当众让对方难堪',
       '控制/占有冲动——"你再敢…试试"',
       '冷暴力策略化——有计划地疏远',
+      '动手——推搡/拽手腕/按在墙上/掐下巴逼对视',
+      '摔东西升级为摔向对方——杯子砸在旁边的墙上/手机摔在对方面前的地上',
     ],
     description: '角色做出真正伤害关系的行为，不是说说而已',
   },
@@ -54,6 +63,9 @@ const BEHAVIOR_LEVELS = {
       '有条件给予关系——"你做到X，我才给你Y"',
       '心理博弈——让对方猜不透、不确定、焦虑',
       '反向驯化——让对方适应自己的规则',
+      '物理强制——按住/压制/不让走',
+      '暴力升级——扇耳光/掐脖子/拳打',
+      '侵犯行为——撕扯衣物/强行压制/不等对方同意',
     ],
     description: '角色用行为验证：人格设定不是装饰，是行为模式',
   },
@@ -117,12 +129,18 @@ export function decideDarkActionLevel(character, uskState, turnCount, options = 
 
   // Not dark → don't force extreme behavior (warm characters use their own rules)
   if (color === 'warm') {
-    return {
-      level: 1,
-      name: '安全层（暖色人设）',
-      actions: BEHAVIOR_LEVELS[1].actions,
-      directive: buildWarmDirective(uskState),
+    // Warm-colored pursuers (e.g., a 花心 character with warm personality traits)
+    // should NOT be capped at level 1 — their pursuit drive overrides warmth
+    const profile = detectAggressionProfile(character)
+    if (profile !== AGGRESSION_PROFILES.PURSUER) {
+      return {
+        level: 1,
+        name: '安全层（暖色人设）',
+        actions: BEHAVIOR_LEVELS[1].actions,
+        directive: buildWarmDirective(uskState),
+      }
     }
+    // Warm pursuer: fall through to normal level calculation (can reach up to level 3)
   }
 
   // Neutral characters can still go up to level 3
@@ -166,8 +184,17 @@ export function decideDarkActionLevel(character, uskState, turnCount, options = 
     baseLevel = Math.max(baseLevel, 4)
   }
 
-  // Neutral cap: never exceeds level 3
-  if (!isDark) baseLevel = Math.min(baseLevel, 3)
+  // Neutral cap: varies by aggression profile
+  if (!isDark) {
+    const profile = detectAggressionProfile(character)
+    if (profile === AGGRESSION_PROFILES.CONFRONTATIONAL) {
+      baseLevel = Math.min(baseLevel, 4)  // Confrontational can reach level 4
+    } else if (profile === AGGRESSION_PROFILES.PURSUER) {
+      baseLevel = Math.min(baseLevel, 3)  // Pursuer-warm keeps neutral cap
+    } else {
+      baseLevel = Math.min(baseLevel, 3)  // Existing cap for aloof/gentle
+    }
+  }
 
   // Final clamp
   const level = Math.max(1, Math.min(5, baseLevel))

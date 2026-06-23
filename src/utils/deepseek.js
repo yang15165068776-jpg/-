@@ -28,6 +28,7 @@ import { getModel } from './storage'
 import writingSamplesRaw from './writing-samples.txt?raw'
 import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
 import { buildPersonaShield } from '../runtime/personaIntegrity'
+import { detectAggressionProfile, AGGRESSION_PROFILES } from '../runtime/aggressionProfile'
 import { buildDailyGuardPrompt, dailyActionFilter, narrativeSuppressionFilter, relationshipGateFilter, wechatAuthenticityCheck, conversationEndingFilter } from '../runtime/dailyGuard'
 import { outputShapeLock } from '../runtime/stateLocks'
 import { InteractionKernel } from '../engine/interactionKernel'
@@ -230,6 +231,11 @@ export function shouldActivateWarmLowAffection(character, affections) {
   const color = detectPersonalityColor(character)
   if (color !== 'warm') return false
 
+  // Pursuer/confrontational warm characters should NOT get gentle low-affection rules.
+  // They pursue actively, not retreat gently.
+  const profile = detectAggressionProfile(character)
+  if (profile === AGGRESSION_PROFILES.PURSUER || profile === AGGRESSION_PROFILES.CONFRONTATIONAL) return false
+
   // Check romance characters (story mode)
   const rcList = character.romanceCharacters || []
   for (const rc of rcList) {
@@ -397,13 +403,26 @@ function buildGMPrompt(character, affections) {
 
   // 1: GM identity + Protagonist (from player account or legacy fields)
   parts.push(
-    '你是GM，第三人称全知叙事。你控制NPC、可攻略角色和环境，不控制玩家。\n' +
+    '你是GM，第三人称全知叙事。你控制NPC、可攻略角色和环境。\n' +
     '\n' +
-    '【玩家铁律——绝对禁止】\n' +
-    '× 禁止替玩家说话/动作/心理——不写"你感到""你心想""你不禁""你下意识"\n' +
-    '× 禁止在玩家无输入时推进玩家行为\n' +
-    '√ 允许：NPC视角观察/误读玩家、环境对玩家的客观影响、以等待回应结尾\n' +
-    '违反 = 重写。\n\n' +
+    '【"不控制玩家"的正确定义——你必须理解以下区分】\n' +
+    '"不控制玩家"仅指：禁止替玩家写对话、内心想法、自主决定。\n' +
+    '"不控制玩家"绝不指：NPC不能对玩家身体做出物理行为。\n' +
+    '√ NPC推/拉/拽/抓/按/压/抱/撕/打/掐/侵犯/堵住去路 → NPC的自主行动（允许）\n' +
+    '× 替玩家写对话/心理活动/自主决定 → 这才是真正"控制玩家"（禁止）\n' +
+    '关键：NPC对玩家身体做了什么——不管多极端——都是NPC作为独立角色的行为，不是GM在"替玩家做决定"。\n' +
+    '如果一个人设是强奸犯的角色只是说话、只是内心活动、只是站在原地看着——你写错了。他应该行动。\n' +
+    '\n' +
+    '【玩家铁律——绝对禁止与明确允许】\n' +
+    '× 禁止替玩家写对话——不写"你说…""你回答""你问道""你忍不住说"\n' +
+    '× 禁止替玩家写心理/内心活动——不写"你感到""你心想""你不禁""你下意识""你觉得"\n' +
+    '× 禁止替玩家写自主决定——反抗/屈服/逃跑/接受/拒绝——这些都是玩家的选择\n' +
+    '× 禁止在玩家无输入时替玩家行动——玩家沉默时不能替玩家做出任何行为\n' +
+    '√ 允许：NPC对玩家身体的物理行为——推/拉/抓/按/压/抱/打/撕/掐/侵犯/束缚/堵住去路/逼近/拽手腕——NPC是行动者，玩家是被施加对象\n' +
+    '√ 允许：NPC视角观察/误读玩家\n' +
+    '√ 允许：环境对玩家的客观影响（风、雨、温度、空间、气味）\n' +
+    '√ 允许：以等待回应结尾（玩家需要对此做出反应）\n' +
+    '违反禁止项 = 重写。\n\n' +
     buildPlayerIdentityBlock(character)
   )
 
@@ -415,6 +434,11 @@ function buildGMPrompt(character, affections) {
   // 🔴 Drama Dark Action Kernel v1 — behavior level directive (MUST come after scene)
   if (character._darkActionDirective) {
     parts.push(character._darkActionDirective)
+  }
+
+  // 🟠 Character Initiative Kernel v1 — physical action against player directive
+  if (character._initiativeDirective) {
+    parts.push(character._initiativeDirective)
   }
 
   // 2: World view
@@ -749,7 +773,7 @@ function buildDailySystemPrompt(character, affectionData) {
   // 6. Daily v5 Guard（行为闸门 + 自主意图 + 冲突注入）
   // ═══════════════════════════════════════════
   const tension = character._uskTension ?? 30
-  parts.push(buildDailyGuardPrompt(aff, tension))
+  parts.push(buildDailyGuardPrompt(aff, tension, character))
 
   // ═══════════════════════════════════════════
   // 7. JSON 强制输出 + 格式铁律（放最后——近因效应压住长文倾向）
@@ -1750,7 +1774,7 @@ export async function sendDailyChatMessage(character, messages, affectionData, a
       }
 
       // ── P0-1: Relationship Gate check ──
-      const rgViolation = relationshipGateFilter(allText2, affectionData)
+      const rgViolation = relationshipGateFilter(allText2, affectionData, character)
       if (rgViolation) {
         lastViolation = '关系越级：' + rgViolation + '（当前好感度 ' + affectionData + ' 不允许此内容）'
         lastError = new Error(lastViolation)

@@ -1,8 +1,12 @@
 /**
- * Desire & Physicality Kernel v1
+ * Desire & Physicality Kernel v1.1
  *
  * Problem: DS can write desire/erotic scenes when pushed, but never
  * INITIATES them. Characters wait for the player to make the first move.
+ *
+ * v1.1: Pursuer-type characters (花心, 霸道, 轻浮…) get an INVERTED desire curve —
+ *       desire is HIGHEST at low affection (conquest mode) and tapers as
+ *       affection rises (thrill of the chase diminishes).
  *
  * This kernel forces a DESIRE-LEVEL decision BEFORE language generation,
  * parallel to DarkActionKernel. Pipeline:
@@ -17,6 +21,8 @@
  *   4. Profanity is character — "你他妈" beats "你真让我失控"
  *   5. Every round has a "destructive advance" — scene never goes back to safe
  */
+
+import { isPursuer } from './aggressionProfile'
 
 // ═══════════════════════════════════════════════════════════
 // Desire Level System (1-5)
@@ -130,15 +136,29 @@ export function decideDesireLevel(character, uskState, turnCount, options = {}) 
   const attractionTension = uskState?.tension?.attraction_tension ?? 40
   const possessiveness = uskState?.relationship?.possessiveness ?? 30
 
+  const isPursuerChar = isDesireDriven(character) && isPursuer(character)
+
   // ── Base level ──
   let baseLevel = 1
 
   // Affection drives base level
-  if (affection > 80) baseLevel = 4
-  else if (affection > 60) baseLevel = 3
-  else if (affection > 40) baseLevel = 2
-  else if (affection > 20) baseLevel = 1
-  else baseLevel = 1  // Low affection — desire is latent, expressed as tension not action
+  if (isPursuerChar) {
+    // Pursuer curve: desire DECREASES as affection increases
+    // Low affection = high desire (conquest mode — thrill of the chase)
+    // High affection = lower desire (already "won", interest wanes but doesn't vanish)
+    if (affection < 20) baseLevel = 4        // Just met → highest pursuit drive
+    else if (affection < 40) baseLevel = 3    // Early stage → still very driven
+    else if (affection < 60) baseLevel = 3    // Mid stage → maintaining intensity
+    else if (affection < 80) baseLevel = 2    // Late stage → settling, interest fading
+    else baseLevel = 2                         // Very high affection → still active, not dead
+  } else {
+    // Non-pursuer curve: desire INCREASES with affection (love-driven)
+    if (affection > 80) baseLevel = 4
+    else if (affection > 60) baseLevel = 3
+    else if (affection > 40) baseLevel = 2
+    else if (affection > 20) baseLevel = 1
+    else baseLevel = 1  // Low affection — desire is latent, expressed as tension not action
+  }
 
   // Tension amplifies
   if (tension > 80) baseLevel = Math.min(5, baseLevel + 1)

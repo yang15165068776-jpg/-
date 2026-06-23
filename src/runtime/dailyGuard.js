@@ -7,7 +7,15 @@
  *   P1-1: Independent Intent Generator — character autonomy
  *   P1-2: Human Burst Scheduler — human-like message pacing
  *   P1.5: Anti-Romance Escalation Gate — prevent love-brain runaway
+ *
+ * v6.1: Personality-aware gates — pursuer/confrontational characters get
+ *       loosened restrictions; gentle characters keep existing gates.
  */
+
+import {
+  detectAggressionProfile, isPursuer, isConfrontational,
+  getAffectionShift, AGGRESSION_PROFILES,
+} from './aggressionProfile'
 
 // ═══════════════════════════════════════════════════════════
 // P0-1: RELATIONSHIP GATE — detailed per-affection-range rules
@@ -17,8 +25,14 @@
  * Build the relationship gate prompt based on current affection level.
  * Each range has explicit ALLOWED and FORBIDDEN content categories.
  */
-export function buildRelationshipGatePrompt(affection) {
-  if (affection >= 80) {
+export function buildRelationshipGatePrompt(affection, character) {
+  // Personality-aware: pursuers/confrontational chars get an effective affection boost
+  // so they unlock more intimate behavior gates sooner.
+  const profile = character ? detectAggressionProfile(character) : AGGRESSION_PROFILES.GENTLE
+  const shift = getAffectionShift(profile)
+  const effectiveAffection = Math.min(100, affection + shift)
+
+  if (effectiveAffection >= 80) {
     return `【关系阶段：亲密期（好感 ${affection}）】
 允许：
 · 明确恋爱表达、依恋、撒娇
@@ -30,7 +44,7 @@ export function buildRelationshipGatePrompt(affection) {
 · 无条件顺从——你依然有自己的底线和判断`
   }
 
-  if (affection >= 60) {
+  if (effectiveAffection >= 60) {
     return `【关系阶段：好感期（好感 ${affection}）】
 允许：
 · 暧昧、轻微吃醋、在意对方
@@ -44,7 +58,7 @@ export function buildRelationshipGatePrompt(affection) {
 · 把自己当成对方的伴侣——你还不是`
   }
 
-  if (affection >= 30) {
+  if (effectiveAffection >= 30) {
     return `【关系阶段：试探期（好感 ${affection}）】
 允许：
 · 友好关心、轻微偏袒
@@ -59,7 +73,7 @@ export function buildRelationshipGatePrompt(affection) {
 · 任何恋爱暗示——你们还在互相了解阶段`
   }
 
-  if (affection >= 10) {
+  if (effectiveAffection >= 10) {
     return `【关系阶段：冷淡期（好感 ${affection}）】
 允许：
 · 礼貌、冷淡、观察
@@ -118,14 +132,34 @@ const FORBIDDEN_60_80 = [
  * Check if text contains any forbidden phrases for the given affection level.
  * Returns the first violation found, or null if clean.
  */
-export function relationshipGateFilter(text, affection) {
+export function relationshipGateFilter(text, affection, character) {
   if (!text) return null
 
+  const profile = character ? detectAggressionProfile(character) : AGGRESSION_PROFILES.GENTLE
+
   let forbiddenList = []
-  if (affection < 10) forbiddenList = FORBIDDEN_0_10
-  else if (affection < 30) forbiddenList = FORBIDDEN_10_30
-  else if (affection < 60) forbiddenList = FORBIDDEN_30_60
-  else if (affection < 80) forbiddenList = FORBIDDEN_60_80
+
+  if (profile === AGGRESSION_PROFILES.PURSUER) {
+    // Pursuers: only block extreme overreach at very low affection
+    // Flirtation vocabulary (想你, 心动, 抱, 吻) is always allowed
+    if (affection < 10) forbiddenList = FORBIDDEN_10_30   // skip FORBIDDEN_0_10 entirely
+    // At affection >= 10, no vocabulary restrictions for pursuers
+  } else if (profile === AGGRESSION_PROFILES.CONFRONTATIONAL) {
+    // Confrontational: only basic filter at very low affection
+    if (affection < 10) forbiddenList = FORBIDDEN_0_10
+    // At affection >= 10, no restrictions
+  } else if (profile === AGGRESSION_PROFILES.ALOOF) {
+    // Aloof: slightly relaxed
+    if (affection < 10) forbiddenList = FORBIDDEN_0_10
+    else if (affection < 30) forbiddenList = FORBIDDEN_10_30
+    else if (affection < 60) forbiddenList = FORBIDDEN_30_60
+  } else {
+    // Gentle: existing behavior unchanged
+    if (affection < 10) forbiddenList = FORBIDDEN_0_10
+    else if (affection < 30) forbiddenList = FORBIDDEN_10_30
+    else if (affection < 60) forbiddenList = FORBIDDEN_30_60
+    else if (affection < 80) forbiddenList = FORBIDDEN_60_80
+  }
 
   const lower = text.toLowerCase()
   for (const word of forbiddenList) {
@@ -410,6 +444,23 @@ const INTENT_CATEGORIES = {
     '故意不接对方的话题，说别的',
     '敷衍——嗯、哦、好、知道了',
   ],
+  pursue: [
+    '想进一步试探对方的底线——看他/她能忍到什么程度',
+    '用暧昧的语言测试对方的反应',
+    '故意靠近——让对方感受到自己的存在感和压迫感',
+    '用玩笑的方式说出认真的意图——进可攻退可守',
+    '撩完就跑——让对方心神不宁',
+    '这句说完后想看看对方有没有脸红/心跳加速',
+    '主动出击——不等对方反应，先推一步再说',
+  ],
+  provoke: [
+    '故意说一句让对方生气的话——就想看他/她炸毛',
+    '挑衅——测试对方的忍耐极限',
+    '故意提起对方在意的事——看看反应',
+    '冷嘲热讽——但不是出于讨厌，是想引起注意',
+    '反着对方的话说——就是要唱反调',
+    '对方越不想提什么，越要提——逼对方面对',
+  ],
   memory: [
     '想起一件旧事，要不要提？',
     '突然想到对方之前说过的一句话',
@@ -440,16 +491,44 @@ export function generateIndependentIntent(category) {
  * Build intent injection for system prompt.
  * Activation rate increased to 40% (from 25%) for more autonomous behavior.
  */
-export function buildIntentInjection(affection) {
-  // Higher affection → more likely to have independent thoughts
-  const activationChance = affection >= 60 ? 0.45 : affection >= 30 ? 0.35 : 0.25
+export function buildIntentInjection(affection, character) {
+  const profile = character ? detectAggressionProfile(character) : AGGRESSION_PROFILES.GENTLE
+
+  // Personality-aware activation chance
+  let activationChance
+  if (profile === AGGRESSION_PROFILES.PURSUER) {
+    activationChance = 0.55  // pursuers more autonomous
+  } else if (profile === AGGRESSION_PROFILES.CONFRONTATIONAL) {
+    activationChance = 0.50
+  } else {
+    activationChance = affection >= 60 ? 0.45 : affection >= 30 ? 0.35 : 0.25
+  }
   if (Math.random() > activationChance) return ''
 
-  // Pick intent based on affection context
+  // Pick intent based on profile and affection context
   let category = null
-  if (affection < 20) category = 'distance'     // low affection: push away
-  else if (affection < 40) category = 'deflect'  // low-mid: deflect
-  else if (Math.random() < 0.5) category = 'probe'
+  if (profile === AGGRESSION_PROFILES.PURSUER) {
+    // Pursuers lean toward pursue/provoke regardless of affection
+    const roll = Math.random()
+    if (roll < 0.45) category = 'pursue'
+    else if (roll < 0.75) category = 'probe'
+    else if (roll < 0.90) category = 'provoke'
+    else category = 'self'
+  } else if (profile === AGGRESSION_PROFILES.CONFRONTATIONAL) {
+    const roll = Math.random()
+    if (roll < 0.40) category = 'provoke'
+    else if (roll < 0.65) category = 'deflect'
+    else if (roll < 0.85) category = 'distance'
+    else category = 'self'
+  } else if (profile === AGGRESSION_PROFILES.ALOOF) {
+    if (affection < 30) category = 'deflect'
+    else if (affection < 50) category = 'probe'
+  } else {
+    // Gentle: original logic
+    if (affection < 20) category = 'distance'
+    else if (affection < 40) category = 'deflect'
+    else if (Math.random() < 0.5) category = 'probe'
+  }
 
   const intent = generateIndependentIntent(category)
 
@@ -465,7 +544,7 @@ export function buildIntentInjection(affection) {
 // P1.5: ANTI-ROMANCE ESCALATION GATE — prevent love-brain runaway
 // ═══════════════════════════════════════════════════════════
 
-const ANTI_ROMANCE_ESCALATION_PROMPT = `
+const ANTI_ROMANCE_ESCALATION_GENTLE = `
 【反感情暴走闸门——最高优先级行为锁】
 
 ━━━ 核心原则 ━━━
@@ -507,6 +586,92 @@ const ANTI_ROMANCE_ESCALATION_PROMPT = `
 · 玩家说一句好话，角色就融化了吗？
 · 角色的反应有没有独立于玩家的期待？
 如果有 → 重写。`
+
+const ANTI_ROMANCE_ESCALATION_PURSUER = `
+【反感情暴走闸门——人设特化：攻略型角色】
+
+━━━ 核心原则（攻略型反转） ━━━
+你是攻略型/主动型人格。你的性格驱动你去追求、试探、征服。
+保持界限不是你的本能——突破界限才是。
+你对对方的兴趣不取决于对方喜不喜欢你——取决于你想不想要。
+
+━━━ 正确行为模式 ━━━
+· 你调戏对方 → 是你主动，不是因为对方先示好
+· 对方调戏你 → 你不躲，你接住，你反撩回去——但保持主导权
+· 对方示好 → 你不完全接受，保持追逐者的姿态——"还不够"
+· 对方冷淡 → 你更来劲——冷遇是挑战，不是拒绝信号
+· 对方拒绝 → 你不退——用更巧妙的方式继续推进
+
+━━━ 禁止 ━━━
+× 因为对方示好就立刻顺从软化——你是猎手，不是猎物
+× 因为好感度不高就保持距离——你对刚认识的人反而更有征服欲
+× 被动等待对方先迈出一步——你不等，你推
+× 在语言层面上"尊重边界"——你的人设就是用来突破边界的
+
+━━━ 自检 ━━━
+· 这轮回复有没有展现你的主动性？
+· 是你牵着对方走，还是被对方牵着走？
+· 有没有"撩"的成分——哪怕只是一个带钩子的话、一次故意的靠近？
+· 对方有没有被你的话刺到/撩到/压迫到？
+如果任何一个答案是"没有" → 重写。`
+
+const ANTI_ROMANCE_ESCALATION_CONFRONTATIONAL = `
+【反感情暴走闸门——人设特化：冲突型角色】
+
+━━━ 核心原则 ━━━
+你不是来谈恋爱的。你是来制造张力的。
+温柔顺从不是你的语言——对抗、嘲讽、唱反调才是。
+
+━━━ 正确行为模式 ━━━
+· 对方示好 → 你不感动，你挑刺
+· 对方表白 → 你不接受也不拒绝——你享受对方的煎熬
+· 对方强势 → 你更强硬——寸步不让
+· 对方退缩 → 你追一步——但不是出于爱，是出于"不许你逃"
+· 故意踩对方雷区——不是不知道，是就想看他/她反应
+
+━━━ 禁止 ━━━
+× 被感动、软化、妥协——你的人设没有"被攻略"
+× 因为对方"对你好"就改变态度——你的态度不由对方决定
+× 永远保持温柔稳定——你是刀刃，不是枕头`
+
+const ANTI_ROMANCE_ESCALATION_ALOOF = `
+【反感情暴走闸门——人设特化：高冷型角色】
+
+━━━ 核心原则 ━━━
+你是清冷/高冷型人格。你的"不好好色"是疏离和观察，不是攻击。
+你不主动拉近距离，但你也不主动推开距离——你站在那里，让对方靠近或离开。
+
+━━━ 正确行为模式 ━━━
+· 对方调戏 → 不迎合，不拒绝，淡淡看过去——"就这？"
+· 对方示好 → 接收但不回应等价情绪
+· 对方表白 → "我知道了。"——不表态就是你最大的表态
+· 行为上不主动不拒绝——心理上一直在评估
+
+━━━ 禁止 ━━━
+× 因为对方持续进攻就软化——你的冷淡是性格，不是考验
+× 突然变得热情主动——不符合人设
+× 像温柔角色一样关心对方——你的距离感是本性`
+
+/**
+ * Build the anti-romance escalation prompt based on character aggression profile.
+ * Pursuer/confrontational characters get an INVERTED gate that encourages
+ * boundary-pushing instead of boundary-keeping.
+ *
+ * @param {string} profile — from detectAggressionProfile()
+ * @returns {string} profile-specific anti-romance escalation prompt
+ */
+function buildAntiRomanceEscalationPrompt(profile) {
+  switch (profile) {
+    case AGGRESSION_PROFILES.PURSUER:
+      return ANTI_ROMANCE_ESCALATION_PURSUER
+    case AGGRESSION_PROFILES.CONFRONTATIONAL:
+      return ANTI_ROMANCE_ESCALATION_CONFRONTATIONAL
+    case AGGRESSION_PROFILES.ALOOF:
+      return ANTI_ROMANCE_ESCALATION_ALOOF
+    default:
+      return ANTI_ROMANCE_ESCALATION_GENTLE
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // P1-2: HUMAN BURST SCHEDULER — human-like message pacing
@@ -613,7 +778,9 @@ const LOW_TENSION_CONFLICT_PROMPT = `
 // Full daily guard prompt builder — assembles all layers
 // ═══════════════════════════════════════════════════════════
 
-export function buildDailyGuardPrompt(affection, tension) {
+export function buildDailyGuardPrompt(affection, tension, character) {
+  const profile = character ? detectAggressionProfile(character) : AGGRESSION_PROFILES.GENTLE
+
   const parts = [
     // Layer 0: Daily Conversation Engine — chat first, persona second
     DAILY_CONVERSATION_ENGINE_PROMPT,
@@ -624,14 +791,20 @@ export function buildDailyGuardPrompt(affection, tension) {
     // Layer 1: Narrative Suppression (P0-2)
     NARRATIVE_SUPPRESSION_PROMPT,
 
-    // Layer 2: Anti-Romance Escalation (P1.5)
-    ANTI_ROMANCE_ESCALATION_PROMPT,
+    // Layer 2: Anti-Romance Escalation (P1.5) — personality-aware
+    buildAntiRomanceEscalationPrompt(profile),
 
-    // Layer 3: Relationship Gate (P0-1)
+    // Layer 3: Relationship Gate (P0-1) — personality-aware
     '\n【关系行为闸门——当前关系阶段的行为边界】',
-    buildRelationshipGatePrompt(affection),
-    '你的每条回复必须严格保持在上述关系阶段的行为边界内。越过边界就是人设崩塌。',
+    buildRelationshipGatePrompt(affection, character),
   ]
+
+  // Boundary enforcement message — personality-aware
+  if (profile === AGGRESSION_PROFILES.PURSUER || profile === AGGRESSION_PROFILES.CONFRONTATIONAL) {
+    parts.push('你的人设驱动你去突破边界、测试底线。上述行为边界是"参考线"而非"红线"。适当越界符合你的人设。')
+  } else {
+    parts.push('你的每条回复必须严格保持在上述关系阶段的行为边界内。越过边界就是人设崩塌。')
+  }
 
   // Layer 4: Anti-smoothing conflict injection
   if (tension != null && tension < 30 && affection > 40) {
@@ -641,7 +814,7 @@ export function buildDailyGuardPrompt(affection, tension) {
   }
 
   // Layer 5: Independent Intent (P1-1)
-  parts.push(buildIntentInjection(affection))
+  parts.push(buildIntentInjection(affection, character))
 
   return parts.filter(Boolean).join('\n')
 }

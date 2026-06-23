@@ -1,6 +1,6 @@
 # JSJG Character OS v8.0 — Narrative Operating System (NOS)
 
-> 最后更新：2026-06-22（好感度系统大修）
+> 最后更新：2026-06-22（好感度大修 + 角色骨架填充系统 + 角色表单升级）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -174,6 +174,19 @@ src/
 | 好感度LLM裁判无AI回复 | coordinator在LLM生成前调用judgeAffectionDelta（aiReply为空） | 裁判移至executeTurn步骤5.6（拿到cleanReply后），用实际回复评估 |
 | Daily模式改变好感度 | DailyPage调用judgeDailyAffection修改affection | 移除judgeDailyAffection，relationship_delta恒为0，好感度仅剧情模式裁决 |
 | LLM裁判过于频繁 | 每3轮触发 + 宽泛高信号关键词 | 改为每5轮触发 |
+| 角色AI提取丢信息 | extractCharacterFromText只提取部分字段，缺classicLines/innerMonologue/stageDetails等 | 新fillCharacterFromSkeleton：骨架→表单直接映射，逐段搬运不概括 |
+| 角色表单textareas太小 | h-12（3行）+ resize-none | 所有textarea高度翻倍+resize-y，placeholder引导写详细内容 |
+| 创建新世界AI需两次操作 | 骨架和散文分开两个按钮/模式 | 合并为fillCharactersFromText：一个输入框自动识别格式，支持多角色 |
+
+## 4.5 新功能记录
+
+| 功能 | 位置 | 说明 |
+|------|------|------|
+| 🧬 从骨架填充角色 | StoryCharacterForm 角色编辑页 | 粘贴角色骨架→AI逐段搬运到表单。缺字段自动推断 |
+| 🤖 AI 智能填充（创建新世界） | CreateFolder 页 | 统一输入框。骨架/散文/单角色/多角色自动识别 |
+| classicLines（经典台词） | 好感度阶段新字段 | 情境——台词格式，AI严格模仿 |
+| innerMonologue（内心独白） | 好感度阶段新字段 | AI在<think>标签中参考此内容 |
+| fillCharactersFromText | deepseek.js | 统一填充函数，替代extractStoryFromText+fillCharacterFromSkeleton |
 
 ---
 

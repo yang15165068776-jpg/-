@@ -166,6 +166,9 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   if (character._desireDirective) {
     sections.push(character._desireDirective)
   }
+  if (character._initiativeDirective) {
+    sections.push(character._initiativeDirective)
+  }
 
   // Assembly: core prefix (cached) + variable sections
   const variableSuffix = sections.join('\n\n')

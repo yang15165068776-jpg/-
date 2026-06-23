@@ -28,6 +28,7 @@ import { RelationshipPhysics } from './relationshipPhysics'
 import { AgencyEngine } from './agencyEngine'
 import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from './darkActionKernel'
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from './desireKernel'
+import { decideInitiativeLevel } from './characterInitiativeKernel'
 import { buildNarratorPrompt } from '../prompt/v3/narratorPrompt'
 import { runAgentTurn } from '../agents/coordinator'
 
@@ -180,6 +181,17 @@ const PIPELINE = [
         ctx.character._desireDirective = desireDecision.directive
         ctx.character._desireLevel = desireDecision.level
       }
+
+      // Initiative — physical action against player (bridges DarkAction + Desire)
+      const initiativeDecision = decideInitiativeLevel(ctx.character, ctx.uskState, ctx.turnCount, {
+        darkActionLevel: darkAction.level,
+        desireLevel: desireDecision.level,
+        decisionType: ctx.decision?.type || null,
+      })
+      if (initiativeDecision.active) {
+        ctx.character._initiativeDirective = initiativeDecision.directive
+        ctx.character._initiativeLevel = initiativeDecision.level
+      }
     },
   },
 
@@ -192,7 +204,7 @@ const PIPELINE = [
       // Prompt is built inside runAgentTurn → buildNarratorPrompt
       // The character object now carries all injected blocks:
       //   _constitution, _ledgerBlock, _eventGraphContext,
-      //   _worldContext, _darkActionDirective, _desireDirective
+      //   _worldContext, _darkActionDirective, _desireDirective, _initiativeDirective
     },
   },
 
