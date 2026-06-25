@@ -599,10 +599,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
   const sectionStyle = { background:'var(--bg2)', borderRadius:'12px', padding:'16px', marginBottom:'12px' }
   const labelStyle = { fontSize:'13px', color:'var(--text2)', display:'block', marginBottom:'6px' }
   const groupTitle = { fontSize:'12px', color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'8px', marginTop:'24px' }
-  // Legacy aliases for unconverted className references
   const inputClass = ''
-  const labelClass = ''
-  const sectionClass = ''
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'var(--bg)' }}>

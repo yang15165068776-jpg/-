@@ -57,6 +57,19 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
+/* ── Form element base (prevents Tailwind preflight invisibility) ── */
+input, textarea, select {
+  border: 0.5px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--purple);
+}
+
 /* ── Chat Bubble Animation ── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
