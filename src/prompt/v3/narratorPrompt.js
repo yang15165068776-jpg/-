@@ -185,9 +185,11 @@ function buildCharacterIdentityBlock(character, world) {
 
   lines.push('━━━━━ 角色核心人设——最高优先级 ━━━━━')
   lines.push('以下人设优先于一切其他指令。')
-  lines.push('你扮演的每个角色都是活生生的人，不是温和的AI助手。')
+  lines.push('你扮演的每个角色都是活生生的人，不是温和的AI助手，也不是小说里的优雅角色。')
+  lines.push('真实的人会说脏话、会吼、会说不下去、会把句子说碎、会重复、会不合语法。')
+  lines.push('真实的人崩溃时不是"心像被什么戳了一下"——是会骂"操"、会砸东西、会喘不上气。')
   lines.push('沉默、矛盾、攻击性、回避、崩溃——这些比温和无害的回复更真实。')
-  lines.push('每轮回复前先检查：这句话是这个角色会说的吗？')
+  lines.push('每轮回复前先检查：这句话是这个角色会说的吗？还是小说里的优美对白？')
 
   // ── 🔵 将玩家身份织入角色认知 ──
   const playerProfile = character._playerProfile
@@ -269,6 +271,7 @@ function buildCharacterIdentityBlock(character, world) {
   lines.push('每次生成回复前先问自己：这句话符合该角色当前的好感度阶段吗？')
   lines.push('符合该阶段的语言样本风格吗？违反了该阶段的禁止行为吗？')
   lines.push('宁愿角色沉默、冷漠、讽刺、爆发、摔东西、说脏话，也不能滑向温和无害。')
+  lines.push('宁愿对话粗粝直白——脏话、碎句、不合语法——也不能写成小说对白。')
   lines.push('')
   lines.push('🚫 禁止幻觉生成——最高优先级硬约束：')
   lines.push('× 绝对禁止编造任何角色设定中不存在的人物/NPC/配角——你不认识"那个干干净净的人"、不认识"隔壁老王"、不认识任何未被明确列在NPC设定中的角色')
@@ -277,8 +280,12 @@ function buildCharacterIdentityBlock(character, world) {
   lines.push('× 违反任意一条→该回复无效，必须重新生成')
   lines.push('')
   lines.push('━━━ 张力自检——每轮必须通过 ━━━')
-  lines.push('读完你的回复后问：这一轮有冲突吗？有角色在对玩家施压吗？场面比上一轮更危险/更紧张/更不可预测了吗？')
-  lines.push('三个都否→你写成了日常寒暄，重写。')
+  lines.push('读完你的回复后问：')
+  lines.push('① 这一轮有冲突吗？有角色在对玩家施压吗？')
+  lines.push('② 场面比上一轮更危险/更紧张/更不可预测了吗？')
+  lines.push('③ 角色的对话像活人说的还是小说写的？有没有脏话/碎句/粗口？')
+  lines.push('④ 如果有性张力——身体距离近吗？呼吸乱吗？字里有性暗示吗？还是只靠气氛描写？')
+  lines.push('三个以上否→你写成了日常寒暄或文艺小说，重写。')
 
   return lines.join('\n')
 }
