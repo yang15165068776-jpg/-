@@ -22,6 +22,8 @@
  *   User Input
  */
 
+import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfile'
+
 // ═══════════════════════════════════════════════════════════
 // 1. Constitution Builder
 // ═══════════════════════════════════════════════════════════
@@ -112,6 +114,12 @@ function _buildCharacterConstitutions(character, uskState) {
       card.push(' 人格=' + rc.personality.slice(0, 80))
     }
 
+    // Aggression profile — daily behavior baseline, NEVER drifts to gentle
+    const profile = _detectProfile(rc)
+    if (profile && profile !== 'gentle') {
+      card.push(' ⚠️人格分类=' + profile + '——日常不做家务/不记喜好/不准备食物/不安静陪伴。拒绝滑向居家温柔。')
+    }
+
     // Background
     if (rc.background) {
       card.push(' 背景=' + rc.background.slice(0, 80))
@@ -170,6 +178,24 @@ function _getStageInfo(rc, affection) {
     }
   }
   return null
+}
+
+/**
+ * Detect aggression profile for a single romance character.
+ * Wraps detectAggressionProfile with per-character data isolation.
+ */
+function _detectProfile(rc) {
+  try {
+    // Build a minimal character object for the detector
+    const char = {
+      personality: rc.personality || '',
+      background: rc.background || '',
+      behavior: rc.behavior || '',
+    }
+    return detectAggressionProfile(char)
+  } catch (e) {
+    return AGGRESSION_PROFILES.GENTLE
+  }
 }
 
 function _buildWorldConstitution(character) {
