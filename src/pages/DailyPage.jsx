@@ -6,6 +6,7 @@ import { getSave, getOrCreateDefaultSave, getSaveMessages, saveSaveMessages, get
 import { getActiveAccount } from '../state/accountStore'
 import { HydrationEngine } from '../engine/hydrationEngine'
 import { getRawFolderUSK } from '../state/stateBridge'
+import { AutonomousInitiativeSystem } from '../runtime/autonomousInitiativeSystem'
 import ProgressBar from '../components/ProgressBar'
 import StatusPanel from '../components/StatusPanel'
 import { buildPersonaFromUSK, decideBehavior, getPersonaPromptSuffix } from '../runtime/personaStateEngine'
@@ -97,20 +98,48 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
     }
   }, [messages, saveId, folderId])
 
-  // ── Initiative Engine v4 — auto-message scheduler ──
+  // ── AIIS v1 — Autonomous Intent & Initiative System (replaces Initiative Engine v4) ──
   useEffect(() => {
     if (!autoMsgEnabled || messages.length === 0) return
-    const chance = (affection * 0.005 + (life?.lonely || 40) * 0.004 + (tension?.unresolved_conflicts || 30) * 0.003)
-    const interval = 15000 + Math.random() * 25000 // 15-40s between checks
+
+    // Lazy-init AIIS on first activation
+    if (AutonomousInitiativeSystem._turnCount === 0) {
+      const usk = getRawFolderUSK()
+      const folder = getFolder(folderId)
+      const mergedBg = mainChar.background || (folder ? folder.worldview : '') || ''
+      const playerAcct = getActiveAccount()
+      const initChar = {
+        name: mainChar.name,
+        background: mergedBg,
+        personality: mainChar.personality || '',
+        romanceCharacters: [{ name: mainChar.name, personality: mainChar.personality || '', background: mergedBg }],
+        _playerProfile: playerAcct ? { name: playerAcct.name || '' } : null,
+      }
+      AutonomousInitiativeSystem.init(initChar, usk || {})
+    }
+
+    // Poll AIIS for ready bursts
+    const interval = 10000 // Check every 10s
     autoMsgTimerRef.current = setInterval(() => {
-      if (Math.random() < Math.min(chance, 0.15)) {
-        generateAutoMessage()
+      if (loading) return
+
+      // Tick AIIS with current USK
+      const usk = getRawFolderUSK()
+      if (usk) {
+        AutonomousInitiativeSystem.tick(usk, {})
+      }
+
+      // Check for ready bursts
+      const readyBursts = AutonomousInitiativeSystem.getPendingBursts()
+      if (readyBursts.length > 0) {
+        generateAutoMessage(readyBursts[0])
       }
     }, interval)
-    return () => { if (autoMsgTimerRef.current) clearInterval(autoMsgTimerRef.current) }
-  }, [autoMsgEnabled, affection, life, tension, messages.length])
 
-  const generateAutoMessage = useCallback(async () => {
+    return () => { if (autoMsgTimerRef.current) clearInterval(autoMsgTimerRef.current) }
+  }, [autoMsgEnabled, messages.length, loading, mainChar.name])
+
+  const generateAutoMessage = useCallback(async (burst) => {
     if (!apiKey || loading) return
     setIsTyping(true)
     try {
@@ -126,8 +155,17 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
         contextWindow: mainChar.contextWindow || 40,
         _playerProfile: playerAcct ? { _id: playerAcct.id || '', name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
       }
-      // Initiative prompt: character reaches out proactively, very short
-      const systemCtx = { role: 'system', content: '【Daily v4 主动消息】你主动给对方发了一条微信。像突然想到对方了。只发 1 条，5-15 字。不解释自己为什么发。例："在干嘛" / "刚看到个东西" / "[表情包]"' }
+
+      // Build intent-specific prompt from AIIS (or fallback to generic)
+      let systemContent
+      if (burst) {
+        systemContent = AutonomousInitiativeSystem.buildAutonomousMessagePrompt(burst)
+      }
+      if (!systemContent) {
+        systemContent = '【Daily 主动消息】你主动给对方发了一条微信。像突然想到对方了。只发 1 条，5-15 字。不解释自己为什么发。例："在干嘛" / "刚看到个东西" / "[表情包]"'
+      }
+
+      const systemCtx = { role: 'system', content: systemContent }
       const ctxMsgs = [...messages.slice(-6), systemCtx]
       const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }
       const { reply, packet, error: apiError } = await sendDailyChatMessage(
@@ -146,6 +184,7 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
         timestamp: Date.now(),
         isAutonomous: true,
         _isBubble: true,
+        _aiisIntent: burst?.intent?.type || null,
       }])
       // Update USK with initiative event
       dailyTurnEnd(mainChar.name, { reply: bubble.text, emotion_delta: packet.emotion_delta || 0, relationship_delta: packet.relationship_delta || 0 })
@@ -169,6 +208,9 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
     const newMsgs = [...messages, userMsg]
     setMessages(newMsgs)
     setInput('')
+
+    // Record player interaction in AIIS — resets idle timer, updates motivation
+    AutonomousInitiativeSystem.recordPlayerInteraction()
 
     // Merge folder-level worldview into character for LLM prompt
     const folder = getFolder(folderId)

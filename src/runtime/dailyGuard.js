@@ -16,6 +16,7 @@ import {
   detectAggressionProfile, isPursuer, isConfrontational,
   getAffectionShift, AGGRESSION_PROFILES,
 } from './aggressionProfile'
+import { AutonomousInitiativeSystem } from './autonomousInitiativeSystem'
 
 // ═══════════════════════════════════════════════════════════
 // P0-1: RELATIONSHIP GATE — detailed per-affection-range rules
@@ -489,9 +490,39 @@ export function generateIndependentIntent(category) {
 
 /**
  * Build intent injection for system prompt.
- * Activation rate increased to 40% (from 25%) for more autonomous behavior.
+ *
+ * v8.4: AIIS-driven. First checks AutonomousInitiativeSystem for an active
+ * computed intent (motivation-driven, not random). If AIIS has a live intent,
+ * injects it directly — no random chance, AIIS already made the decision.
+ * Falls back to legacy random intent generation if AIIS is not initialized.
  */
 export function buildIntentInjection(affection, character) {
+  const charName = character?.name
+
+  // ── Primary: AIIS-driven intent ──
+  if (charName) {
+    try {
+      const aiisEntry = AutonomousInitiativeSystem.getLastIntent(charName)
+      if (aiisEntry && aiisEntry.intent && aiisEntry.intent.strength >= 20) {
+        const { intent } = aiisEntry
+        const age = Math.round((Date.now() - aiisEntry.timestamp) / 1000)
+        // Don't use stale intents (> 5 min)
+        if (age <= 300) {
+          return `
+【本轮自主意图——AIIS 决策层注入】
+角色内在驱动力：${intent.label}（动机：${intent.motivationSource} ${intent.strength}/100）
+${intent.description || ''}
+这不是强制指令，而是角色当前的心理倾向。
+如果符合角色性格和当前情境，自然地让角色的行为和措辞流露这个内在驱动力。
+不要解释你在做什么——让意图从行动中泄漏出来。`
+        }
+      }
+    } catch (_) {
+      // AIIS not available — fall through to legacy
+    }
+  }
+
+  // ── Fallback: legacy random intent generation ──
   const profile = character ? detectAggressionProfile(character) : AGGRESSION_PROFILES.GENTLE
 
   // Personality-aware activation chance

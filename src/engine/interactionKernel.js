@@ -762,6 +762,8 @@ export const InteractionKernel = {
           turnCount: this.state.lifecycle.turnCount,
           decision,
           mainCharName,
+          sceneState: this.state.scene,                  // v8.4: ANDS needs scene awareness
+          lifecyclePassiveTurns: this.state.lifecycle.passiveTurns,  // v8.4: ANDS needs passivity tracking
         })
       }
 

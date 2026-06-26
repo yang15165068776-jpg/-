@@ -309,6 +309,31 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
+  // Layer 3.5: AIIS Intent Context (v8.4 — character motivations + autonomous intent)
+  if (character._aiisIntentContext) {
+    narratorMessages.push({ role: 'system', content: character._aiisIntentContext })
+  }
+
+  // Layer 3.6: ANDS Narrative Directive (v8.4 — characters seizing narrative control)
+  if (character._andsNarrativeDirective) {
+    narratorMessages.push({ role: 'system', content: character._andsNarrativeDirective })
+  }
+
+  // Layer 3.7: DAS Narrative Event (v8.4 — world autopilot: tension/conflict/scene/interrupt)
+  if (character._dasNarrativeEvent) {
+    narratorMessages.push({ role: 'system', content: character._dasNarrativeEvent })
+  }
+
+  // Layer 3.8: DCS Director's Cut (v8.4 — curated narrative control: spotlight/pacing/conflict/branch)
+  if (character._dcsDirectorCut) {
+    narratorMessages.push({ role: 'system', content: character._dcsDirectorCut })
+  }
+
+  // Layer 3.9: NDOS Scene Card (v8.4 — THE authoritative director's instruction for this scene)
+  if (character._ndosSceneCard) {
+    narratorMessages.push({ role: 'system', content: character._ndosSceneCard })
+  }
+
   // Layer 4: Event memory → now covered by Fact Ledger actionFacts
   // Layer 5: Working memory (last few user/assistant turns for continuity)
   const conversationMsgs = (messages || []).filter(m => m.role !== 'system').slice(-6)

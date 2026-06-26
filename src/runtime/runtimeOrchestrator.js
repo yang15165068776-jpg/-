@@ -26,6 +26,11 @@ import { EventGraph } from './eventGraph'
 import { AutonomousWorldEngine } from './autonomousWorldEngine'
 import { RelationshipPhysics } from './relationshipPhysics'
 import { AgencyEngine } from './agencyEngine'
+import { AutonomousInitiativeSystem } from './autonomousInitiativeSystem'
+import { AutonomousNarrativeDrive } from './autonomousNarrativeDrive'
+import { DramaAutopilot } from './dramaAutopilot'
+import { DramaControlSystem } from './dramaControlSystem'
+import { NarrativeDirectorOS } from './narrativeDirectorOS'
 import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from './darkActionKernel'
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from './desireKernel'
 import { decideInitiativeLevel } from './characterInitiativeKernel'
@@ -121,6 +126,190 @@ const PIPELINE = [
         ctx.worldTension = worldSnapshot.tension
         ctx.worldInstability = worldSnapshot.instability
       }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
+  // STEP 5.5: AIIS_TICK — Autonomous Intent & Initiative (v8.4)
+  // ═══════════════════════════════════════════════════
+  {
+    name: 'AIIS_TICK',
+    fn(ctx) {
+      if (!ctx.character || !ctx.usk) return
+
+      // Init on first call (lazy — avoids needing explicit init call)
+      if (AutonomousInitiativeSystem._turnCount === 0) {
+        AutonomousInitiativeSystem.init(ctx.character, ctx.usk)
+      }
+
+      // Record player interaction if there's input
+      if (ctx.userText && ctx.userText.trim()) {
+        AutonomousInitiativeSystem.recordPlayerInteraction()
+      }
+
+      // Tick AIIS — compute motivations + generate intents + schedule bursts
+      const arslEdges = RelationshipPhysics.edges || {}
+      const tickResult = AutonomousInitiativeSystem.tick(ctx.usk, arslEdges)
+
+      // Inject intent context into character for prompt assembly
+      ctx.character._aiisIntentContext = AutonomousInitiativeSystem.buildAllIntentsContext()
+
+      // Store tick result for post-generation processing
+      ctx._aiisTickResult = tickResult
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
+  // STEP 5.6: ANDS_TICK — Autonomous Narrative Drive (v8.4)
+  // ═══════════════════════════════════════════════════
+  {
+    name: 'ANDS_TICK',
+    fn(ctx) {
+      if (!ctx.character || !ctx.usk) return
+
+      // Init on first call
+      if (AutonomousNarrativeDrive._turnCount === 0) {
+        AutonomousNarrativeDrive.init(ctx.character, ctx.usk)
+      }
+
+      // Gather world state for awareness
+      const worldState = AutonomousWorldEngine.getWorldState()
+      const agencyHints = AgencyEngine._pendingHints || []
+      const arslEdges = RelationshipPhysics.edges || {}
+      const passiveTurns = ctx.lifecyclePassiveTurns || 0
+
+      // Tick ANDS — compute autonomy + generate narrative intents + schedule actions
+      const andsResult = AutonomousNarrativeDrive.tick(
+        ctx.usk,
+        ctx.sceneState || null,  // sceneState from DramaOrchestrator
+        worldState,
+        agencyHints,
+        arslEdges,
+        ctx.lifecyclePassiveTurns || passiveTurns,
+        !!ctx.userText,          // playerJustActed
+      )
+
+      // Inject narrative directives into character for prompt assembly
+      ctx.character._andsNarrativeDirective = AutonomousNarrativeDrive.buildAllNarrativeDirectives()
+
+      // Store for post-generation
+      ctx._andsTickResult = andsResult
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
+  // STEP 5.7: DAS_TICK — Drama Autopilot System (v8.4)
+  // ═══════════════════════════════════════════════════
+  {
+    name: 'DAS_TICK',
+    fn(ctx) {
+      if (!ctx.character || !ctx.usk) return
+
+      // Init on first call
+      if (DramaAutopilot._state.turnCount === 0) {
+        DramaAutopilot.init()
+      }
+
+      // Run autopilot cycle
+      const arslEdges = RelationshipPhysics.edges || {}
+      const dasResult = DramaAutopilot.tick({
+        arslEdges,
+        sceneState: ctx.sceneState || null,
+        uskState: ctx.usk,
+        userText: ctx.userText || '',
+      })
+
+      // Inject DAS narrative event block into character for prompt assembly
+      ctx.character._dasNarrativeEvent = DramaAutopilot.buildNarrativeEventBlock()
+
+      // Store for post-generation
+      ctx._dasTickResult = dasResult
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
+  // STEP 5.8: DCS_DIRECT — Drama Control System (v8.4)
+  // ═══════════════════════════════════════════════════
+  {
+    name: 'DCS_DIRECT',
+    fn(ctx) {
+      if (!ctx.character || !ctx.usk) return
+
+      // Init on first call
+      if (DramaControlSystem._state.turnCount === 0) {
+        DramaControlSystem.init()
+      }
+
+      // Gather inputs from generation systems
+      const arslEdges = RelationshipPhysics.edges || {}
+      const attentionMap = AutonomousWorldEngine.getAttention() || {}
+      const playerName = ctx.mainCharName || (ctx.character?._playerProfile?.name) || '玩家'
+
+      // Run director cycle — curate what AIIS+ANDS+DAS generated
+      const dcsResult = DramaControlSystem.direct({
+        character: ctx.character,
+        uskState: ctx.usk,
+        arslEdges,
+        sceneState: ctx.sceneState || null,
+        attentionMap,
+        playerName,
+        dasTickResult: ctx._dasTickResult || null,
+        andsTickResult: ctx._andsTickResult || null,
+      })
+
+      // Inject unified Director's Cut into character for prompt assembly
+      ctx.character._dcsDirectorCut = dcsResult.directorCut
+
+      // Store for post-generation
+      ctx._dcsResult = dcsResult
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
+  // STEP 5.9: NDOS_DIRECT — Narrative Director OS (v8.4)
+  // ═══════════════════════════════════════════════════
+  {
+    name: 'NDOS_DIRECT',
+    fn(ctx) {
+      if (!ctx.character || !ctx.usk) return
+
+      // Init on first call
+      if (NarrativeDirectorOS._state.turnCount === 0) {
+        NarrativeDirectorOS.init()
+      }
+
+      // Gather character names
+      const rcList = ctx.character?.romanceCharacters || []
+      const characterNames = rcList.map(rc => rc.name).filter(Boolean)
+      if (ctx.character?.name && !characterNames.includes(ctx.character.name)) {
+        characterNames.push(ctx.character.name)
+      }
+      if (ctx.mainCharName && !characterNames.includes(ctx.mainCharName)) {
+        characterNames.push(ctx.mainCharName)
+      }
+
+      const arslEdges = RelationshipPhysics.edges || {}
+      const attentionMap = AutonomousWorldEngine.getAttention() || {}
+      const playerName = ctx.mainCharName || (ctx.character?._playerProfile?.name) || '玩家'
+
+      // Run NDOS director cycle — make the 5 director decisions + render Scene Card
+      const ndosResult = NarrativeDirectorOS.direct({
+        character: ctx.character,
+        uskState: ctx.usk,
+        arslEdges,
+        sceneState: ctx.sceneState || null,
+        attentionMap,
+        playerName,
+        dasTickResult: ctx._dasTickResult || null,
+        dcsResult: ctx._dcsResult || null,
+        characterNames,
+      })
+
+      // Inject Scene Card — THE authoritative narrative directive
+      ctx.character._ndosSceneCard = ndosResult.sceneCard
+
+      // Store decisions for post-generation
+      ctx._ndosResult = ndosResult
     },
   },
 
@@ -242,7 +431,8 @@ export const RuntimeOrchestrator = {
    * @param {string} ctx.mainCharName — main character name
    */
   runPreGeneration(ctx) {
-    const steps = PIPELINE.slice(0, 8) // Steps 1-8 (before LLM)
+    // All steps before NARRATIVE_BUILD + OUTPUT_RENDER (the last two)
+    const steps = PIPELINE.slice(0, -2)
     for (const step of steps) {
       try {
         step.fn(ctx)
