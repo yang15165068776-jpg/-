@@ -265,7 +265,7 @@ export function saveSettings(settings) {
 }
 
 export function getApiKey() {
-  return getSettings().apiKey || ''
+  return getSettings().apiKey || import.meta.env.VITE_API_KEY || ''
 }
 
 export function saveApiKey(key) {
