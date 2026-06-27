@@ -59,37 +59,36 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
     }
   }, [mainChar.name])
 
-  // ── Init: hydration → save → USK ──
+  // ── Init: saveId → hydration → save → USK ──
   useEffect(() => {
-    // 1. Try HydrationEngine cache first (back-navigation recovery)
-    const cached = HydrationEngine.get(folderId, 'daily')
-    if (cached && cached.messages.length > 0) {
-      setMessages(cached.messages)
-    }
-
-    // 2. Load from folder save — prefer explicit saveId prop
+    // 0. Resolve saveId FIRST (v2 fix: before any cache/USK access)
     const save = propSaveId ? { id: propSaveId } : getOrCreateDefaultSave(folderId)
     if (!save) return
     setSaveId(save.id)
 
-    if (!cached || cached.messages.length === 0) {
+    // 1. Try HydrationEngine cache with save-isolated key
+    const cached = HydrationEngine.get(folderId, save.id, 'daily')
+    if (cached && cached.messages.length > 0) {
+      setMessages(cached.messages)
+    } else {
+      // 2. Load from folder save
       const msgs = getSaveMessages(save.id, folderId, 'daily')
       setMessages(msgs)
     }
 
     // 3. Init folder USK (per-save isolation)
     const charsForUSK = folderChars.map(c => ({ id: c.name, name: c.name, affectionInitial: c.affectionInitial ?? 50 }))
-    initBridgeForFolder(folderId, charsForUSK, 'daily', save?.id)
+    initBridgeForFolder(folderId, charsForUSK, 'daily', save.id)
     refreshUSK()
   }, [folderId])
 
-  // ── Save state to HydrationEngine on each message change ──
+  // ── Save state to HydrationEngine on each message change (save-isolated) ──
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 && saveId) {
       const usk = getRawFolderUSK()
-      HydrationEngine.save(folderId, 'daily', messages, usk)
+      HydrationEngine.save(folderId, saveId, 'daily', messages, usk)
     }
-  }, [messages, folderId])
+  }, [messages, saveId, folderId])
 
   // ── Auto-save ──
   useEffect(() => {

@@ -353,6 +353,8 @@ export function createSave(folderId, name) {
     updatedAt: Date.now(),
     dramaMessages: [],     // DRAMA mode — completely isolated
     dailyMessages: [],     // DAILY mode — completely isolated
+    dramaStats: { turnCount: 0, promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 },
+    dailyStats: { turnCount: 0, promptTokens: 0, completionTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 },
     // Note: NO affection/affections — state is from USK (SSOT)
   }
 
@@ -453,6 +455,40 @@ export function getSaveMessageCount(saveId, folderId) {
   if (!saves[saveId]) return 0
   const s = saves[saveId]
   return (s.dramaMessages?.length || 0) + (s.dailyMessages?.length || 0) + (s.messages?.length || 0)
+}
+
+/**
+ * Get accumulated stats (turn count + tokens) for a save mode.
+ * Stats persist across sessions — survive exits and re-entries.
+ *
+ * @param {string} saveId
+ * @param {string} folderId
+ * @param {string} mode — 'drama' | 'daily'
+ * @returns {{ turnCount: number, promptTokens: number, completionTokens: number, cacheHitTokens: number, cacheMissTokens: number }}
+ */
+export function getSaveStats(saveId, folderId, mode) {
+  const saves = _readSaves(folderId)
+  if (!saves[saveId]) return null
+  const key = mode === 'drama' ? 'dramaStats' : 'dailyStats'
+  return saves[saveId][key] || null
+}
+
+/**
+ * Persist accumulated stats to a save slot.
+ * Called on each auto-save to keep stats in sync.
+ *
+ * @param {string} saveId
+ * @param {string} folderId
+ * @param {string} mode — 'drama' | 'daily'
+ * @param {{ turnCount: number, promptTokens: number, completionTokens: number, cacheHitTokens: number, cacheMissTokens: number }} stats
+ */
+export function saveSaveStats(saveId, folderId, mode, stats) {
+  const saves = _readSaves(folderId)
+  if (!saves[saveId]) return
+  const key = mode === 'drama' ? 'dramaStats' : 'dailyStats'
+  saves[saveId][key] = stats
+  saves[saveId].updatedAt = Date.now()
+  _writeSaves(folderId, saves)
 }
 
 /**

@@ -111,39 +111,44 @@ function _buildCharacterConstitutions(character, uskState) {
 
     // Core personality — the unchangeable essence
     if (rc.personality) {
-      card.push(' 人格=' + rc.personality.slice(0, 80))
+      card.push(' 人格=' + rc.personality.slice(0, 300))
     }
 
-    // Aggression profile — daily behavior baseline, NEVER drifts to gentle
+    // Aggression profile — personality-appropriate baseline enforcement
     const profile = _detectProfile(rc)
-    if (profile && profile !== 'gentle') {
-      card.push(' ⚠️人格分类=' + profile + '——日常不做家务/不记喜好/不准备食物/不安静陪伴。拒绝滑向居家温柔。')
+    if (profile) {
+      const profileLine = profile === AGGRESSION_PROFILES.GENTLE
+        ? ' ⚠️分类=gentle——温柔是你的武器，用包容制造依赖，用不离开来困住对方'
+        : profile === AGGRESSION_PROFILES.ALOOF
+          ? ' ⚠️分类=' + profile + '——冷到极点的存在感，不攻击不讨好，用距离控制'
+          : ' ⚠️分类=' + profile + '——日常不做家务/不记喜好/不准备食物/不安静陪伴。拒绝滑向居家温柔。'
+      card.push(profileLine)
     }
 
     // Background
     if (rc.background) {
-      card.push(' 背景=' + rc.background.slice(0, 80))
+      card.push(' 背景=' + rc.background.slice(0, 300))
     }
 
     // Speaking style — HOW they talk, critical for identity
     if (rc.speakingStyle) {
-      card.push(' 说话=' + rc.speakingStyle.slice(0, 60))
+      card.push(' 说话=' + rc.speakingStyle.slice(0, 200))
     }
 
     // Behavior rules — hard constraints
     if (rc.styleRules?.length > 0) {
       const keyRules = rc.styleRules
         .filter(r => r.trim())
-        .slice(0, 3)
-        .map(r => r.trim().slice(0, 60))
+        .slice(0, 8)
+        .map(r => r.trim().slice(0, 150))
       if (keyRules.length > 0) {
         card.push(' 铁律=' + keyRules.join('；'))
       }
     }
 
-    // Forbidden words — absolute don'ts
+    // Forbidden words — absolute don'ts (all of them)
     if (rc.forbiddenWords?.length > 0) {
-      const words = rc.forbiddenWords.filter(w => w.trim()).slice(0, 5).join('/')
+      const words = rc.forbiddenWords.filter(w => w.trim()).join('/')
       card.push(' 禁词=' + words)
     }
 
@@ -173,7 +178,7 @@ function _getStageInfo(rc, affection) {
     if (affection >= min && affection <= max) {
       const parts = []
       if (stage.name) parts.push('好感阶段=' + stage.name)
-      if (stage.coreState) parts.push(stage.coreState.slice(0, 50))
+      if (stage.coreState) parts.push(stage.coreState.slice(0, 200))
       return parts.join(' | ')
     }
   }

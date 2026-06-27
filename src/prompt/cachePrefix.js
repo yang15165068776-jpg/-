@@ -486,13 +486,27 @@ export function validateCachePrefix(prefix) {
 }
 
 /**
- * Assemble the full system prompt: core prefix (cached) + variable suffix.
+ * Assemble the full system prompt:
+ *   core prefix (cached) + character prefix (cached, regen on stage change) + variable suffix.
+ *
+ * Cached portion: corePrefix + separator + characterPrefix + separator
+ * Dynamic portion: variableSuffix (changes every turn)
  *
  * @param {string} corePrefix - the static CORE_SYSTEM_PREFIX
- * @param {string} variableSuffix - all character/stage/memory/state content
+ * @param {string} variableSuffix - character/stage/memory/state content (changes every turn)
+ * @param {string} characterPrefix - character identity + stage data (cached, stable until stage change)
  * @returns {string} complete system prompt
  */
-export function assembleSystemPrompt(corePrefix, variableSuffix) {
-  if (!variableSuffix) return corePrefix
-  return corePrefix + '\n\n━━━━━━━━━━\n\n' + variableSuffix
+export function assembleSystemPrompt(corePrefix, variableSuffix, characterPrefix = '') {
+  if (!variableSuffix && !characterPrefix) return corePrefix
+
+  const SEP = '\n\n━━━━━━━━━━\n\n'
+
+  if (characterPrefix) {
+    // Three-part: core + character (both cached) + variable (dynamic)
+    return corePrefix + SEP + characterPrefix + SEP + (variableSuffix || '')
+  }
+
+  // Two-part: core (cached) + variable (dynamic) — original behavior
+  return corePrefix + SEP + variableSuffix
 }

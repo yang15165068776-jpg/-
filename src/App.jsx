@@ -154,16 +154,16 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('account-changed'))
   }, [])
 
-  const handleEnterDrama = useCallback((f) => {
+  const handleEnterDrama = useCallback((f, saveId) => {
     const chars = (f.characterData || []).filter(c => !c.type || c.type !== 'npc')
     if (chars.length === 0) { showToast('请先在文件夹中添加角色', 'error'); return }
-    nav.dramaPage(f, chars)
+    nav.dramaPage(f, chars, saveId)
   }, [showToast])
 
-  const handleEnterDaily = useCallback((f) => {
+  const handleEnterDaily = useCallback((f, saveId) => {
     const chars = (f.characterData || []).filter(c => !c.type || c.type !== 'npc')
     if (chars.length === 0) { showToast('请先在文件夹中添加角色', 'error'); return }
-    nav.dailyPage(f, chars)
+    nav.dailyPage(f, chars, saveId)
   }, [showToast])
 
   const handleEditCharacter = useCallback((charIndex) => {

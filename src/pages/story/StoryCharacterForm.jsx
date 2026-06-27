@@ -37,7 +37,7 @@ const emptyRomanceChar = () => ({
   thinkingEnabled: true,
   thinkingPrompt: '',
 })
-const emptyNpc = () => ({ id: '', name: '', relationship: '', personality: '', avatar: '' })
+const emptyNpc = () => ({ id: '', name: '', identity: '', personality: '', background: '', avatar: '' })
 
 function parseLines(text) {
   return text.split('\n').map(s => s.trim()).filter(Boolean)
@@ -351,8 +351,9 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
       npcs: form.npcs.filter(n => n.name.trim()).map(n => ({
         id: n.id || generateId(),
         name: n.name.trim(),
-        relationship: n.relationship.trim(),
+        identity: (n.identity || '').trim(),
         personality: n.personality.trim(),
+        background: (n.background || '').trim(),
         avatar: n.avatar || '',
       })),
       autoGenerateNpcs: form.autoGenerateNpcs,
@@ -1049,15 +1050,27 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
                   </div>
                 </div>
                 {expandedNPC === i && (
-                  <div style={{ paddingTop:'12px', display:'flex', gap:'10px', alignItems:'flex-start' }}>
-                    <input type="file" accept="image/*" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleNpcAvatar(i, f) }} id={`npc-avatar-${i}`} />
-                    <label htmlFor={`npc-avatar-${i}`} style={{ width:'40px', height:'40px', borderRadius:'50%', border:'2px dashed var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer', flexShrink:0, background:'var(--bg)' }}>
-                      {npc.avatar ? <img src={npc.avatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:'14px', color:'var(--text3)' }}>+</span>}
-                    </label>
-                    <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
-                      <input type="text" style={inputStyle} value={npc.name} onChange={e => updateNpc(i, 'name', e.target.value)} placeholder="NPC姓名" />
-                      <input type="text" style={inputStyle} value={npc.relationship} onChange={e => updateNpc(i, 'relationship', e.target.value)} placeholder="与故事的关系" />
-                      <textarea style={{ ...inputStyle, height:'56px', resize:'none' }} value={npc.personality} onChange={e => updateNpc(i, 'personality', e.target.value)} placeholder="性格简介" />
+                  <div style={{ paddingTop:'12px', display:'flex', flexDirection:'column', gap:'10px' }}>
+                    {/* Row 1: Avatar + Name + Identity */}
+                    <div style={{ display:'flex', gap:'10px', alignItems:'flex-start' }}>
+                      <input type="file" accept="image/*" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleNpcAvatar(i, f) }} id={`npc-avatar-${i}`} />
+                      <label htmlFor={`npc-avatar-${i}`} style={{ width:'44px', height:'44px', borderRadius:'50%', border:'2px dashed var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', cursor:'pointer', flexShrink:0, background:'var(--bg)' }}>
+                        {npc.avatar ? <img src={npc.avatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <span style={{ fontSize:'16px', color:'var(--text3)' }}>+</span>}
+                      </label>
+                      <div style={{ flex:1, display:'flex', flexDirection:'column', gap:'8px' }}>
+                        <input type="text" style={inputStyle} value={npc.name} onChange={e => updateNpc(i, 'name', e.target.value)} placeholder="NPC姓名 *" />
+                        <input type="text" style={inputStyle} value={npc.identity || ''} onChange={e => updateNpc(i, 'identity', e.target.value)} placeholder="身份/职业/与主角的关系" />
+                      </div>
+                    </div>
+                    {/* Row 2: Personality */}
+                    <div>
+                      <label style={{ ...labelStyle, fontSize:'11px', marginBottom:'3px' }}>性格与行为特征</label>
+                      <textarea style={{ ...inputStyle, minHeight:'72px', resize:'vertical' }} value={npc.personality} onChange={e => updateNpc(i, 'personality', e.target.value)} placeholder="核心性格、说话方式、行为习惯、对主角的态度……写得越详细AI越能准确扮演" />
+                    </div>
+                    {/* Row 3: Background / Detailed setting */}
+                    <div>
+                      <label style={{ ...labelStyle, fontSize:'11px', marginBottom:'3px' }}>详细设定</label>
+                      <textarea style={{ ...inputStyle, minHeight:'72px', resize:'vertical' }} value={npc.background || ''} onChange={e => updateNpc(i, 'background', e.target.value)} placeholder="身份背景、过往经历、与可攻略角色的关系、在故事中的作用……" />
                     </div>
                   </div>
                 )}

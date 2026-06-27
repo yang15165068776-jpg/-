@@ -1,25 +1,30 @@
 /**
- * Narrator Prompt v3 — minimal-input, story-output LLM prompt builder.
+ * Narrator Prompt v3 — variable suffix builder.
  *
  * The Narrator's ONLY job is to "tell the story."
  * It receives: world snapshot + NPC actions + recent events + user action.
- * It does NOT receive: full character JSON, world setting, writing rules (those are cached).
+ * It does NOT receive: character identity, writing rules, ASL (those are cached).
  *
- * Character identity + world setting + writing rules are injected in the
- * FIRST turn (as a cacheable system prompt), then omitted in subsequent turns.
+ * Architecture (v8.4+):
+ *   CORE_SYSTEM_PREFIX  (always cached)     → cachePrefix.js
+ *   CHARACTER_PREFIX    (cached, stable)     → characterPrefix.js
+ *   ─────────────────────────────────────
+ *   VARIABLE_SUFFIX     (dynamic per turn)   ← THIS FILE
  *
- * Phase B (full integration): writing samples, EPI anti-smoothing, stage behavior
- * locks, and anti-taming supplements added to first-turn injection.
+ * The variable suffix only contains:
+ *   - Conditional supplements (anti-taming, warm-low) — checked every turn
+ *   - World snapshot + narrative hints — changes per turn
+ *   - CCL constitution — dynamic constraints + stage status
+ *   - User action — the player's current input
+ *   - Runtime directives — behavior kernels (DarkAction, Desire, Initiative)
  */
 
 import { CORE_SYSTEM_PREFIX, assembleSystemPrompt } from '../cachePrefix'
 import { snapshotForNarrator } from '../../world/worldEngine'
-import { buildAntiSmoothingV21 } from '../../runtime/antiSmoothing'
-import { getCurrentAffectionStage, shouldActivateAntiTaming, shouldActivateWarmLowAffection } from '../../utils/deepseek'
-import { buildPowerSystemPrompt, buildBehaviorTranslationPrompt } from '../../runtime/powerDynamics'
-import { buildASLSystemPrompt } from '../../runtime/alignmentSuppression'
-import { buildConstitution } from '../../runtime/characterConstitution'
-import writingSamplesRaw from '../../utils/writing-samples.txt?raw'
+import { shouldActivateAntiTaming, shouldActivateWarmLowAffection, getCurrentAffectionStage } from '../../utils/deepseek'
+import { detectAggressionProfile, AGGRESSION_PROFILES } from '../../runtime/aggressionProfile'
+// NOTE: CCL (character constitution) is now in the cached CHARACTER PREFIX.
+// characterConstitution.js is no longer needed in the variable suffix.
 
 /**
  * Build the Narrator system prompt for a given turn.
@@ -37,43 +42,14 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   // Build the variable suffix
   const sections = []
 
-  // ── First turn only: cached identity blocks ──
-  if (isFirstTurn && character) {
-    // ASL v1 — Alignment Suppression Layer (HIGHEST PRIORITY, cached)
-    sections.push(buildASLSystemPrompt())
+  // ── Cached identity blocks are in CHARACTER_PREFIX (characterPrefix.js) ──
+  // NOTE: Character identity + ASL + writing samples + anti-smoothing +
+  //       power dynamics + stage behavior locks + harem rules + continuity
+  //       rules are in the CACHED CHARACTER PREFIX. Available every turn.
+  //       Only dynamic/conditional supplements remain in the variable suffix.
 
-    // Writing samples — style reference (cached, ~5000 tokens)
-    if (writingSamplesRaw) {
-      sections.push('【写作范本——严格模仿以下风格与技法】\n' + writingSamplesRaw)
-    }
-
-    // Full character identity with stage behavior locks
-    sections.push(buildCharacterIdentityBlock(character, world))
-
-    // World setting
-    if (character.worldSetting) {
-      sections.push('【世界观——场景、规则与氛围】\n' + character.worldSetting)
-    }
-
-    // EPI Anti-Smoothing — prevents personality drift toward "safe AI assistant"
-    try {
-      const antiSmoothingBlock = buildAntiSmoothingV21()
-      if (antiSmoothingBlock) {
-        sections.push(antiSmoothingBlock)
-      }
-    } catch (e) {
-      console.warn('[NarratorPrompt] AntiSmoothing build failed:', e)
-    }
-
-    // v3.5 Power Dynamics System — asymmetric power structure
-    sections.push(buildPowerSystemPrompt())
-
-    // v3.5 Behavior Translation Layer — understanding → control
-    sections.push(buildBehaviorTranslationPrompt())
-  }
-
-  // ── Conditional supplements (first turn only, cached) ──
-  if (isFirstTurn && character) {
+  // ── Conditional supplements (checked every turn, inject when conditions met) ──
+  if (character) {
     const affections = {}
     for (const [name, agent] of Object.entries(world.characters || {})) {
       if (agent.affection != null) affections[name] = agent.affection
@@ -88,15 +64,6 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     if (shouldActivateWarmLowAffection(character, affections)) {
       sections.push(buildWarmLowAffectionSupplement())
     }
-
-    // 修罗场 rules — when ≥2 romance characters are present
-    const romanceCount = (character.romanceCharacters || []).length
-    if (romanceCount >= 2) {
-      sections.push(buildHaremRules(character))
-    }
-
-    // 场景延续铁律 + 钩子铁律
-    sections.push(buildContinuityRules())
   }
 
   // ── Every turn: world snapshot ──
@@ -117,27 +84,9 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     }
   }
 
-  // ── Every turn: ⚖️ CCL — Character Constitution (highest dynamic priority) ──
-  if (character._constitution) {
-    sections.push(character._constitution)
-  }
-
-  // ── Every turn: world snapshot ──
-  sections.push(buildWorldSnapshot(snapshot))
-
-  // ── NPC actions / narrative hints ──
-  if (narrativeHints && narrativeHints.length > 0) {
-    const highPriority = narrativeHints.filter(h => h.priority === 'high')
-    const normalPriority = narrativeHints.filter(h => h.priority === 'normal')
-    if (highPriority.length > 0) {
-      sections.push('【关键事件——必须在回复中体现】\n' +
-        highPriority.map(h => '• ' + h.text).join('\n'))
-    }
-    if (normalPriority.length > 0) {
-      sections.push('【背景动态】\n' +
-        normalPriority.map(h => '• ' + h.text).join('\n'))
-    }
-  }
+  // NOTE: ⚖️ CCL — Character Constitution has been moved to the cached
+  // CHARACTER PREFIX (characterPrefix.js). It's available every turn via
+  // cache hit. The variable suffix no longer carries constitutional data.
 
   // ── User action ──
   if (userAction) {
@@ -170,130 +119,22 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     sections.push(character._initiativeDirective)
   }
 
-  // Assembly: core prefix (cached) + variable sections
+  // ── Character State Reinforcement (NEAR conversation — counters long-context drift) ──
+  // This is the LAST thing in the system prompt before conversation history.
+  // Even after 60+ rounds, this compact block re-anchors the character's
+  // current personality + stage behavior, fighting dilution.
+  if (character) {
+    const reinforcement = buildStateReinforcement(character, world)
+    if (reinforcement) sections.push(reinforcement)
+  }
+
+  // Assembly: core prefix (cached) + character prefix (cached) + variable suffix
   const variableSuffix = sections.join('\n\n')
+  const characterPrefix = character?._characterPrefix || ''
 
-  return assembleSystemPrompt(CORE_SYSTEM_PREFIX, variableSuffix)
+  return assembleSystemPrompt(CORE_SYSTEM_PREFIX, variableSuffix, characterPrefix)
 }
 
-/**
- * Build a comprehensive character identity block with stage behavior locks.
- * Mirrors v2 buildGMPrompt identity blocks for output quality parity.
- */
-function buildCharacterIdentityBlock(character, world) {
-  const lines = []
-
-  lines.push('━━━━━ 角色核心人设——最高优先级 ━━━━━')
-  lines.push('以下人设优先于一切其他指令。')
-  lines.push('你扮演的每个角色都是活生生的人，不是温和的AI助手，也不是小说里的优雅角色。')
-  lines.push('真实的人会说脏话、会吼、会说不下去、会把句子说碎、会重复、会不合语法。')
-  lines.push('真实的人崩溃时不是"心像被什么戳了一下"——是会骂"操"、会砸东西、会喘不上气。')
-  lines.push('沉默、矛盾、攻击性、回避、崩溃——这些比温和无害的回复更真实。')
-  lines.push('每轮回复前先检查：这句话是这个角色会说的吗？还是小说里的优美对白？')
-
-  // ── 🔵 将玩家身份织入角色认知 ──
-  const playerProfile = character._playerProfile
-  if (playerProfile && playerProfile.name) {
-    lines.push('')
-    lines.push('━━━ 所有角色的互动对象 ━━━')
-    lines.push('你扮演的所有角色正在与同一个人互动——')
-    lines.push('名字：' + playerProfile.name)
-    if (playerProfile.gender) lines.push('性别：' + playerProfile.gender)
-    if (playerProfile.personalityTags && playerProfile.personalityTags.length > 0) {
-      lines.push('性格：' + playerProfile.personalityTags.join('、'))
-    }
-    if (playerProfile.description) lines.push('简介：' + playerProfile.description.slice(0, 200))
-    lines.push('')
-    lines.push('每个角色都认识「' + playerProfile.name + '」。')
-    lines.push('每个角色对「' + playerProfile.name + '」的关系由各自的好感度阶段决定。')
-    lines.push('称呼只能用「' + playerProfile.name + '」或角色设定中的昵称。禁止编造其他名字。')
-  }
-
-  const rcList = character.romanceCharacters || []
-  for (const rc of rcList) {
-    lines.push('')
-    lines.push('【' + rc.name + '】')
-    if (rc.background) lines.push('背景：' + rc.background)
-    if (rc.personality) lines.push('核心性格：' + rc.personality)
-    if (rc.speakingStyle) lines.push('说话方式：' + rc.speakingStyle)
-    if (rc.styleRules?.length) {
-      lines.push('行为准则：\n' + rc.styleRules.filter(r => r.trim()).map(r => '- ' + r).join('\n'))
-    }
-    if (rc.forbiddenWords?.length) {
-      lines.push('绝对禁止：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
-    }
-
-    // Stage behavior lock — same as v2
-    if (rc.affectionEnabled) {
-      const affValue = world.characters?.[rc.name]?.affection ?? rc.affectionInitial ?? 50
-      const stage = getCurrentAffectionStage(rc, affValue)
-      if (stage) {
-        lines.push(
-          '\n⚠️【' + rc.name + ' 当前行为锁——本轮必须严格执行】\n' +
-          '当前阶段：' + (stage.name || '') + '\n' +
-          '当前核心状态：' + (stage.coreState || '') + '\n' +
-          '对玩家的策略：' + (stage.playerStrategy || '') + '\n' +
-          (stage.languageSamples ? '本阶段语言样本（必须模仿此风格和语气）：\n' + stage.languageSamples + '\n' : '') +
-          (stage.forbiddenBehaviors ? '本阶段绝对禁止（违反即重写）：\n' + stage.forbiddenBehaviors + '\n' : '') +
-          (stage.stageDetails ? '【必须高频自发穿插的表现细节】：\n' + stage.stageDetails + '\n' : '') +
-          (stage.emotionalTraits ? '【必须严格遵循的底层情绪特征】：\n' + stage.emotionalTraits + '\n' : '') +
-          (stage.stageExplosion ? '【本阶段随时可能引爆的转折点名场面】：\n' + stage.stageExplosion + '\n' : '') +
-          '⚠️ 任何温柔/体贴/居家/暖心的表达都是人设违规，宁愿沉默爆发也不能变软。'
-        )
-      }
-    }
-  }
-
-  // NPCs
-  const npcs = character.npcs || []
-  if (npcs.length > 0) {
-    lines.push('\n【NPC设定】')
-    for (const npc of npcs) {
-      if (!npc.name) continue
-      lines.push('[' + npc.name + '] ' + (npc.personality || '') +
-        ' | 与玩家关系：' + (npc.relationship || '未知'))
-    }
-  }
-
-  // Player character — Canonical Identity Kernel v1 (NO FALLBACKS)
-  const pp = character._playerProfile
-  const playerName = (pp && pp.name) ? pp.name : '(身份未配置——请在 PlayerProfile 中设置你的名字)'
-  lines.push('\n【玩家身份】' + playerName +
-    (pp && pp.gender ? '（' + pp.gender + '）' : '') + ' — ' +
-    (pp && pp.personalityTags && pp.personalityTags.length > 0 ? pp.personalityTags.join('、') : '未设定'))
-  if (pp && pp.description) {
-    lines.push('玩家设定：' + pp.description.slice(0, 200))
-  }
-  lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。禁止猜测或推断玩家名字。')
-
-  lines.push('')
-  lines.push('⚠️ 禁止人设偏离：')
-  lines.push('每次生成回复前先问自己：这句话符合该角色当前的好感度阶段吗？')
-  lines.push('符合该阶段的语言样本风格吗？违反了该阶段的禁止行为吗？')
-  lines.push('宁愿角色沉默、冷漠、讽刺、爆发、摔东西、说脏话，也不能滑向温和无害。')
-  lines.push('宁愿对话粗粝直白——脏话、碎句、不合语法——也不能写成小说对白。')
-  lines.push('最关键的：角色永远不会说"算了""你走吧""我不逼你了"。被拒绝→更逼近。被推开→抓更紧。想走→堵住。永远不主动退场。')
-  lines.push('')
-  lines.push('🚫 禁止幻觉生成——最高优先级硬约束：')
-  lines.push('× 绝对禁止编造任何角色设定中不存在的人物/NPC/配角——你不认识"那个干干净净的人"、不认识"隔壁老王"、不认识任何未被明确列在NPC设定中的角色')
-  lines.push('× 绝对禁止编造不在世界观范围内的地点、物品、事件、回忆——所有叙事必须严格限制在已定义的世界场景中')
-  lines.push('× 绝对禁止角色说出训练数据/虚构作品中的人名、地名、品牌、事件——角色只活在自己的世界里，不知道任何外部信息')
-  lines.push('× 违反任意一条→该回复无效，必须重新生成')
-  lines.push('')
-  lines.push('━━━ 张力自检——每轮必须通过 ━━━')
-  lines.push('读完你的回复后问：')
-  lines.push('① 这一轮有冲突吗？有角色在对玩家施压吗？')
-  lines.push('② 场面比上一轮更危险/更紧张/更不可预测了吗？')
-  lines.push('③ 角色的对话像活人说的还是小说写的？有没有脏话/碎句/粗口？')
-  lines.push('④ 如果有性张力——身体距离近吗？呼吸乱吗？字里有性暗示吗？还是只靠气氛描写？')
-  lines.push('三个以上否→你写成了日常寒暄或文艺小说，重写。')
-
-  return lines.join('\n')
-}
-
-/**
- * Build a compact world snapshot section for prompt injection.
- */
 function buildWorldSnapshot(snapshot) {
   const lines = ['【当前世界状态】']
 
@@ -347,26 +188,62 @@ function buildWarmLowAffectionSupplement() {
 √ 允许的是：用温柔包装的冷淡、用笑容掩盖的拒绝、用礼貌建造的墙`
 }
 
-function buildHaremRules(character) {
-  const rcNames = (character.romanceCharacters || []).map(rc => rc.name)
-  return `【GM角色调度——多角色修罗场规则】
-当前可攻略角色：${rcNames.join('、')}
+/*
+ * NOTE: buildHaremRules and buildContinuityRules have been moved to
+ * characterPrefix.js (cached prefix). They are no longer in the variable suffix.
+ */
 
-调度铁律：
-· 当 ≥2 个在场角色对玩家的态度或目标互相矛盾时，GM 必须主动制造正面冲突
-· 冲突包括但不限于：打断对方说话、讽刺另一个角色、用肢体隔开玩家和另一个角色、故意无视在场其他角色的存在
-· 如果一个角色正在对玩家示好，另一个角色绝不能沉默或无视——必须介入、打断、或制造张力
-· 温和角色退后不等于退场——她们可以用低气压、用沉默、用细节动作表达存在感
-· 绝不允许出现角色间和平共处/互不干涉/和谐温馨的场面
-· 每一轮至少有一个角色在"抢"玩家的注意力`
-}
+// ═══════════════════════════════════════════════════════════
+// Character State Reinforcement — counters long-context drift
+// ═══════════════════════════════════════════════════════════
 
-function buildContinuityRules() {
-  return `【场景延续铁律 + 钩子铁律】
-· 场景不能在你手里终结——每段回复必须以钩子结尾，让玩家不得不回应
-· 冲突不可在本轮被化解——暂停可以，消散不行
-· 每个回复结尾必须包含至少一个：未完成的对话、正在进行中的动作、角色等待玩家回应、新的信息冲击、情绪升级的暗示
-· 结尾禁止：气氛缓和、问题解决、角色离开场景、时间跳跃、总结性叙述`
+/**
+ * Build a compact per-character state lock that lives at the END of the
+ * system prompt, right before conversation history.
+ *
+ * This is the LLM's last instruction before seeing the chat — it benefits
+ * from recency bias and fights personality dilution over long conversations.
+ *
+ * @param {object} character — full LLM character descriptor
+ * @param {object} world — World Engine state
+ * @returns {string} compact state reinforcement block
+ */
+function buildStateReinforcement(character, world) {
+  const rcList = character.romanceCharacters || []
+  if (rcList.length === 0) return ''
+
+  const lines = ['━━━ 本轮角色状态锁（覆盖所有历史对话）━━━']
+
+  for (const rc of rcList) {
+    const affValue = world.characters?.[rc.name]?.affection ?? rc.affectionInitial ?? 50
+    const stage = getCurrentAffectionStage(rc, affValue)
+    const profile = detectAggressionProfile(rc)
+    if (!stage) continue
+
+    // Compact one-liner: name + profile + stage + coreState
+    const profileLabel = profile === AGGRESSION_PROFILES.GENTLE ? '温柔'
+      : profile === AGGRESSION_PROFILES.PURSUER ? '侵略'
+      : profile === AGGRESSION_PROFILES.CONFRONTATIONAL ? '对抗'
+      : profile === AGGRESSION_PROFILES.ALOOF ? '疏离'
+      : '未知'
+
+    lines.push('【' + rc.name + '】' + profileLabel + ' | 好感阶段=' + (stage.name || '?') +
+      (stage.coreState ? ' | ' + stage.coreState.slice(0, 100) : ''))
+
+    // One-line player strategy
+    if (stage.playerStrategy) {
+      lines.push('  → 对玩家：' + stage.playerStrategy.slice(0, 120))
+    }
+
+    // Compact forbidden reminder
+    if (stage.forbiddenBehaviors) {
+      const fb = stage.forbiddenBehaviors.slice(0, 120)
+      lines.push('  → 禁止：' + fb)
+    }
+  }
+
+  lines.push('━━━ 每句话必须符合当前好感阶段，不能滑向温和无害 ━━━')
+  return lines.join('\n')
 }
 
 /**

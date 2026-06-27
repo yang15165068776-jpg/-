@@ -131,7 +131,7 @@ function StageEditor({ stages, onChange }) {
 
 // ── NPC Editor ──
 function NPCEditor({ npcs, onChange }) {
-  const add = () => onChange([...npcs, { id: generateId(), name: '', relationship: '', personality: '', avatar: '' }])
+  const add = () => onChange([...npcs, { id: generateId(), name: '', identity: '', personality: '', background: '', avatar: '' }])
   const update = (i, field, val) => {
     const next = [...npcs]
     next[i] = { ...next[i], [field]: val }
@@ -142,11 +142,19 @@ function NPCEditor({ npcs, onChange }) {
   return (
     <div>
       {npcs.map((n, i) => (
-        <div key={i} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
-          <input style={{ ...inputStyle, flex: 1 }} placeholder="名字" value={n.name || ''} onChange={e => update(i, 'name', e.target.value)} />
-          <input style={{ ...inputStyle, flex: 1 }} placeholder="关系" value={n.relationship || ''} onChange={e => update(i, 'relationship', e.target.value)} />
-          <input style={{ ...inputStyle, flex: 1.5 }} placeholder="性格" value={n.personality || ''} onChange={e => update(i, 'personality', e.target.value)} />
-          <button style={btnDanger} onClick={() => remove(i)}>✕</button>
+        <div key={i} style={{ padding: '10px', borderRadius: '8px', border: '0.5px solid var(--border)', marginBottom: '8px', background: 'var(--bg2)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text)' }}>NPC {i + 1}{n.name ? '：' + n.name : ''}</span>
+            <button style={btnDanger} onClick={() => remove(i)}>✕ 删除</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <input style={{ ...inputStyle, flex: 1 }} placeholder="名字 *" value={n.name || ''} onChange={e => update(i, 'name', e.target.value)} />
+              <input style={{ ...inputStyle, flex: 1 }} placeholder="身份/职业/关系" value={n.identity || ''} onChange={e => update(i, 'identity', e.target.value)} />
+            </div>
+            <textarea style={{ ...textareaStyle, minHeight: '60px' }} placeholder="性格与行为特征" value={n.personality || ''} onChange={e => update(i, 'personality', e.target.value)} />
+            <textarea style={{ ...textareaStyle, minHeight: '60px' }} placeholder="详细设定：身份背景、过往经历、与角色的关系…" value={n.background || ''} onChange={e => update(i, 'background', e.target.value)} />
+          </div>
         </div>
       ))}
       <button style={{ ...btnSecondary, width: '100%', marginTop: '4px' }} onClick={add}>+ 添加 NPC</button>

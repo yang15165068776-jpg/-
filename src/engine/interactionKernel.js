@@ -27,6 +27,8 @@ import {
   getOrCreateDefaultSave,
   getSaveMessages,
   saveSaveMessages,
+  getSaveStats,
+  saveSaveStats,
 } from '../state/folderStore'
 import { HydrationEngine } from './hydrationEngine'
 import { AgentDecisionLayer } from './agentDecisionLayer'
@@ -46,6 +48,7 @@ import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedge
 import { buildConstitution } from '../runtime/characterConstitution'
 import { EventGraph } from '../runtime/eventGraph'
 import { RuntimeOrchestrator } from '../runtime/runtimeOrchestrator'
+import { ensureCharacterPrefix } from '../prompt/characterPrefix'
 
 function _detectDarkColor(character) {
   if (!character) return false
@@ -133,14 +136,13 @@ export const InteractionKernel = {
     this.state.folderId = folderId
     this.state.mode = mode
 
-    // ── Load messages ──
-    const cached = hydrateData || HydrationEngine.get(folderId, mode)
-    let messages = []
-
-    // Use explicit saveId if provided, otherwise fall back to default
+    // ── Resolve saveId BEFORE loading cache/USK ──
     const activeSaveId = saveId || (getOrCreateDefaultSave(folderId)?.id)
-    // 🔒 Always set saveId — prevents cross-save contamination when key is null
     this.state.saveId = activeSaveId || null
+
+    // ── Load messages (save-isolated cache key: folderId + saveId + mode) ──
+    const cached = hydrateData || HydrationEngine.get(folderId, activeSaveId, mode)
+    let messages = []
 
     if (cached && cached.messages && cached.messages.length > 0) {
       messages = cached.messages
@@ -173,6 +175,18 @@ export const InteractionKernel = {
     }
 
     this.state.messages = messages
+
+    // ── Load per-save lifecycle stats (turn count + token usage) ──
+    if (activeSaveId) {
+      const savedStats = getSaveStats(activeSaveId, folderId, mode === 'drama' ? 'drama' : 'daily')
+      if (savedStats) {
+        this.state.lifecycle.turnCount = savedStats.turnCount || 0
+        this.state.lifecycle.totalPromptTokens = savedStats.promptTokens || 0
+        this.state.lifecycle.totalCompletionTokens = savedStats.completionTokens || 0
+        this.state.lifecycle.totalCacheHitTokens = savedStats.cacheHitTokens || 0
+        this.state.lifecycle.totalCacheMissTokens = savedStats.cacheMissTokens || 0
+      }
+    }
 
     // ── Init USK ──
     const charsForUSK = (characters || []).map(c => ({
@@ -747,11 +761,23 @@ export const InteractionKernel = {
         }
       }
 
-      // 2.X. 🚀 NOS Runtime Orchestrator — run pre-generation pipeline
-      //   INPUT → CCL → NTK → USK → ARSL → EVENTS → CAUSAL → BUILD → RENDER
+      // 2.X.0. 🧠 Character Prefix — cached identity + stage behavior data
+      //   Injected before variable suffix, cached by DeepSeek.
+      //   Regenerated only when a character's affection stage changes.
       if (this.state.mode === 'drama') {
         const rawUSK = getRawFolderUSK()
         const uskState = mainCharName ? getFolderUIState(mainCharName) : {}
+
+        // Build affection map from USK for stage detection
+        const _affectionMap = {}
+        for (const rc of character.romanceCharacters || []) {
+          _affectionMap[rc.name] = rawUSK?.characters?.[rc.name]?.relationship?.affection
+            ?? rc.affectionInitial ?? 50
+        }
+        character._characterPrefix = ensureCharacterPrefix(character, _affectionMap)
+
+        // 2.X. 🚀 NOS Runtime Orchestrator — run pre-generation pipeline
+        //   INPUT → CCL → NTK → USK → ARSL → EVENTS → CAUSAL → BUILD → RENDER
         RuntimeOrchestrator.runPreGeneration({
           userText,
           character,
@@ -814,7 +840,6 @@ export const InteractionKernel = {
             character, { ...this.state.affections }, userText, cleanReply, apiKey
           )
           if (!judgeErr && changes && changes.length > 0) {
-            // Merge judge deltas into affections + turnReport
             for (const { name, delta } of changes) {
               if (delta !== 0) {
                 this.state.affections[name] = clamp(
@@ -824,7 +849,6 @@ export const InteractionKernel = {
                 console.log('[executeTurn] LLM judge delta:', name, delta)
               }
             }
-            // Patch result so dramaTurnEnd picks up correct deltas
             if (!result.turnReport) result.turnReport = turnReport
           }
         } catch (judgeErr) {
@@ -1038,17 +1062,30 @@ export const InteractionKernel = {
   _autoSave() {
     if (!this.state.saveId || !this.state.folderId) return
     const modeKey = this.state.mode === 'drama' ? 'drama' : 'daily'
+
+    // Persist messages
     saveSaveMessages(this.state.saveId, this.state.folderId, modeKey, this.state.messages)
+
+    // Persist accumulated stats (survives page navigation)
+    const lc = this.state.lifecycle
+    saveSaveStats(this.state.saveId, this.state.folderId, modeKey, {
+      turnCount: lc.turnCount,
+      promptTokens: lc.totalPromptTokens,
+      completionTokens: lc.totalCompletionTokens,
+      cacheHitTokens: lc.totalCacheHitTokens,
+      cacheMissTokens: lc.totalCacheMissTokens,
+    })
+
     // Also sync hydration cache so edit/delete/rollback don't create cache staleness
     const usk = getRawFolderUSK()
-    HydrationEngine.save(this.state.folderId, this.state.mode || 'drama', this.state.messages, usk)
+    HydrationEngine.save(this.state.folderId, this.state.saveId, this.state.mode || 'drama', this.state.messages, usk)
   },
 
   /** @private */
   _saveToHydration() {
     if (!this.state.folderId) return
     const usk = getRawFolderUSK()
-    HydrationEngine.save(this.state.folderId, this.state.mode || 'drama', this.state.messages, usk)
+    HydrationEngine.save(this.state.folderId, this.state.saveId, this.state.mode || 'drama', this.state.messages, usk)
   },
 
   /**

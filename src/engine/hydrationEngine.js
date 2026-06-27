@@ -1,17 +1,18 @@
 /**
- * HydrationEngine v1 — State recovery layer.
+ * HydrationEngine v2 — State recovery layer (save-isolated).
  *
  * Caches page state (messages, USK) so navigating away and back
  * doesn't lose everything. Also loads state from folder saves.
  *
- * This fixes: archives not loading, blank pages after back, state fracture.
+ * v2 fix: All cache keys now include saveId to prevent data leaking
+ * between save slots. USK loads per-save instead of shared folder level.
  *
  * Usage:
  *   // Before navigating away from DramaPage:
- *   HydrationEngine.save(folderId, 'drama', messages, uskSnapshot)
+ *   HydrationEngine.save(folderId, saveId, 'drama', messages, uskSnapshot)
  *
  *   // When DramaPage mounts:
- *   const cached = HydrationEngine.get(folderId, 'drama')
+ *   const cached = HydrationEngine.get(folderId, saveId, 'drama')
  *   if (cached) { setMessages(cached.messages); setUSK(cached.usk) }
  *
  *   // When opening a save from FolderInterior:
@@ -21,22 +22,27 @@
 import { getSave, getSaveMessages } from '../state/folderStore'
 import { loadFolderUSK } from '../state/unifiedStateKernel'
 
+/** Build cache key with save isolation */
+function _cacheKey(folderId, saveId, mode) {
+  return folderId + ':' + (saveId || '') + ':' + mode
+}
+
 const HydrationEngine = {
-  /** { [`${folderId}:${mode}`]: { messages, usk, timestamp } } */
+  /** { [`${folderId}:${saveId}:${mode}`]: { messages, usk, timestamp } } */
   cache: {},
 
   /**
    * Cache current page state before navigating away.
-   * Call this in the page's cleanup or before NavigationEngine.push/back.
    *
    * @param {string} folderId
+   * @param {string} saveId — save isolation key
    * @param {string} mode — 'drama' | 'daily'
    * @param {object[]} messages
    * @param {object} usk — full USK snapshot
    */
-  save(folderId, mode, messages, usk) {
+  save(folderId, saveId, mode, messages, usk) {
     if (!folderId || !mode) return
-    const key = folderId + ':' + mode
+    const key = _cacheKey(folderId, saveId, mode)
     this.cache[key] = {
       messages: messages || [],
       usk: usk || null,
@@ -45,16 +51,16 @@ const HydrationEngine = {
   },
 
   /**
-   * Get cached state for a page.
-   * Returns null if nothing cached.
+   * Get cached state for a specific save+page.
    *
    * @param {string} folderId
+   * @param {string} saveId
    * @param {string} mode — 'drama' | 'daily'
    * @returns {{ messages: object[], usk: object|null, timestamp: number } | null}
    */
-  get(folderId, mode) {
+  get(folderId, saveId, mode) {
     if (!folderId || !mode) return null
-    const key = folderId + ':' + mode
+    const key = _cacheKey(folderId, saveId, mode)
     return this.cache[key] || null
   },
 
@@ -73,8 +79,8 @@ const HydrationEngine = {
     const save = getSave(saveId, folderId)
     if (!save) return null
 
-    // Load USK from folder
-    const usk = loadFolderUSK(folderId)
+    // Load per-save USK (v2 fix: was loading shared folder USK)
+    const usk = loadFolderUSK(folderId, saveId)
 
     const state = {
       usk: usk || null,
@@ -87,25 +93,23 @@ const HydrationEngine = {
       state.dailyMessages = getSaveMessages(saveId, folderId, 'daily')
     }
 
-    // Also cache for get() calls
+    // Also cache for get() calls — v2: key includes saveId
     if (state.dramaMessages) {
-      const dKey = folderId + ':drama'
-      this.cache[dKey] = { messages: state.dramaMessages, usk, timestamp: Date.now() }
+      this.cache[_cacheKey(folderId, saveId, 'drama')] = { messages: state.dramaMessages, usk, timestamp: Date.now() }
     }
     if (state.dailyMessages) {
-      const dKey = folderId + ':daily'
-      this.cache[dKey] = { messages: state.dailyMessages, usk, timestamp: Date.now() }
+      this.cache[_cacheKey(folderId, saveId, 'daily')] = { messages: state.dailyMessages, usk, timestamp: Date.now() }
     }
 
     return state
   },
 
   /**
-   * Check if cached state exists for a folder+mode.
+   * Check if cached state exists for a folder+save+mode.
    */
-  has(folderId, mode) {
+  has(folderId, saveId, mode) {
     if (!folderId || !mode) return false
-    return !!(this.cache[folderId + ':' + mode])
+    return !!this.cache[_cacheKey(folderId, saveId, mode)]
   },
 
   /**
@@ -116,11 +120,11 @@ const HydrationEngine = {
   },
 
   /**
-   * Clear cached state for a specific folder+mode.
+   * Clear cached state for a specific folder+save+mode.
    */
-  clearOne(folderId, mode) {
+  clearOne(folderId, saveId, mode) {
     if (!folderId || !mode) return
-    delete this.cache[folderId + ':' + mode]
+    delete this.cache[_cacheKey(folderId, saveId, mode)]
   },
 }
 
