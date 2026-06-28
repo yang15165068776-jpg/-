@@ -32,6 +32,7 @@ import { buildASLReinforcement, validateASL } from '../runtime/alignmentSuppress
 import { loadCanon, saveCanon, buildStoryCanonBlock, scanAndUpdateCanon, lockFact } from '../state/storyCanon'
 import { InteractionKernel } from '../engine/interactionKernel'
 import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
+import { runCEKv4PostValidation, resetCEKv4 } from '../runtime/characterExecutionKernelV4'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
 
 // Global state (persists across turns within a session)
@@ -130,6 +131,7 @@ export function resetAgentTurn() {
   _storyCanon = null
   _currentSaveId = null
   resetPersonaState()
+  resetCEKv4()
   _characterId = null
 }
 
@@ -460,6 +462,29 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
+  // ⚙️ CEK v4 Post-Validation — soft checks, prompt is primary enforcement
+  let cekValidation = null
+  if (reply && !error) {
+    const cekAffectionMap = {}
+    const rcList = character?.romanceCharacters || []
+    for (const rc of rcList) {
+      cekAffectionMap[rc.name] = affections[rc.name] ?? rc.affectionInitial ?? 50
+    }
+
+    cekValidation = runCEKv4PostValidation(reply, {
+      character,
+      affectionMap: cekAffectionMap,
+      playerName: pp?.name || '',
+      storyCanon: _storyCanon,
+    })
+
+    if (!cekValidation.passed) {
+      // Soft warning only — regex is imperfect, prompt instructions are primary
+      console.warn('[CEK v4] ⚠️ ' + cekValidation.violations.length + ' 项软校验未通过：\n' +
+        cekValidation.violations.join('\n'))
+    }
+  }
+
   // ASL validation — post-generation alignment leak detection
   let aslValidation = null
   if (reply && !error) {
@@ -565,6 +590,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     powerShiftCount: _powerGraph ? (_powerGraph.shiftLog || []).length : 0,
     aslViolations: aslValidation ? aslValidation.violations.length : 0,
     aslPassed: aslValidation ? aslValidation.passed : true,
+    cekPassed: cekValidation ? cekValidation.passed : true,
+    cekViolations: cekValidation ? cekValidation.violations.length : 0,
     isFirstTurn: _isFirstTurn,
     promptTokens: Math.ceil(systemPrompt.length / 2.5),
   }
@@ -581,6 +608,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     powerTilt: turnReport.powerTilt + '%',
     powerShifts: turnReport.powerShiftCount,
     aslViolations: turnReport.aslViolations,
+    cekv3Passed: turnReport.cekPassed,
+    cekv3Violations: turnReport.cekViolations,
   }))
 
   return {

@@ -119,6 +119,14 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
     sections.push(character._initiativeDirective)
   }
 
+  // ── Behavior Locks (state-gated + attribution + personality correction) ──
+  // 🔒 ① State Lock: low affection → strategy-only
+  // 🏷️ ② Source Attribution: every response must carry [行为来源 = X]
+  // ⚠️ ③ Personality Correction: forbid future personality leakage
+  if (character?._behaviorLocks) {
+    sections.push(character._behaviorLocks)
+  }
+
   // ── Character State Reinforcement (NEAR conversation — counters long-context drift) ──
   // This is the LAST thing in the system prompt before conversation history.
   // Even after 60+ rounds, this compact block re-anchors the character's

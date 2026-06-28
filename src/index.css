@@ -112,6 +112,12 @@ input:focus, textarea:focus, select:focus {
 .affection-flash-green {
   animation: affectionFlashGreen 0.5s ease-in-out 2;
 }
+
+/* ── Affection Toast Slide-in ── */
+@keyframes slideDownIn {
+  0% { opacity: 0; transform: translateY(-40px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
 .affection-flash-red {
   animation: affectionFlashRed 0.5s ease-in-out 2;
 }

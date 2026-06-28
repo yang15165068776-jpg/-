@@ -839,19 +839,32 @@ export const InteractionKernel = {
           const { changes, error: judgeErr } = await judgeAffectionDelta(
             character, { ...this.state.affections }, userText, cleanReply, apiKey
           )
+          let judgeReport = ''
           if (!judgeErr && changes && changes.length > 0) {
             for (const { name, delta } of changes) {
               if (delta !== 0) {
-                this.state.affections[name] = clamp(
-                  (this.state.affections[name] ?? 50) + delta, -100, 100
-                )
+                const before = this.state.affections[name] ?? 50
+                this.state.affections[name] = clamp(before + delta, -100, 100)
                 turnReport.affectionDeltas[name] = (turnReport.affectionDeltas[name] || 0) + delta
+                judgeReport += name + ': ' + (delta > 0 ? '+' : '') + delta + ' (' + before + '→' + this.state.affections[name] + ')\n'
                 console.log('[executeTurn] LLM judge delta:', name, delta)
+              } else {
+                judgeReport += name + ': 0 (不变)\n'
               }
             }
-            if (!result.turnReport) result.turnReport = turnReport
+            if (judgeReport) {
+              alert('📊 好感度裁判 · 第' + (turnReport.round || '?') + '轮\n' +
+                '裁决角色: ' + needsLLM.join(', ') + '\n\n' + judgeReport)
+            }
+          } else if (judgeErr) {
+            alert('❌ 好感度裁判失败\n' + judgeErr)
+          } else {
+            alert('📊 好感度裁判 · 第' + (turnReport.round || '?') + '轮\n' +
+              '裁决角色: ' + needsLLM.join(', ') + '\n\n所有角色: 0 (不变)')
           }
+          if (!result.turnReport) result.turnReport = turnReport
         } catch (judgeErr) {
+          alert('❌ 好感度裁判异常\n' + (judgeErr?.message || judgeErr))
           console.error('[executeTurn] LLM judge failed:', judgeErr)
         }
       }

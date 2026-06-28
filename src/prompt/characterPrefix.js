@@ -27,6 +27,7 @@ import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
 import { buildASLSystemPrompt } from '../runtime/alignmentSuppression'
 import { buildPowerSystemPrompt, buildBehaviorTranslationPrompt } from '../runtime/powerDynamics'
 import { detectAggressionProfile, AGGRESSION_PROFILES } from '../runtime/aggressionProfile'
+import { buildCEKv4StaticPrefix } from '../runtime/characterExecutionKernelV4'
 import writingSamplesRaw from '../utils/writing-samples.txt?raw'
 
 // ═══════════════════════════════════════════════════════════
@@ -134,6 +135,10 @@ export function buildCharacterPrefix(character, affectionMap = {}) {
 
   // ── ⚖️ 宪法效力 — moved from CCL variable suffix to cached prefix (cached) ──
   blocks.push(buildConstitutionalEnforcement(character))
+
+  // ── ⚙️ CEK v4 Static Rules — BVM / Firewall / Tactics / Templates (cached) ──
+  // These rules NEVER change. Moving them to cache saves ~60-70% CEK token cost.
+  blocks.push(buildCEKv4StaticPrefix())
 
   // ── Cache the result ──
   const result = blocks.filter(Boolean).join('\n\n')

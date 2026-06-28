@@ -14,8 +14,11 @@
  *   ✅ Clear data flow — each step reads/writes a shared context
  *   ✅ Pluggable — add/remove/reorder steps without touching the LLM
  *
- * Architecture:
- *   INPUT → CCL → NTK → USK → ARSL → EVENTS → CAUSAL → BUILD → RENDER
+ * Architecture (v8.5.3):
+ *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → EVENTS → CAUSAL → CEKv3 → BUILD → RENDER
+ *                                                                                    ↑
+ *                                                           CEK v3: Narrative Economy Edition
+ *                                                           emotion economy + tension + rivalry + explosion
  *
  * This is NOT a new module. It's the CONDUCTOR for all existing modules.
  */
@@ -34,6 +37,7 @@ import { NarrativeDirectorOS } from './narrativeDirectorOS'
 import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from './darkActionKernel'
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from './desireKernel'
 import { decideInitiativeLevel } from './characterInitiativeKernel'
+import { buildCEKv4Block } from './characterExecutionKernelV4'
 import { buildNarratorPrompt } from '../prompt/v3/narratorPrompt'
 import { runAgentTurn } from '../agents/coordinator'
 
@@ -385,6 +389,37 @@ const PIPELINE = [
   },
 
   // ═══════════════════════════════════════════════════
+  // STEP 7.5: CEK_EXECUTE — Character Execution Kernel v4
+  //   🎬 Autonomous Narrative Director: system DIRECTS the story
+  //   v4 adds: Narrative Intent Generator + Scene Director + Character Planner
+  //            + Attention War + Conflict Simulation + Narrative Branching
+  // ═══════════════════════════════════════════════════════
+  {
+    name: 'CEK_EXECUTE',
+    fn(ctx) {
+      if (!ctx.character || !ctx.usk) return
+
+      // Build affection map from USK
+      const affectionMap = {}
+      const rcList = ctx.character.romanceCharacters || []
+      for (const rc of rcList) {
+        const aff = ctx.usk?.characters?.[rc.name]?.relationship?.affection
+          ?? rc.affectionInitial ?? 50
+        affectionMap[rc.name] = aff
+      }
+
+      // Get ARSL edges for rivalry graph
+      const arslEdges = RelationshipPhysics.edges || {}
+
+      // Build CEK v4 block — autonomous narrative director
+      const cekBlock = buildCEKv4Block(ctx.character, ctx.usk, affectionMap, arslEdges)
+      if (cekBlock) {
+        ctx.character._behaviorLocks = cekBlock
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
   // STEP 8: NARRATIVE_BUILD — assemble the full prompt
   // ═══════════════════════════════════════════════════
   {
@@ -393,7 +428,8 @@ const PIPELINE = [
       // Prompt is built inside runAgentTurn → buildNarratorPrompt
       // The character object now carries all injected blocks:
       //   _constitution, _ledgerBlock, _eventGraphContext,
-      //   _worldContext, _darkActionDirective, _desireDirective, _initiativeDirective
+      //   _worldContext, _darkActionDirective, _desireDirective, _initiativeDirective,
+      //   _behaviorLocks (CEK v3: narrative economy execution kernel)
     },
   },
 
