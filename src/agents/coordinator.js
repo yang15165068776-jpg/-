@@ -21,7 +21,7 @@ import { runAllNPCAgents } from './npcAgent'
 import { buildNarratorPrompt } from '../prompt/v3/narratorPrompt'
 import { scoreAllAffections } from '../runtime/affectionRules'
 import { formatEventLogForPrompt } from '../memory/eventMemory'
-import { streamCompletion, findForbiddenWord } from '../utils/deepseek'
+import { streamCompletion, findForbiddenWord, getCurrentAffectionStage } from '../utils/deepseek'
 import { getModel } from '../utils/storage'
 import { CORE_SYSTEM_PREFIX } from '../prompt/cachePrefix'
 import { buildCPSInjection, loadConflictState, saveConflictState, ConflictStateEngine } from '../runtime/conflictPersistence'
@@ -157,6 +157,29 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     const syncedEdges = syncToMemoryGraph(usk)
     for (const [key, edge] of Object.entries(syncedEdges)) {
       _memoryGraph.edges[key] = { ...(_memoryGraph.edges[key] || {}), ...edge }
+    }
+  }
+
+  // ── 🔥 v8.5.4 fix: Sync USK affection → _worldState ──
+  // _worldState is created once and never re-initialized. LLM judge deltas
+  // update USK but _worldState was only updated by rule-based deltas.
+  // This caused buildStateReinforcement() and buildWorldSnapshot() to show
+  // stale affection → stale stage → LLM follows wrong behavior instructions.
+  if (usk && _worldState) {
+    const rcList = character?.romanceCharacters || []
+    for (const rc of rcList) {
+      if (!_worldState.characters[rc.name]) continue
+      const newAff = usk.characters?.[rc.name]?.relationship?.affection
+        ?? rc.affectionInitial ?? 50
+      _worldState.characters[rc.name].affection = newAff
+      // Update stage metadata (was frozen at _worldState creation)
+      const stage = getCurrentAffectionStage(rc, newAff)
+      if (stage) {
+        _worldState.characters[rc.name].stageName = stage.name || stage.label || ''
+        _worldState.characters[rc.name].stageIndex = rc.affectionStages
+          ? rc.affectionStages.findIndex(s => newAff >= (s.min ?? 0) && newAff <= (s.max ?? 100))
+          : -1
+      }
     }
   }
 

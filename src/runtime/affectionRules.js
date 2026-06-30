@@ -32,8 +32,8 @@ export function scoreAffection(userInput, aiReply, agentState, roundCounter) {
     }
   }
 
-  // Rule 2: Every 5th round → get LLM comprehensive evaluation
-  if (roundCounter % 5 === 0) {
+  // Rule 2: Every 3rd round → get LLM comprehensive evaluation
+  if (roundCounter % 3 === 0) {
     return { delta: 0, needsLLM: true, reason: '第' + roundCounter + '轮定期LLM裁决' }
   }
 

@@ -35,6 +35,7 @@ import { AgentDecisionLayer } from './agentDecisionLayer'
 import { AntiSmoothingV2 } from '../runtime/antiSmoothingV2'
 import { runAgentTurn, resetAgentTurn } from '../agents/coordinator'
 import { judgeAffectionDelta } from '../utils/deepseek'
+import { shouldTriggerAffectionJudge } from '../runtime/affectionTrigger'
 import { StabilityCompiler } from '../runtime/stabilityCompiler'
 import { MemoryInterpreter, DualViewMemory } from '../memory/memoryInterpreter'
 import { CausalEngine } from '../runtime/causalEngine'
@@ -832,7 +833,24 @@ export const InteractionKernel = {
       // 5.6. 🔥 v8.0.1: LLM judge AFTER reply — evaluates the actual interaction
       const turnReport = result.turnReport || {}
       turnReport.affectionDeltas = turnReport.affectionDeltas || {}
-      const needsLLM = turnReport.affectionLLMNeeded || []
+      let needsLLM = turnReport.affectionLLMNeeded || []
+
+      // 🔥 v8.5.4 fix: Post-reply trigger — the pre-reply trigger only sees user input.
+      // If the AI reply has high-signal emotional content, also run the judge even
+      // if the pre-reply trigger didn't fire.
+      if (needsLLM.length === 0 && cleanReply && apiKey) {
+        const replyTrigger = shouldTriggerAffectionJudge('', cleanReply, this.state.lifecycle.turnCount, 99)
+        if (replyTrigger.trigger) {
+          needsLLM = Object.keys(this.state.affections).filter(name => {
+            const enabled = character.romanceCharacters?.find(rc => rc.name === name)?.affectionEnabled !== false
+            return enabled
+          })
+          if (needsLLM.length > 0) {
+            console.log('[executeTurn] Post-reply trigger: AI reply has emotional content, running judge for:', needsLLM.join(', '))
+          }
+        }
+      }
+
       if (needsLLM.length > 0 && apiKey && cleanReply) {
         console.log('[executeTurn] Post-reply LLM judge needed for:', needsLLM.join(', '))
         try {

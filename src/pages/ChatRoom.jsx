@@ -11,7 +11,7 @@ import {
   clearChatHistory,
   saveCharacter,
 } from '../utils/storage'
-import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, estimateTokens, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta } from '../utils/deepseek'
+import { sendDailyChatMessage, sendStoryStageMessage, getCurrentAffectionStage, compressChatHistory, estimateTokens, checkActiveMessage, parseMultiCharacterMessage, findCharacterAvatar, judgeAffectionDelta, judgeDailyAffection } from '../utils/deepseek'
 import { getApiKey, getUserAvatar } from '../utils/storage'
 import { enforceBudget } from '../runtime/tokenBudget'
 import { shouldTriggerAffectionJudge } from '../runtime/affectionTrigger'
@@ -1141,14 +1141,30 @@ export default function ChatRoom({ mode, archiveId, onBack, onAffectionChange, _
       if (persona) {
         const mainChar = persona.characters?.find(c => c.type === 'romance')
         if (mainChar?.affectionEnabled) {
+          // 🔥 v8.5.4 fix: Call LLM judge for real delta (was always 0)
+          let judgeDelta = 0
+          try {
+            const { delta: jd, error: jerr } = await judgeDailyAffection(
+              mainChar, affection, userText, reply, apiKey
+            )
+            if (!jerr && jd !== 0) {
+              judgeDelta = jd
+              console.log('[Daily Judge] delta:', judgeDelta)
+            }
+          } catch (e) {
+            console.warn('[Daily Judge] failed:', e)
+          }
           // Bridge handles state update + persistence atomically
-          const updated = dailyTurnEnd(mainChar.name, { reply, delta: 0 })
+          const updated = dailyTurnEnd(mainChar.name, { reply, relationship_delta: judgeDelta })
           if (updated) {
             setUsk(updated)
             setAffection(updated.relationship?.affection ?? 50)
-            const delta = 1 // Bridge already applied the state change
-            setAffectionFlash({ '': delta })
-            setTimeout(() => setAffectionFlash(null), 1500)
+            if (judgeDelta !== 0) {
+              setAffectionFlash({ '': judgeDelta })
+              setTimeout(() => setAffectionFlash(null), 1500)
+            } else {
+              setAffectionNoChange(true)
+            }
           }
         }
       } else if (character.affectionEnabled) {

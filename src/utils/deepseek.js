@@ -1137,7 +1137,10 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
   if (rcList.length === 0) return { changes: [], error: null }
 
   // 【角色在场状态预检】——基于最新 AI 回复的文本检索
-  if (aiReply) {
+  // Only filter when 3+ characters (multi-character scene); with 1-2 chars,
+  // they're almost certainly all present — avoid missing characters due to
+  // pronoun references or nickname usage.
+  if (aiReply && rcList.length >= 3) {
     const presentList = rcList.filter(rc => {
       const isPresent = aiReply.includes('【' + rc.name + '】') || aiReply.includes(rc.name)
       if (!isPresent) {
@@ -1184,13 +1187,14 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
     '\n\n---' +
     '\n根据以上信息判断每个角色的好感度变化。' +
     '\n规则：' +
-    '\n· 每次最多变化3分' +
-    '\n· 被善待（被理解、被保护、被在意）可以上涨，通常 +1 到 +2' +
-    '\n· 预期被打破（角色原以为会被怎样对待，结果完全相反）可以较大上涨，最高 +3' +
+    '\n· 每次最多变化5分' +
+    '\n· 被善待（被理解、被保护、被在意）通常 +1 到 +3' +
+    '\n· 预期被打破（角色原以为会被怎样对待，结果完全相反）可以较大上涨 +3 到 +5' +
+    '\n· 对方做了角色极其渴望的事/说了角色极其想听的话 → +4 到 +5' +
     '\n· 触发减少条件或侵蚀条件给负分' +
     '\n· 触发压制场景给0' +
-    '\n· 拿不准就给0' +
-    '\n\n每个角色输出一行结论，行末必须包含 [最终得分: X]，其中 X 是 -3 到 +3 的整数。例如：林晚 [最终得分: +2]'
+    '\n· 拿不准就给0（不要因为拿不准就随便给±1）' +
+    '\n\n每个角色输出一行结论，行末必须包含 [最终得分: X]，其中 X 是 -5 到 +5 的整数。例如：林晚 [最终得分: +3]'
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {
@@ -1202,7 +1206,7 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
       body: JSON.stringify({
         model: 'deepseek-v4-flash',
         messages: [
-          { role: 'system', content: '你是好感度裁判。你的 reasoning_content（思考过程）必须极其简短，总字数绝对不能超过 30 字。不要反复碎碎念，直接进入最终判定。每个角色输出一行结论，行末严格格式：[最终得分: X]。X 只能是 -3 到 +3 的整数。例如：林晚 [最终得分: +2]。' },
+          { role: 'system', content: '你是好感度裁判。分析本轮互动中每个角色的情感变化，考虑角色性格和当前关系阶段。不要过度分析，直接给出判断。每个角色输出一行结论，行末严格格式：[最终得分: X]。X 只能是 -5 到 +5 的整数。例如：林晚 [最终得分: +3]。' },
           { role: 'user', content: userMessage },
         ],
         max_tokens: 512,
@@ -1249,7 +1253,7 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
     if (strictMatches.length > 0) {
       const changes = strictMatches.slice(0, rcList.length).map((m, i) => ({
         name: rcList[i]?.name || '角色' + (i + 1),
-        delta: Math.max(-3, Math.min(3, parseInt(m[1], 10))),
+        delta: Math.max(-5, Math.min(5, parseInt(m[1], 10))),
       }))
       return { changes, error: null }
     }
@@ -1260,7 +1264,7 @@ export async function judgeAffectionDelta(character, affections, userInput, aiRe
     if (allNumbers && allNumbers.length > 0) {
       const changes = allNumbers.slice(0, rcList.length).map((n, i) => ({
         name: rcList[i]?.name || '角色' + (i + 1),
-        delta: Math.max(-3, Math.min(3, parseInt(n, 10))),
+        delta: Math.max(-5, Math.min(5, parseInt(n, 10))),
       }))
       return { changes, error: null }
     }

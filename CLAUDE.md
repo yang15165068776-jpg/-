@@ -335,6 +335,10 @@ DAS 制造事件，DCS 控制"发生什么、对谁发生、节奏对不对"。
 | **换存档数据混在一起** | saveId被App.jsx丢弃 + 缓存key无saveId + USK用共享key | **三段修复：App.jsx传saveId → HydrationEngine key+saveId → 存档级USK** |
 | **60轮后角色漂移** | 长上下文稀释系统prompt权重 | **变量后缀末尾注入状态锁，利用recency bias对抗稀释** |
 | **退出存档token/轮次重置** | token和轮次在内存中不持久化 | **每存档dramaStats/dailyStats字段，_autoSave时持久化** |
+| **角色不按当前好感度演** | _worldState 仅首回合创建，LLM judge 好感度变更写入 USK 但不回写 _worldState；buildStateReinforcement/buildWorldSnapshot 从 _worldState 读取→拿到的永远是初始/规则级好感→尾部状态锁展示错阶段→LLM 按错误阶段演 | **每轮 runAgentTurn 开头从 USK 同步 affection+stageName+stageIndex 到 _worldState** |
+| **好感度增加太慢/不反映到页面** | ① Judge 每5轮才触发 ② pre-reply 触发器只检查用户输入（aiReply=''），AI回复情感内容永不被检测 ③ 日常模式 delta 永远为0（传`delta`字段但USK读`relationship_delta`）④ 每次最大±3 ⑤ 在场检测（rcList≥3时）过度过滤 | **① 5→3轮 ② executeTurn新增AI回复内容事后触发 ③ 日常模式接入judgeDailyAffection + 修正字段名 ④ ±3→±5 ⑤ ≤2角色时跳过在场过滤** |
+| **角色不够贴合人设/太温柔/束手束脚** | RLHF对齐泄漏——反温和规则全在prompt头部（10KB+之外），模型在生成时看到对话历史前已被"安全/诚实/温和"的训练本能覆盖 | **buildStateReinforcement尾部新增"人格释放指令"——按四级人格给每角色写行为许可+禁令，放在prompt末尾靠近对话历史处，利用近因效应对抗RLHF** |
+| **每轮token消耗过大（行为核指令重复注入）** | DarkAction/Desire/Initiative完整指令模板(~6600字)每轮都注入变量后缀 | **搬迁至CHARACTER_PREFIX缓存——每轮只注入1行LEVEL数字引用(~100字)，节省~2500token/轮** |
 
 ---
 
