@@ -1,6 +1,6 @@
-# JSJG Character OS v8.5.4 — CEK v4 Autonomous Narrative Director
+# JSJG Character OS v8.5.5 — 好感度系统修复 + 缓存搬迁 + 反RLHF对齐泄漏
 
-> 最后更新：2026-06-28（CEK v4 自主叙事导演 + 好感度裁判诊断弹窗）
+> 最后更新：2026-06-30（好感度裁判5项修复 + 行为核缓存搬迁~2500token/轮节省 + 人格释放指令）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -24,11 +24,9 @@ v8.5.3: ⚙️ CEK v3 — Narrative Economy（EmotionEconomy+Tension+Rivalry+
         Explosion+DirectionLock+AttentionSplit）
 v8.5.4: 🎬 CEK v4 — Autonomous Narrative Director（IntentGenerator+SceneDirector+
         CharacterPlanner+AttentionWar+ConflictSim+Branching）
-```
-v8.3: Grok 风格移植 — 五层写作技法叠加（慢烧→权力动态→身体叙事→碎句→反重复）
-v8.4: 🧠 自主性五层栈 — 角色从"工具"升级为"演员"（AIIS+ANDS+DAS+DCS+NDOS）
-v8.5: 🗃️ 缓存前缀架构 — 角色人设从首轮注入→缓存每轮全量（characterPrefix.js）
-      + 角色同质化修复 + 存档隔离 + 长上下文状态锁 + token/轮次持久化
+v8.5.5: 🔧 好感度系统修复（Judge 5→3轮/±3→±5/AI回复事后触发/日常模式接入/
+        _worldState同步USK）+ 反RLHF对齐泄漏（人格释放指令）+ 
+        缓存搬迁（行为核模板+人格释放→CHARACTER_PREFIX，~2500 token/轮节省）
 ```
 
 ---
@@ -436,14 +434,20 @@ AI = 导演（决定场景、分配焦点、推动冲突升级）
 CORE_SYSTEM_PREFIX (always cached)       → cachePrefix.js
 CHARACTER_PREFIX (cached, regen on stage) → characterPrefix.js
   ├── ASL + 写作范本 + 权力动态 + 修罗场
-  └── 🆕 CEK v4 Static Rules (~2KB cached):
-       Narrative Intent 定义 + Scene 模板 + Character Planner 定义
-       + Attention War 战术 + Conflict Sim 定义 + Branch 定义
-       + Constraint Firewall 4层 + Director 铁律
+  ├── CEK v4 Static Rules (~2KB cached):
+  │    Narrative Intent 定义 + Scene 模板 + Character Planner 定义
+  │    + Attention War 战术 + Conflict Sim 定义 + Branch 定义
+  │    + Constraint Firewall 4层 + Director 铁律
+  ├── 🆕 v8.5.5 行为核等级模板 (~2.5KB cached):
+  │    DarkAction 6级 + Desire 6级 + Initiative 5级完整指令
+  └── 🆕 v8.5.5 人格释放指令 (~1KB cached):
+       四级人格(pursuer/confrontational/aloof/gentle)行为许可+禁令
 VARIABLE_SUFFIX (per turn)               → narratorPrompt.js
-  └── 🆕 CEK v4 Dynamic State (~0.8KB):
-       本轮 Intent + Scene Card + Character Plans (N×1行)
-       + Attention War + Conflict Sim + Economy + Branch
+  ├── CEK v4 Dynamic State (~0.8KB):
+  │    本轮 Intent + Scene Card + Character Plans (N×1行)
+  │    + Attention War + Conflict Sim + Economy + Branch
+  └── 🆕 v8.5.5 行为核等级引用 (~0.1KB):
+        "DarkAction=LV3 / Desire=LV2 / Physical=LV1 → 执行缓存模板"
 ```
 
 ### 好感度裁判诊断弹窗
