@@ -654,14 +654,27 @@ export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdge
   }
 
   // ③ Character Plans — per-character strategic state
-  const planLines = ['🧠 角色策略:']
+  // 🆕 v8.5.7: Offensive language for pursuer/confrontational archetypes
+  const planLines = ['🧠 角色策略（进攻型角色使用破坏性指令）:']
   for (const [name, plan] of plans) {
     const cc = compiledList.find(c => c.name === name)
-    planLines.push('  ' + name + '(P' + (cc?.phase || '?') + '|' + (cc?.profile || '?') + '): ' +
-      (ACTION_LABELS[plan.nextAction] || plan.nextAction) +
-      ' | 策略=' + (STRATEGY_LABELS[plan.emotionalStrategy] || plan.emotionalStrategy) +
+    const actionLabel = getOffensiveActionLabel(plan.nextAction, cc?.profile)
+    const strategyLabel = getOffensiveStrategyLabel(plan.emotionalStrategy, cc?.profile)
+    const archetypeTag = cc?.profile === 'pursuer' ? '🔥进攻'
+      : cc?.profile === 'confrontational' ? '⚡对抗'
+      : cc?.profile === 'aloof' ? '❄️疏离'
+      : '🌸温柔'
+    planLines.push('  ' + name + '(' + archetypeTag + '|P' + (cc?.phase || '?') + '): ' +
+      actionLabel +
+      ' | 策略=' + strategyLabel +
       ' | 操纵=' + plan.manipulationLevel + ' 风险=' + plan.riskTolerance +
       ' | 隐藏目标=' + plan.hiddenGoal)
+    // For pursuer/confrontational, add explicit aggressive directive
+    if (cc?.profile === 'pursuer') {
+      planLines.push('    ⚠️ 侵略者模式：不进攻=角色死亡。你的行为必须让对方感到危险/不安/被侵犯。')
+    } else if (cc?.profile === 'confrontational') {
+      planLines.push('    ⚠️ 对抗者模式：不找茬=角色死亡。你的存在必须让对方不舒服。')
+    }
   }
   sections.push(planLines.join('\n'))
 
@@ -745,17 +758,30 @@ function buildSceneBlock(scene, playerName) {
 function buildPlansBlock(plans, compiledList) {
   const lines = ['┌─ 🧠 ③ 角色自主策略 (Character Planner) ────']
   lines.push('│ 每个角色有自己的隐藏目标。他们说的和想要的不一样。')
+  lines.push('│ 🆕 进攻型角色使用破坏性策略语言。')
   lines.push('│')
   for (const [name, plan] of plans) {
     const cc = compiledList.find(c => c.name === name)
-    lines.push('│ ' + name + ' (Phase ' + (cc?.phase || '?') + ' | ' + (cc?.profile || '?') + '):')
-    lines.push('│   本能行动: ' + ACTION_LABELS[plan.nextAction] || plan.nextAction)
-    lines.push('│   情绪策略: ' + STRATEGY_LABELS[plan.emotionalStrategy] || plan.emotionalStrategy)
+    const actionLabel = getOffensiveActionLabel(plan.nextAction, cc?.profile)
+    const strategyLabel = getOffensiveStrategyLabel(plan.emotionalStrategy, cc?.profile)
+    const archetypeTag = cc?.profile === 'pursuer' ? '🔥进攻'
+      : cc?.profile === 'confrontational' ? '⚡对抗'
+      : cc?.profile === 'aloof' ? '❄️疏离'
+      : '🌸温柔'
+    lines.push('│ ' + name + ' (' + archetypeTag + ' | Phase ' + (cc?.phase || '?') + '):')
+    lines.push('│   本能行动: ' + actionLabel)
+    lines.push('│   情绪策略: ' + strategyLabel)
     lines.push('│   操纵程度: ' + plan.manipulationLevel + '/100 | 风险承受: ' + plan.riskTolerance + '/100')
     lines.push('│   隐藏目标: ' + plan.hiddenGoal)
+    if (cc?.profile === 'pursuer') {
+      lines.push('│   ⚠️ 侵略者铁律：必须主动侵犯——身体/性/情绪。不进攻=角色死亡。')
+    } else if (cc?.profile === 'confrontational') {
+      lines.push('│   ⚠️ 对抗者铁律：必须主动找茬——讽刺/打断/吼/摔。不让步=角色死亡。')
+    }
     lines.push('│')
   }
   lines.push('│ ❗ 角色的"隐藏目标"决定他们怎么说、怎么做——表面行为和真实动机可以矛盾。')
+  lines.push('│ ❗ 进攻型角色的策略不是"算计"——是"破坏"。他们制造混沌，不计算后果。')
   lines.push('└──────────────────────────────────────────')
   return lines.join('\n')
 }
@@ -1100,7 +1126,26 @@ function clamp(v, min, max) { if (v == null || isNaN(v)) return min; return Math
 const GOAL_LABELS = { increase_tension:'推高张力', resolve_tension:'释放张力', destabilize:'破坏稳定', reveal:'揭示信息', seduce:'诱惑行动', confront:'正面冲突', withdraw_impact:'抽离施压' }
 const SCENE_LABELS = { confrontation:'对峙', seduction:'诱惑', revelation:'揭示', withdrawal:'抽离', test:'试探', interrupt:'打断', triangulation:'三角修罗场' }
 const ACTION_LABELS = { escalate_physically:'物理升级', provoke_directly:'直接挑衅', withdraw_completely:'完全抽离', plead_or_cry:'恳求/崩溃', claim_player_attention:'争夺注意力', test_physical_boundary:'试探身体边界', seek_player_validation:'寻求玩家认可', create_tension_opportunity:'制造张力机会', observe_and_probe:'观察试探', cold_test:'冷测试', passive_aggressive_hint:'被动攻击暗示', force_reaction_at_any_cost:'不惜代价逼反应', remind_player_who_matters:'提醒玩家谁更重要', see_if_player_responds_physically:'试探身体反应', get_player_to_show_they_care:'让玩家表现出来在意', serve_the_scene:'服务场景需要', gather_information:'收集信息', assess_player_value:'评估玩家价值' }
+
+// 🆕 v8.5.7: Offensive action labels for aggressive archetypes (pursuer/confrontational)
+const PURSUER_ACTION_OVERLAY = { escalate_physically:'身体侵犯升级——逼近/按墙/撕衣服/强吻', provoke_directly:'直接挑衅+性侵略——荤话/脏话/逼迫选择/与第三人亲密', withdraw_completely:'毁灭式撤退——"我走，但你永远会后悔"→真的走不回头', claim_player_attention:'暴力争夺——用侵犯/威胁/自毁强抢注意力', test_physical_boundary:'侵犯身体边界——触碰/抓/按/压/侵入私人空间', create_tension_opportunity:'主动制造破坏——撒谎/毁约/当面对别人好/砸东西', force_reaction_at_any_cost:'不惜代价逼反应——可以自毁、可以伤害自己、可以毁掉一切', observe_and_probe:'侵略性试探——逼近看反应、用威胁测试底线', cold_test:'冷血测试——伤害对方看能承受多少', passive_aggressive_hint:'公开挑衅——不暗示，直接说/直接做', remind_player_who_matters:'用第三人刺激——当面对别人好、提别人名字、比较', assess_player_value:'贬低→践踏→让对方觉得自己一文不值' }
+const CONFRONTATIONAL_ACTION_OVERLAY = { escalate_physically:'物理冲突升级——堵门/摔东西/推搡/逼近吼叫', provoke_directly:'直接找茬——讽刺/挖苦/翻旧账/否定对方一切', withdraw_completely:'决裂式抽离——"你他妈自己过吧"→摔门走但不真走远', claim_player_attention:'对抗式争夺——骂/吼/砸/让别人无法忽视', force_reaction_at_any_cost:'逼到墙角——"你说啊""你走啊——走啊！"不给退路', observe_and_probe:'挑剔审视——找对方的错、戳对方的痛处', cold_test:'毒舌测试——说最狠的话看对方会不会走', remind_player_who_matters:'翻旧账——"上次是谁……""你欠我的还没还完"' }
 const STRATEGY_LABELS = { cold:'冷策略 — 不动声色', warm:'暖策略 — 以柔克刚', volatile:'波动 — 情绪不可预测', controlled_leak:'控制泄露 — 偶尔失控但迅速收回', withdrawal:'撤退 — 制造缺失感' }
+// 🆕 v8.5.7: Offensive strategy labels for aggressive archetypes
+const PURSUER_STRATEGY_OVERLAY = { cold:'冷血进攻 — 不动声色但步步紧逼', volatile:'混沌爆发 — 不可预测的情绪跳变，温柔→暴怒→大笑→沉默→侵犯', withdrawal:'毁灭式抽离 — 不是撤退，是"我走但你永远会后悔"' }
+const CONFRONTATIONAL_STRATEGY_OVERLAY = { cold:'冷言进攻 — 每一句话都带刺', volatile:'火山爆发 — 上一秒冷笑下一秒咆哮，不控制不道歉' }
+
+// Helper: get personality-aware offensive label
+function getOffensiveActionLabel(action, profile) {
+  if (profile === 'pursuer' && PURSUER_ACTION_OVERLAY[action]) return PURSUER_ACTION_OVERLAY[action]
+  if (profile === 'confrontational' && CONFRONTATIONAL_ACTION_OVERLAY[action]) return CONFRONTATIONAL_ACTION_OVERLAY[action]
+  return ACTION_LABELS[action] || action
+}
+function getOffensiveStrategyLabel(strategy, profile) {
+  if (profile === 'pursuer' && PURSUER_STRATEGY_OVERLAY[strategy]) return PURSUER_STRATEGY_OVERLAY[strategy]
+  if (profile === 'confrontational' && CONFRONTATIONAL_STRATEGY_OVERLAY[strategy]) return CONFRONTATIONAL_STRATEGY_OVERLAY[strategy]
+  return STRATEGY_LABELS[strategy] || strategy
+}
 const WAR_LABELS = { capture:'争夺 — 直接夺取注意力', block:'阻断 — 打断对手', redirect:'引导 — 转向自己', replace:'替代 — 让对手无关紧要' }
 const BATTLEGROUND_LABELS = { interruption:'打断战', comparison:'比较战', proximity_war:'身体距离战' }
 const TOPOLOGY_LABELS = { mutual_escalation:'双向升级', cold_war:'冷战', asymmetric:'非对称' }
