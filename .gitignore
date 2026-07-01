@@ -20,3 +20,4 @@ dist
 .claude/secret-warnings*.json.lock
 .claude/secret-warnings*.json.corrupt-*
 .claude/worktrees/
+.claude/temp/
