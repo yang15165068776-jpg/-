@@ -6,3 +6,17 @@ dist
 .vercel
 作品集文档/
 *.docx
+
+# Claude Code skills cache files (jr-audit / jr-review / jr-ship)
+.claude/review-profile.json
+.claude/review-baseline.json
+.claude/review-config.md
+.claude/audit-history.json
+.claude/audit-report-*.md
+.claude/secret-warnings.json
+.claude/secret-warnings-*.json
+.claude/secret-hook-patterns.txt
+.claude/secret-warnings*.json.tmp
+.claude/secret-warnings*.json.lock
+.claude/secret-warnings*.json.corrupt-*
+.claude/worktrees/

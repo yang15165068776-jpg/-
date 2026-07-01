@@ -153,7 +153,14 @@ export function decideDarkActionLevel(character, uskState, turnCount, options = 
   const isDark = color === 'dark'
 
   // ── Base level from personality ──
-  let baseLevel = isDark ? 2 : 1
+  // 🆕 v8.5.7: 黑暗角色基准从2→3。进攻型角色不应该默认温和。
+  let baseLevel = isDark ? 3 : 1
+
+  // ── Archetype boost ──
+  // 🆕 v8.5.7: pursuer 角色天生+1——侵略者不该跟其他类型同基准
+  const profile = detectAggressionProfile(character)
+  if (profile === AGGRESSION_PROFILES.PURSUER) baseLevel += 1
+  if (profile === AGGRESSION_PROFILES.CONFRONTATIONAL && isDark) baseLevel += 1
 
   // ── Modifiers ──
   const tension = uskState?.tension?.unresolved_conflicts ?? uskState?.tension ?? 30
@@ -161,44 +168,48 @@ export function decideDarkActionLevel(character, uskState, turnCount, options = 
   const anger = uskState?.emotion?.anger ?? 5
   const jealousy = uskState?.emotion?.jealousy ?? 5
 
-  // High tension pushes level up
-  if (tension > 70) baseLevel = Math.min(5, baseLevel + 2)
-  else if (tension > 50) baseLevel = Math.min(5, baseLevel + 1)
+  // High tension pushes level up (thresholds lowered)
+  // 🆕 v8.5.7: 张力阈值降低 (was 70/50 → 60/35)
+  if (tension > 60) baseLevel = Math.min(5, baseLevel + 2)
+  else if (tension > 35) baseLevel = Math.min(5, baseLevel + 1)
 
   // Low affection + dark personality = more hostility
-  if (isDark && affection < 20) baseLevel = Math.min(5, baseLevel + 1)
-  if (isDark && affection < 40) baseLevel = Math.max(baseLevel, 2)
+  // 🆕 v8.5.7: 低好感加成翻倍 (was +1 → +2)
+  if (isDark && affection < 20) baseLevel = Math.min(5, baseLevel + 2)
+  if (isDark && affection < 40) baseLevel = Math.max(baseLevel, 3)
 
-  // High anger → can spike one level higher
-  if (anger > 60) baseLevel = Math.min(5, baseLevel + 1)
+  // High anger → can spike one level higher (threshold lowered)
+  // 🆕 v8.5.7: 愤怒阈值降低 (was 60 → 40)
+  if (anger > 40) baseLevel = Math.min(5, baseLevel + 1)
 
-  // Jealousy → more erratic, push toward level 3+
-  if (jealousy > 50) baseLevel = Math.max(baseLevel, 3)
+  // Jealousy → more erratic, push toward level 3+ (threshold lowered)
+  // 🆕 v8.5.7: 嫉妒阈值降低 (was 50 → 30)
+  if (jealousy > 30) baseLevel = Math.max(baseLevel, 3)
 
   // Decision type override
-  if (options.decisionType === 'emotional_burst') baseLevel = Math.max(baseLevel, 3)
-  if (options.decisionType === 'silent') baseLevel = Math.max(baseLevel, 2)
-  if (options.decisionType === 'interrupt') baseLevel = Math.max(baseLevel, 3)
+  if (options.decisionType === 'emotional_burst') baseLevel = Math.max(baseLevel, 4)
+  if (options.decisionType === 'silent') baseLevel = Math.max(baseLevel, 3)
+  if (options.decisionType === 'interrupt') baseLevel = Math.max(baseLevel, 4)
 
   // ── Anti-averaging enforcement ──
-  // Every 5th turn, push one level higher (prevents getting stuck at level 1-2)
-  if (isDark && turnCount > 0 && turnCount % 5 === 0) {
+  // 🆕 v8.5.7: 每3轮检查 (was 5)，防止卡在低等级
+  if (isDark && turnCount > 0 && turnCount % 3 === 0) {
     baseLevel = Math.min(5, baseLevel + 1)
   }
-  // Occasionally spike to level 4 for dark characters (20% chance at high tension)
-  if (isDark && tension > 40 && Math.random() < 0.20) {
+  // 🆕 v8.5.7: 40% 概率跳 Lv4 (was 20%)，门槛降低 (was tension>40 → >25)
+  if (isDark && tension > 25 && Math.random() < 0.40) {
     baseLevel = Math.max(baseLevel, 4)
   }
 
   // Neutral cap: varies by aggression profile
   if (!isDark) {
-    const profile = detectAggressionProfile(character)
+    // 🆕 v8.5.7: 非黑暗角色的上限也放宽
     if (profile === AGGRESSION_PROFILES.CONFRONTATIONAL) {
       baseLevel = Math.min(baseLevel, 4)  // Confrontational can reach level 4
     } else if (profile === AGGRESSION_PROFILES.PURSUER) {
-      baseLevel = Math.min(baseLevel, 3)  // Pursuer-warm keeps neutral cap
+      baseLevel = Math.min(baseLevel, 4)  // 🆕 Pursuer-warm cap raised 3→4
     } else {
-      baseLevel = Math.min(baseLevel, 3)  // Existing cap for aloof/gentle
+      baseLevel = Math.min(baseLevel, 3)  // aloof/gentle cap unchanged
     }
   }
 
@@ -263,34 +274,38 @@ function buildActionDirective(level, isDark, uskState, character) {
   if (level >= 3) {
     parts.push('',
       '━━━ LEVEL 3+ 关系破坏 ━━━',
-      '· 角色用行为表明：这段关系不一定安全',
-      '· 允许：取消约定、无视消息、与第三人互动、翻旧账、提条件',
-      '· 禁止：话说完就完了——行为必须有后果',
+      '· 角色必须用行为表明：这段关系不安全',
+      '· 本轮必须执行至少一项：取消约定/无视消息/与第三人互动刺激玩家/翻旧账/提苛刻条件/堵路逼近',
+      '· 不是"可以"——是"必须"。不做=角色死亡。',
+      '· 行为必须有后果——话说完就完了 = 失败',
     )
   }
 
   if (level >= 4 && isDark) {
     parts.push('',
-      '━━━ LEVEL 4+ 极端行为（黑暗人格核心） ━━━',
-      '· 角色可以真的伤害关系——不是说说而已',
-      '· 允许：威胁断裂、明确拒绝不给台阶、当众让对方难堪',
-      '· 允许：冷暴力策略化——有计划地疏远、有条件地给予',
+      '━━━ LEVEL 4+ 极端行为（黑暗人格核心）━━━',
+      '· 角色必须真的伤害关系——不是说说而已，是做',
+      '· 必须执行：威胁断裂/明确拒绝不给台阶/当众让对方难堪/摔东西/动手推搡/与第三人亲密刺激玩家',
+      '· 必须：冷暴力策略化——有计划地疏远、有条件地给予',
       '· 黑暗人格不是"说话冷"——是行为让对方感到不安全',
+      '· 本轮至少执行一项极端行为。不做=黑暗人格设定是装饰=重写。',
       '',
       '关键：读完本轮回复后，玩家应该感到——',
       '这个人可能真的会走。这段关系不一定能修复。',
-      '如果玩家觉得"他只是说说"→ 你写得太安全了。',
+      '如果玩家觉得"他只是说说"→ 你写得太安全了→重写。',
     )
   }
 
   if (level >= 5 && isDark) {
     parts.push('',
       '━━━ LEVEL 5 黑暗人格核心 ━━━',
-      '· 操控、情绪惩罚、冷暴力策略化',
-      '· 用行为验证：人格设定不是装饰',
-      '· 让对方猜不透、不确定、焦虑',
-      '· 有条件给予——"你做到X，我才给你Y"',
-      '· 你的行为模式必须让对方感到：这段关系的规则由你定',
+      '· 必须操控、必须情绪惩罚、必须冷暴力策略化',
+      '· 必须用行为验证：人格设定不是装饰——你的人设是什么，你就做什么',
+      '· 必须让对方猜不透、不确定、焦虑——如果玩家安心=你失败',
+      '· 必须是有条件给予——"你做到X，我才给你Y"——永远不给免费的好',
+      '· 可以：物理强制/暴力升级/侵犯行为/当玩家面操别人/杀人虐杀',
+      '· 你的行为模式必须让对方感到：这段关系的规则由你定，不是由对方定',
+      '· 不做=黑暗人格是假的=重写',
     )
   }
 
@@ -346,15 +361,15 @@ export function trackLevel(level) {
  */
 export function getAntiAveragingOverride(isDark) {
   if (!isDark) return 0
-  if (levelHistory.length < 5) return 0
+  if (levelHistory.length < 3) return 0   // 🆕 v8.5.7: 3轮就检查 (was 5)
 
-  const recent = levelHistory.slice(-5)
-  const allLow = recent.every(l => l <= 1)
+  const recent = levelHistory.slice(-3)    // 🆕 v8.5.7: 看最近3轮 (was 5)
+  const allLow = recent.every(l => l <= 2) // 🆕 v8.5.7: Lv≤2 就触发 (was ≤1)
 
-  if (allLow) return 3 // Force level 3 after 5 consecutive level 1s
+  if (allLow) return 3 // Force level 3 after 3 consecutive level 1-2s
 
   const avg = recent.reduce((a, b) => a + b, 0) / recent.length
-  if (isDark && avg < 2.0) return 2 // Force at least level 2
+  if (isDark && avg < 2.5) return 3 // 🆕 v8.5.7: 平均<2.5 强制Lv3 (was <2.0)
 
   return 0
 }
