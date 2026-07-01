@@ -230,7 +230,7 @@ export const InteractionKernel = {
       } else {
         // Character not found in USK — fall back to character config
         this.state.affection = mainChar.affectionInitial ?? 50
-        alert('[init] ⚠️ 角色「' + (lookupKey || '(无名)') + '」在 USK 中未找到，好感度使用配置默认值：' + this.state.affection)
+        console.warn('[init] ⚠️ 角色「' + (lookupKey || '(无名)') + '」在 USK 中未找到，好感度使用配置默认值：' + this.state.affection)
       }
     }
 
@@ -871,19 +871,18 @@ export const InteractionKernel = {
               }
             }
             if (judgeReport) {
-              alert('📊 好感度裁判 · 第' + (turnReport.round || '?') + '轮\n' +
+              console.log('📊 好感度裁判 · 第' + (turnReport.round || '?') + '轮\n' +
                 '裁决角色: ' + needsLLM.join(', ') + '\n\n' + judgeReport)
             }
           } else if (judgeErr) {
-            alert('❌ 好感度裁判失败\n' + judgeErr)
+            console.warn('❌ 好感度裁判失败\n' + judgeErr)
           } else {
-            alert('📊 好感度裁判 · 第' + (turnReport.round || '?') + '轮\n' +
+            console.log('📊 好感度裁判 · 第' + (turnReport.round || '?') + '轮\n' +
               '裁决角色: ' + needsLLM.join(', ') + '\n\n所有角色: 0 (不变)')
           }
           if (!result.turnReport) result.turnReport = turnReport
         } catch (judgeErr) {
-          alert('❌ 好感度裁判异常\n' + (judgeErr?.message || judgeErr))
-          console.error('[executeTurn] LLM judge failed:', judgeErr)
+          console.error('❌ 好感度裁判异常\n' + (judgeErr?.message || judgeErr))
         }
       }
 
