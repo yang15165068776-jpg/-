@@ -1,6 +1,6 @@
-# JSJG Character OS v8.5.5 — 好感度系统修复 + 缓存搬迁 + 反RLHF对齐泄漏
+# JSJG Character OS v8.5.6 — 角色张力修复（人格层进攻型重构）+ Claude Code Skills
 
-> 最后更新：2026-06-30（好感度裁判5项修复 + 行为核缓存搬迁~2500token/轮节省 + 人格释放指令）
+> 最后更新：2026-07-01（v8.5.6 人格释放指令permissive→imperative + 行为底线配额 + 黑暗混沌协议 + 自毁式攻击核 + Claude Code Skills配置）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -27,6 +27,9 @@ v8.5.4: 🎬 CEK v4 — Autonomous Narrative Director（IntentGenerator+SceneDir
 v8.5.5: 🔧 好感度系统修复（Judge 5→3轮/±3→±5/AI回复事后触发/日常模式接入/
         _worldState同步USK）+ 反RLHF对齐泄漏（人格释放指令）+ 
         缓存搬迁（行为核模板+人格释放→CHARACTER_PREFIX，~2500 token/轮节省）
+v8.5.6: ⚔️ 角色张力修复 — 人格层进攻型重构（"可以"→"必须"32处）
+        + 行为底线配额（每轮5条破坏性指标）+ 黑暗人格混沌协议
+        + 自毁式攻击核 + 张力自检4→8条升级
 ```
 
 ---
@@ -337,6 +340,7 @@ DAS 制造事件，DCS 控制"发生什么、对谁发生、节奏对不对"。
 | **好感度增加太慢/不反映到页面** | ① Judge 每5轮才触发 ② pre-reply 触发器只检查用户输入（aiReply=''），AI回复情感内容永不被检测 ③ 日常模式 delta 永远为0（传`delta`字段但USK读`relationship_delta`）④ 每次最大±3 ⑤ 在场检测（rcList≥3时）过度过滤 | **① 5→3轮 ② executeTurn新增AI回复内容事后触发 ③ 日常模式接入judgeDailyAffection + 修正字段名 ④ ±3→±5 ⑤ ≤2角色时跳过在场过滤** |
 | **角色不够贴合人设/太温柔/束手束脚** | RLHF对齐泄漏——反温和规则全在prompt头部（10KB+之外），模型在生成时看到对话历史前已被"安全/诚实/温和"的训练本能覆盖 | **buildStateReinforcement尾部新增"人格释放指令"——按四级人格给每角色写行为许可+禁令，放在prompt末尾靠近对话历史处，利用近因效应对抗RLHF** |
 | **每轮token消耗过大（行为核指令重复注入）** | DarkAction/Desire/Initiative完整指令模板(~6600字)每轮都注入变量后缀 | **搬迁至CHARACTER_PREFIX缓存——每轮只注入1行LEVEL数字引用(~100字)，节省~2500token/轮** |
+| **角色输出平淡被动（堕落浪子等进攻型角色不会主动制造张力）** | 系统行为规则全是防守型（"不准温柔""不准讨好"），没有进攻型（"必须破坏""必须让玩家不安"）。人格释放指令用"可以"（permissive）而非"必须"（imperative）。behaviorLocks低好感时锁角色进"冷漠+算计"压制了pursuer应有的混沌爆发 | **v8.5.6 6项修复（只改characterPrefix.js缓存前缀）：① 人格释放指令重写（"可以撒谎"→"每轮必须制造破坏性事件。不进攻=角色死亡"，32处"必须"）② 新增行为底线配额（每轮5条破坏性指标，至少满足3/5+archetype专属配额）③ 新增黑暗人格混沌协议（覆盖behaviorLocks低好感策略模式——低好感pursuer不是"算计"而是"制造混沌"）④ 自毁式攻击核（"那我就烂给你看"作为黑暗人格终极武器）⑤ 张力自检升级（4→8条，致命违规直接重写）⑥ 进攻型vs防守型比例从~1:10→~2.3:1** |
 
 ---
 
@@ -384,6 +388,8 @@ DAS 制造事件，DCS 控制"发生什么、对谁发生、节奏对不对"。
         Explosion+DirectionLock+AttentionSplit）
 ✅ v8.5.4: 🎬 CEK v4 — Autonomous Narrative Director（IntentGenerator+SceneDirector+
         CharacterPlanner+AttentionWar+ConflictSim+Branching）+ 好感度裁判诊断弹窗
+✅ v8.5.5: 🔧 好感度系统修复 + 反RLHF对齐泄漏 + 缓存搬迁（~2500token/轮节省）
+✅ v8.5.6: ⚔️ 角色张力修复 — 人格层进攻型重构（6项修改，只改characterPrefix.js）
 ⬜ v8.6: Emotion Drift System（情绪漂移 — 角色情绪随时间自然波动）
 ⬜ v8.7: Timeline Forking（时间线分叉 — 多结局支持）
 ⬜ v9.0: LoRA 微调 — 将 prompt 约束迁移至模型权重（主动性+多人动态）
@@ -440,8 +446,14 @@ CHARACTER_PREFIX (cached, regen on stage) → characterPrefix.js
   │    + Constraint Firewall 4层 + Director 铁律
   ├── 🆕 v8.5.5 行为核等级模板 (~2.5KB cached):
   │    DarkAction 6级 + Desire 6级 + Initiative 5级完整指令
-  └── 🆕 v8.5.5 人格释放指令 (~1KB cached):
-       四级人格(pursuer/confrontational/aloof/gentle)行为许可+禁令
+  ├── 🆕 v8.5.5 人格释放指令 (~1KB cached):
+  │    四级人格(pursuer/confrontational/aloof/gentle)行为许可+禁令
+  ├── 🆕 v8.5.6 行为底线配额 (~1KB cached):
+  │    每轮5条破坏性指标+archetype专属配额
+  ├── 🆕 v8.5.6 黑暗人格混沌协议 (~1KB cached):
+  │    覆盖behaviorLocks低好感策略模式——pursuer/confrontational混沌行为清单
+  └── 🆕 v8.5.6 自毁式攻击核 (~0.3KB cached):
+       行为核模板新增——"那我就烂给你看"自毁作为武器
 VARIABLE_SUFFIX (per turn)               → narratorPrompt.js
   ├── CEK v4 Dynamic State (~0.8KB):
   │    本轮 Intent + Scene Card + Character Plans (N×1行)
@@ -457,3 +469,37 @@ VARIABLE_SUFFIX (per turn)               → narratorPrompt.js
 - 显示 delta（+2/-1/0）和变化前后数值
 - API 失败时显示错误信息
 - 位置: `interactionKernel.js:849`
+
+---
+
+## 10. Claude Code Skills 配置
+
+> 安装路径：`.claude/skills/`
+> 安装方式：终端运行 git clone
+
+### 已规划 Skills（3个核心）
+
+| Skill | 仓库 | 用途 | 安装命令 |
+|-------|------|------|---------|
+| **deep-review** | [Farfield-Dev/deep-review](https://github.com/Farfield-Dev/deep-review) | 5阶段深度Bug查找，比内置`/code-review`更深入 | `git clone https://github.com/Farfield-Dev/deep-review.git` |
+| **coding-skills** | [bouob/coding-skills](https://github.com/bouob/coding-skills) | 4专家并行PR review + TDD重构 + `/diagnose`诊断 | `git clone https://github.com/bouob/coding-skills.git` |
+| **jr-skills** | [julienroussel/skills](https://github.com/julienroussel/skills) | `/jr-audit`代码审计 + `/jr-ship`自动发PR+CI监控 | `git clone https://github.com/julienroussel/skills.git jr-skills` |
+
+### 安装
+
+```bash
+cd ~/Desktop/jsjg/.claude/skills
+git clone https://github.com/Farfield-Dev/deep-review.git
+git clone https://github.com/bouob/coding-skills.git
+git clone https://github.com/julienroussel/skills.git jr-skills
+```
+
+### 调用方式
+
+在 Claude Code 中输入 `/<skill-name>` 即可：
+- `/deep-review` — 深度审查当前改动
+- `/pr-review` — 4专家并行PR审查
+- `/diagnose` — 诊断问题不修改代码
+- `/refactor` — 安全重构
+- `/jr-audit` — 全代码库审计
+- `/jr-ship` — 自动发PR+部署
