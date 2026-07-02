@@ -512,7 +512,7 @@ export const RuntimeOrchestrator = {
    */
   logPipeline() {
     const steps = PIPELINE.map(s => s.name)
-    alert('[NOS Pipeline]\n' + steps.map((s, i) => (i + 1) + '. ' + s).join('\n'))
+    console.log('[NOS Pipeline]\n' + steps.map((s, i) => (i + 1) + '. ' + s).join('\n'))
   },
 }
 

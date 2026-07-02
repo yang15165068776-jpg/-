@@ -486,7 +486,7 @@ export async function runAgentTurn(userInput, character, affections, messages, a
 
     if (!lockResult.passed) {
       const lockViolations = lockResult.violations.join(' | ')
-      alert('[StateLocks] ❌ ' + lockResult.violations.length + ' 项校验失败：\n' + lockViolations)
+      console.warn('[StateLocks] ❌ ' + lockResult.violations.length + ' 项校验失败：\n' + lockViolations)
       error = new Error('StateLocks: ' + lockViolations)
       reply = null
     }
