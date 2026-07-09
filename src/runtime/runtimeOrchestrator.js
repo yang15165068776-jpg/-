@@ -14,11 +14,11 @@
  *   ✅ Clear data flow — each step reads/writes a shared context
  *   ✅ Pluggable — add/remove/reorder steps without touching the LLM
  *
- * Architecture (v8.5.3):
- *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → EVENTS → CAUSAL → CEKv3 → BUILD → RENDER
- *                                                                                    ↑
- *                                                           CEK v3: Narrative Economy Edition
- *                                                           emotion economy + tension + rivalry + explosion
+ * Architecture (v8.7):
+ *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → EVENTS → CAUSAL → CEKv4 → BUILD → RENDER → RQA
+ *                                                                                             ↑
+ *                                                    RQA: Runtime Quality Assurance — 10-dimension LLM audit
+ *                                                    critical/major → rewrite, minor/silent → log + continue
  *
  * This is NOT a new module. It's the CONDUCTOR for all existing modules.
  */
@@ -441,6 +441,19 @@ const PIPELINE = [
     fn(ctx) {
       // LLM call is done by executeTurn via runAgentTurn
       // The ctx now has all character directives ready
+    },
+  },
+
+  // ═══════════════════════════════════════════════════
+  // STEP 10: RQA_AUDIT — Runtime Quality Assurance
+  //   LLM audit of generated output across 10 dimensions
+  //   Performed in coordinator.js after LLM generation.
+  // ═══════════════════════════════════════════════════
+  {
+    name: "RQA_AUDIT",
+    fn(ctx) {
+      // RQA audit runs in coordinator.js runAgentTurn
+      // after LLM generation, before returning to UI.
     },
   },
 ]

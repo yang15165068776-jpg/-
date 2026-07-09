@@ -34,6 +34,7 @@ import { loadCanon, saveCanon, buildStoryCanonBlock, scanAndUpdateCanon, lockFac
 import { InteractionKernel } from '../engine/interactionKernel'
 import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
 import { runCEKv4PostValidation, resetCEKv4 } from '../runtime/characterExecutionKernelV4'
+import { runRQAAudit, shouldRewrite, getMaxRewrites, buildRQACorrection, buildRQAContextFromScope } from '../runtime/rqa'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
 
 // Global state (persists across turns within a session)
@@ -45,6 +46,7 @@ let _memoryGraph = null    // Event-Native Memory Graph
 let _powerGraph = null     // v3.5: Power Dynamics Engine state
 let _storyCanon = null     // 🔴 Story Canon Kernel — immutable timeline
 let _characterId = null    // Current character ID for storage keys
+let _rqaReminder = ''      // 🔍 RQA stage reminder — injected at prompt tail
 let _currentSaveId = null  // Current save ID for per-save canon isolation
 
 /**
@@ -130,6 +132,7 @@ export function resetAgentTurn() {
   _memoryGraph = null
   _powerGraph = null
   _storyCanon = null
+  _rqaReminder = ''
   _currentSaveId = null
   resetPersonaState()
   resetCEKv4()
@@ -153,26 +156,29 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     initAgentSystem(character, affections, messages)
   }
 
-  // ── USK Sync: pull relationship state into MemoryGraph edges ──
-  if (usk && _memoryGraph) {
-    const syncedEdges = syncToMemoryGraph(usk)
-    for (const [key, edge] of Object.entries(syncedEdges)) {
-      _memoryGraph.edges[key] = { ...(_memoryGraph.edges[key] || {}), ...edge }
-    }
-  }
-
-  // ── 🔥 v8.5.4 fix: Sync USK affection → _worldState ──
-  // _worldState is created once and never re-initialized. LLM judge deltas
-  // update USK but _worldState was only updated by rule-based deltas.
-  // This caused buildStateReinforcement() and buildWorldSnapshot() to show
-  // stale affection → stale stage → LLM follows wrong behavior instructions.
+  // ── 🔥 v8.7 fix: Sync USK → _worldState + _memoryGraph ──
+  // _worldState is created once. USK is the source of truth updated by LLM judge.
+  // Without this sync, buildStateReinforcement() and buildWorldSnapshot() show
+  // stale affection → wrong stage → model behaves at wrong relationship level.
   if (usk && _worldState) {
     const rcList = character?.romanceCharacters || []
     for (const rc of rcList) {
-      if (!_worldState.characters[rc.name]) continue
       const newAff = usk.characters?.[rc.name]?.relationship?.affection
         ?? rc.affectionInitial ?? 50
-      _worldState.characters[rc.name].affection = newAff
+
+      // Try to update existing worldState character entry
+      if (_worldState.characters[rc.name]) {
+        _worldState.characters[rc.name].affection = newAff
+      } else {
+        // Character exists in USK but not in _worldState — create minimal entry
+        _worldState.characters[rc.name] = {
+          name: rc.name, type: 'romance',
+          personality: rc.personality || '', affection: newAff,
+          affectionInitial: rc.affectionInitial ?? 50, present: true,
+        }
+        console.warn('[Coordinator] Created missing _worldState entry for:', rc.name)
+      }
+
       // Update stage metadata (was frozen at _worldState creation)
       const stage = getCurrentAffectionStage(rc, newAff)
       if (stage) {
@@ -180,6 +186,14 @@ export async function runAgentTurn(userInput, character, affections, messages, a
         _worldState.characters[rc.name].stageIndex = rc.affectionStages
           ? rc.affectionStages.findIndex(s => newAff >= (s.min ?? 0) && newAff <= (s.max ?? 100))
           : -1
+      }
+    }
+
+    // Also sync USK → _memoryGraph edges so context builder shows correct values
+    if (_memoryGraph) {
+      const syncedEdges = syncToMemoryGraph(usk)
+      for (const [key, edge] of Object.entries(syncedEdges)) {
+        _memoryGraph.edges[key] = { ...(_memoryGraph.edges[key] || {}), ...edge }
       }
     }
   }
@@ -376,6 +390,11 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   // Layer 6: ASL v1 Reinforcement — per-turn alignment suppression (recency bias)
   narratorMessages.push({ role: 'system', content: buildASLReinforcement() })
 
+  // 🔍 RQA Stage Reminder — injected at tail for max recency bias
+  if (_rqaReminder) {
+    narratorMessages.push({ role: 'system', content: '【RQA阶段提醒】' + _rqaReminder })
+  }
+
   // Add current user input
   narratorMessages.push({ role: 'user', content: userInput })
 
@@ -473,6 +492,91 @@ export async function runAgentTurn(userInput, character, affections, messages, a
       break // Don't retry on network/timeout errors
     }
   }
+
+  // 🔍 RQA v1 — Runtime Quality Assurance audit + rewrite loop
+  let rqaResult = null
+  if (reply && !error) {
+    const pp = character._playerProfile
+    const prevAssistantMsg = [...messages].reverse().find(m => m.role === "assistant")
+    const rqaCtx = buildRQAContextFromScope({
+      character,
+      usk,
+      playerName: pp?.name || "",
+      mode: "drama",
+      prevReply: prevAssistantMsg?.content?.slice(-500) || "",
+      userInput,
+    })
+
+    for (let rqaAttempt = 0; rqaAttempt <= getMaxRewrites(); rqaAttempt++) {
+      rqaResult = await runRQAAudit(reply, rqaCtx, apiKey)
+
+      if (!shouldRewrite(rqaResult)) {
+        if (rqaResult.action === "CONTINUE" && rqaResult.issues.length > 0) {
+          console.warn("[RQA] ⚠️ Minor issues (CONTINUE):",
+            rqaResult.issues.map(i => "[" + i.priority + "] " + i.type + ": " + i.message).join(" | "))
+        }
+        // Store stage reminder for next turn's prompt tail
+        if (rqaResult.reminder) {
+          _rqaReminder = rqaResult.reminder
+        }
+        break
+      }
+
+      if (rqaAttempt >= getMaxRewrites()) {
+        console.warn("[RQA] Max rewrites (" + getMaxRewrites() + ") reached, continuing")
+        break
+      }
+
+      console.warn("[RQA] 🔄 Rewrite " + (rqaAttempt + 1) + "/" + getMaxRewrites() + " — " +
+        rqaResult.issues.length + " issues: " +
+        rqaResult.issues.map(i => "[" + i.priority + "] " + i.message).join(" | "))
+
+      const correctionMsg = buildRQACorrection(rqaResult.issues)
+      const rewriteMessages = [
+        ...narratorMessages.slice(0, -1),
+        { role: "system", content: correctionMsg },
+        narratorMessages[narratorMessages.length - 1],
+      ]
+
+      try {
+        let fullReply = ""
+        let fullReasoning = ""
+        let streamUsage = null
+
+        onToken("", "", true)
+
+        for await (const chunk of streamCompletion(rewriteMessages, apiKey, model, temperature, topP, thinkingEnabled)) {
+          if (chunk.content) {
+            fullReply += chunk.content
+            onToken(chunk.content, fullReply)
+          }
+          if (chunk.reasoningContent) {
+            fullReasoning += chunk.reasoningContent
+          }
+          if (chunk.usage) {
+            streamUsage = chunk.usage
+          }
+        }
+
+        if (allForbiddenWords.length > 0) {
+          const hit = findForbiddenWord(fullReply, allForbiddenWords)
+          if (hit) {
+            console.warn("[RQA] Forbidden word in rewrite:", hit, "— keeping previous")
+            break
+          }
+        }
+
+        reply = fullReply
+        reasoningContent = fullReasoning
+        usage = streamUsage
+        console.log("[RQA] ✅ Rewrite " + (rqaAttempt + 1) + " successful")
+      } catch (err) {
+        console.error("[RQA] Rewrite generation failed:", err.message)
+        break
+      }
+    }
+  }
+
 
   // 🔒 State Locks v1 — post-generation hard constraint validation
   if (reply && !error) {

@@ -2454,9 +2454,10 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
   }
 
   const existingMemorySection = existingMemory && existingMemory.trim()
-    ? '【已有历史存档——必须完整保留并与新内容合并到时间线中】\n' +
+    ? '\n\n## ⚠️ 已有历史存档（必须完整保留到输出中）\n' +
+      '以下是从对话开始至今所有重要事件的存档。新压缩必须将以下内容与新对话合并，不能省略任何已有事件：\n\n' +
       existingMemory.trim() +
-      '\n\n━━━━以上是更早发生的事，以下是需要新增压缩的对话━━━━\n\n'
+      '\n\n━━━━以上是已存档的历史，以下是本轮需要压缩的新对话━━━━\n\n'
     : ''
 
   const storyTimeSection = storyTime
@@ -2464,13 +2465,9 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
     : ''
 
   const prompt =
-    existingMemorySection +
     storyTimeSection +
     '请把以下对话历史压缩成结构化存档。\n' +
     '严格按以下三段式格式输出 JSON，不要输出任何其他内容：\n\n' +
-    (existingMemorySection
-      ? '⚠️ 如果已有历史存档，必须将已有事件和关系合并进新 JSON，不能省略。\n\n'
-      : '') +
     '```json\n' +
     '{\n' +
     '  "events": [\n' +
@@ -2511,7 +2508,12 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
     '每个 event 只保留事件骨架，不要写成故事。\n' +
     'relationships 里的数值必须根据对话内容做合理推测，不是默认值。\n' +
     'skeleton 是给 AI 快速理解的"剧情骨架"，不是文学摘要。\n\n' +
-    '待压缩内容：\n' + chatText
+    (existingMemorySection
+      ? '⚠️⚠️⚠️ 最高优先级：上方已有历史存档包含对话早期的关键事件。你必须将所有已有事件原样保留到输出的 events 数组中，然后追加本轮新对话中提取的事件。已有事件一条都不能省略。\n\n'
+      : '') +
+    '━━━ 待压缩对话（从最早到最新）━━━\n' +
+    existingMemorySection +
+    chatText
 
   try {
     const response = await fetch(BASE_URL + '/chat/completions', {

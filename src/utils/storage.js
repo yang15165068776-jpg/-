@@ -284,6 +284,17 @@ export function saveModel(model) {
   saveSettings(settings)
 }
 
+/** 审计模型 — RQA/RCC 专用，独立于主生成模型 */
+export function getAuditModel() {
+  return getSettings().auditModel || 'deepseek-v4-flash'
+}
+
+export function saveAuditModel(model) {
+  const settings = getSettings()
+  settings.auditModel = model
+  saveSettings(settings)
+}
+
 export function getUserAvatar() {
   return getSettings().userAvatar || ''
 }

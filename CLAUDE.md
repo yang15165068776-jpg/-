@@ -1,6 +1,6 @@
-# JSJG Character OS v8.5.8 — 艺术豁免权缓存层 + 创作权限全域解锁
+# JSJG Character OS v8.7.1 — RCC + RQA + 审计模型独立 + 好感度同步修复
 
-> 最后更新：2026-07-02（v8.5.8 艺术豁免权框架集成 + 好感度弹窗彻底清除 + 调试弹窗移除）
+> 最后更新：2026-07-10（v8.7.1 部署上线）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -61,6 +61,54 @@ v8.5.8: 🎨 艺术豁免权缓存层 + 创作权限全域解锁（3文件）
           - StateLocks alert→console.warn (coordinator.js)
           - NOS Pipeline alert→console.log (runtimeOrchestrator.js)
           - dist 重建，好感度弹窗彻底清除
+v8.6: 🧠 疯批人格引擎 v3 — 关系系统自我黑化引擎（1文件）
+v8.7: 🔍 RQA v1 — 运行时质量保障层（1新文件 + 2集成文件）
+        【核心】rqa.js (~280行) — 10维LLM审计:
+          4 Priority × 4 Severity × 2 Actions × max 2 rewrites
+          检查: PlayerAgency | CharacterConstitution | NarrativeTruth | Timeline
+                Identity | EmotionalContinuity | RelationshipStage
+                ActionDensity | ConflictPreservation | Style
+        【Pipeline】Step 10 RQA_AUDIT（文档锚点）
+        【集成】coordinator.js RQA rewrite loop（LLM生成后→审计→必要时重写）
+        【位置】Main Model → CEK → NOS → RQA → Output
+        【原则】只检查/指出/要求重写，永不重写剧情/新增剧情/继续角色扮演
+v8.7: 🧬 RCC v1 — 角色宪法编译器（1新文件 + 4集成文件）
+        【核心】rcc.js (~430行) — 角色设定→运行规则的LLM编译器:
+          三输出: Constitution(10-20条P0-P2规则)+Runtime Guide(行为策略)+Hidden Psychology(潜意识)
+          编译时机: 角色保存时一次性执行，非每轮
+          Token节省: ~1500 token/轮（编译规则~500 chars vs 原始设定~2000 chars）
+        【集成】StoryCharacterForm: 保存后自动触发编译，UI状态提示
+        【集成】characterConstitution.js: 优先使用编译宪法，fallback动态构建
+        【集成】rqa.js: RQA审计增强——对照宪法逐条检查，标注Article编号
+        【集成】CEK v4: 注入运行指南+隐藏心理（RCC策略上下文）
+        【架构】Character Data → RCC.compile() → _rcc → {constitution, runtimeGuide, hiddenPsychology}
+                                          ↓
+        Runtime: constitution → prompt(RQA检查标准) | runtimeGuide → CEK | hiddenPsychology → CEK/NOS
+v8.7.1: 🔧 好感度同步修复+RQA阶段提醒+压缩历史修复（3文件）
+        【修复】好感度: _worldState sync不再静默跳过缺失角色 + USK→_memoryGraph每轮同步
+        【新增】RQA reminder: 审计模型每3-5轮输出阶段提醒→注入prompt尾部（recency bias）
+        【修复】压缩历史: existingMemory从prompt头部移到尾部+合并指令强化(P0优先级)
+v8.6: 🧠 疯批人格引擎 v3 — 关系系统自我黑化引擎（1文件）
+        v1(心理裂缝)→v2(关系扭曲)→v3(关系系统自我黑化/Blackening Dynamics)
+        【核心】madnessPersonalityGenerator.js (~750行) — 九层疯批引擎:
+          ① Attachment Field: 关系引力场（v2保留）
+          ② Perception Distortion: 三种认知扭曲（v2保留）
+          ③ Memory Contamination: 记忆=真实+解释+情绪（v2保留）
+          ④ Emotional Feedback Loop: 情绪不归零+自我强化（v2保留）
+          ⑤ 🔥 Dependency Inversion: 从"角色依赖玩家"→"玩家依赖角色"
+             playerDependencyOnChar 四驱增长+反转检测+语体转变("我是不是"→"你以为你")
+          ⑥ 🔥 Control Collapse: 3D控制向量(self/relational/emotional)崩塌
+             4阶段: 试探→控制→失控→关系重构
+          ⑦ 🔥 Rivalry Contamination: 角色间情绪交叉污染
+             情绪复制(30%)+恐惧传播(25%)+升级反馈(1.5x)——修罗场自动升维成战争
+          ⑧ 🔥 Blackening Growth ★v3核心★: 指数级黑化增长函数
+             blackening(t)×(1+growth_rate) — 6维贡献+指数增长+5阶段(潜伏→完全黑化)
+          ⑨ Expression Stabilizer v3: 3必须+3禁止+黑化Lv3+允许关系重构
+        【集成】CEK v4 buildCEKv4Block(): ③.5步骤（Plan → Madness → Conflict）
+        【缓存】Static rules嵌入buildCEKv4StaticPrefix()（一次性token成本~2.5KB）
+        【动态】Per-turn v3 madnessState注入CEK动态块（含反转/崩塌/黑化/污染全维度）
+✅ v8.7: 🔍 RQA v1 — 运行时质量保障层（10维LLM审计+自动重写）
+⬜ v8.8: Emotion Drift System（情绪漂移 — 角色情绪随时间自然波动）
 ```
 
 ---
@@ -114,8 +162,9 @@ v8.5.8: 🎨 艺术豁免权缓存层 + 创作权限全域解锁（3文件）
   ⑦.5 CEK_EXECUTE    — 🎬 CEK v4 自主叙事导演（9系统: Intent→Scene→Plan→War→Sim→Branch）
   ⑧ NARRATIVE_BUILD  — prompt 组装（core + character + variable）
   ⑨ OUTPUT_RENDER    — LLM 生成
-→ ⑩ CEK v4 Post-Validation（软校验: 锚定/防火墙/无张力对话）
-→ ⑪ 存档持久化 + 好感度裁判（每5轮 LLM judge + alert 诊断弹窗）
+→ ⑩ RQA_AUDIT        — 🔍 运行时质量审计（10维检查 → critical/major自动重写）
+→ ⑪ CEK v4 Post-Validation（软校验: 锚定/防火墙/无张力对话）
+→ ⑫ 存档持久化 + 好感度裁判（每3轮 LLM judge + console.log）
 ```
 
 ---
@@ -157,6 +206,9 @@ src/
 │   ├── characterExecutionKernelV2.js  # ⚙️ CEK v2 — 9-layer Industrial
 │   ├── characterExecutionKernelV3.js  # ⚙️ CEK v3 — Narrative Economy
 │   └── characterExecutionKernelV4.js  # 🎬 CEK v4 — Autonomous Narrative Director ★ACTIVE
+│   └── madnessPersonalityGenerator.js # 🧠 疯批人格引擎 v3 — CEK Plug-in ★ACTIVE
+│   └── rqa.js                         # 🔍 RQA v1 — 运行时质量保障层 ★ACTIVE
+│   └── rcc.js                         # 🧬 RCC v1 — 角色宪法编译器 ★ACTIVE
 │
 ├── state/
 │   ├── identityKernel.js            # 🔵 玩家身份单源锁
@@ -427,8 +479,10 @@ DAS 制造事件，DCS 控制"发生什么、对谁发生、节奏对不对"。
 ✅ v8.5.6: ⚔️ 角色张力修复 — 人格层进攻型重构（6项修改，只改characterPrefix.js）
 ✅ v8.5.7: 🔥 进攻型prompt重构 + DarkAction引擎升级（6文件，/diagnose根因修复）
 ✅ v8.5.8: 🎨 艺术豁免权缓存层 + 创作权限全域解锁（cachePrefix.js +52行）
-⬜ v8.6: Emotion Drift System（情绪漂移 — 角色情绪随时间自然波动）
-⬜ v8.7: Timeline Forking（时间线分叉 — 多结局支持）
+✅ v8.6: 🧠 疯批人格引擎 v3 — 关系系统自我黑化·Blackening Dynamics（~750行）
+✅ v8.7: 🔍 RQA v1 — 运行时质量保障层（10维LLM审计+自动重写）
+⬜ v8.8: Emotion Drift System（情绪漂移 — 角色情绪随时间自然波动）
+⬜ v8.9: Timeline Forking（时间线分叉 — 多结局支持）
 ⬜ v9.0: LoRA 微调 — 将 prompt 约束迁移至模型权重（主动性+多人动态）
 ```
 

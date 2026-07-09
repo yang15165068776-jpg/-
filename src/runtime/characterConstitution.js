@@ -23,6 +23,7 @@
  */
 
 import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfile'
+import { getConstitutionBlock, hasRCC } from './rcc'
 
 // ═══════════════════════════════════════════════════════════
 // 1. Constitution Builder
@@ -32,6 +33,9 @@ import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfil
  * Build the Character Constitution block.
  * Injected EVERY turn at the top of the dynamic section.
  *
+ * v8.7: If character has RCC-compiled constitution, use it (saves ~1500 tokens/turn).
+ *       Falls back to dynamic builder for characters without RCC.
+ *
  * @param {object} character — full LLM character descriptor
  * @param {object} uskState — current USK state for affection stages
  * @returns {string} formatted constitution block
@@ -39,6 +43,12 @@ import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfil
 export function buildConstitution(character, uskState) {
   if (!character) return ''
 
+  // ── RCC v1: Use pre-compiled constitution if available ──
+  if (hasRCC(character)) {
+    return _buildRCCConstitution(character)
+  }
+
+  // ── Fallback: Dynamic constitution builder ──
   const sections = []
 
   // ── Preamble ──
@@ -64,6 +74,26 @@ export function buildConstitution(character, uskState) {
   sections.push(_buildEnforcement())
 
   return sections.filter(Boolean).join('\n\n')
+}
+
+/**
+ * Build constitution from RCC-compiled data.
+ * Much more concise than the dynamic builder — ~500 chars vs ~2000 chars.
+ */
+function _buildRCCConstitution(character) {
+  const block = getConstitutionBlock(character)
+  if (!block) return ''
+
+  // Add player constitution (RCC doesn't know the player name at compile time)
+  const pp = character._playerProfile
+  let playerBlock = ''
+  if (pp?.name && pp.name !== '玩家' && pp.name !== '新玩家') {
+    playerBlock = '━━━ 玩家身份 ━━━\n' +
+      '· 玩家 = ' + pp.name + '（你只能用这个名字称呼）\n' +
+      '· 禁止替玩家说话、行动、做决定、有任何心理活动\n'
+  }
+
+  return playerBlock + block
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { getCharacter, saveCharacter, generateId, getApiKey } from '../../utils/storage'
 import { generateAutonomySummary, fillCharacterFromSkeleton, extractStoryFromText, generateStageBehaviors } from '../../utils/deepseek'
+import { compileCharacter, hasRCC } from '../../runtime/rcc'
 
 const emptyStage = () => ({
   name: '',
@@ -80,6 +81,8 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
   const [skeletonText, setSkeletonText] = useState('')
   const [showSkeletonModal, setShowSkeletonModal] = useState(false)
   const [fillingSkeleton, setFillingSkeleton] = useState(false)
+  const [compilingRCC, setCompilingRCC] = useState(false)
+  const [rccStatus, setRccStatus] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [expandedRC, setExpandedRC] = useState(0)
   const [expandedNPC, setExpandedNPC] = useState(0)
@@ -289,7 +292,7 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     update('avatar', base64)
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.name.trim()) {
       alert('请输入故事名称')
@@ -372,6 +375,34 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
     }
 
     saveCharacter(character, mode)
+
+    // ── RCC v1: Compile character constitution ──
+    const apiKey = getApiKey()
+    if (apiKey && !hasRCC(character)) {
+      setCompilingRCC(true)
+      setRccStatus('⚙️ 正在编译角色宪法...')
+      try {
+        const result = await compileCharacter(character, apiKey)
+        if (result.success && result.rcc) {
+          character._rcc = result.rcc
+          saveCharacter(character, mode) // Re-save with compiled RCC
+          const articleCount = result.rcc.constitution?.length || 0
+          setRccStatus('✅ 宪法编译完成：' + articleCount + ' 条规则')
+          console.log('[RCC] Compiled for character:', character.name,
+            '| articles:', articleCount,
+            '| guide fields:', Object.keys(result.rcc.runtimeGuide).filter(k => result.rcc.runtimeGuide[k]).length,
+            '| psych fields:', Object.keys(result.rcc.hiddenPsychology).filter(k => result.rcc.hiddenPsychology[k]).length)
+        } else {
+          setRccStatus('⚠️ 编译失败：' + (result.error || '未知错误') + '（角色已保存，可后续重新编译）')
+          console.warn('[RCC] Compilation failed:', result.error)
+        }
+      } catch (err) {
+        setRccStatus('⚠️ 编译异常：' + err.message)
+        console.error('[RCC] Compilation exception:', err)
+      }
+      setCompilingRCC(false)
+    }
+
     onSave()
   }
 
@@ -1275,10 +1306,22 @@ export default function StoryCharacterForm({ mode, characterId, onSave, onCancel
         </div>
       </div>
 
+      {/* RCC Status */}
+      {(compilingRCC || rccStatus) && (
+        <div style={{
+          padding: '10px 14px', borderRadius: '10px', marginBottom: '8px',
+          background: compilingRCC ? 'var(--bg2)' : rccStatus.startsWith('✅') ? '#e8f5e9' : '#fff3e0',
+          fontSize: '13px', color: 'var(--text)', lineHeight: '1.5',
+        }}>
+          {compilingRCC && <span style={{ marginRight: '6px' }}>⏳</span>}
+          {rccStatus || '正在编译角色宪法，请稍候...'}
+        </div>
+      )}
+
       {/* Submit */}
       <div style={{ padding:'16px 0', display:'flex', gap:'10px' }}>
         <button type="button" onClick={onCancel} style={{ flex:1, padding:'12px', borderRadius:'12px', border:'none', background:'var(--bg2)', color:'var(--text)', fontSize:'15px', cursor:'pointer' }}>取消</button>
-        <button type="submit" style={{ flex:2, padding:'12px', borderRadius:'12px', border:'none', background:'var(--purple)', color:'#fff', fontSize:'15px', fontWeight:500, cursor:'pointer' }}>{isEdit ? '保存修改' : '创建故事'}</button>
+        <button type="submit" disabled={compilingRCC} style={{ flex:2, padding:'12px', borderRadius:'12px', border:'none', background: compilingRCC ? 'var(--bg3)' : 'var(--purple)', color: compilingRCC ? 'var(--text2)' : '#fff', fontSize:'15px', fontWeight:500, cursor: compilingRCC ? 'not-allowed' : 'pointer' }}>{compilingRCC ? '编译中...' : isEdit ? '保存修改' : '创建故事'}</button>
       </div>
     </form>
     </div>

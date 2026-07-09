@@ -21,6 +21,8 @@
 
 import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfile'
 import { getCurrentAffectionStage } from '../utils/deepseek'
+import { generateMadnessState, buildMadnessStaticPrefix, resetMadnessEngine } from './madnessPersonalityGenerator'
+import { buildCEKStrategyContext } from './rcc'
 
 // ═══════════════════════════════════════════════════
 // 0. Constants + Internal State
@@ -50,6 +52,9 @@ const $ = {
   conflictSim: null,             // conflict simulation result
   attentionWar: null,            // attention war state
   narrativeBranch: null,         // selected branch
+  // ── v8.6 madness ──
+  madnessStates: null,           // per-character madness state
+  madnessDynamicBlock: '',       // madness prompt injection
 }
 
 // ═══════════════════════════════════════════════════
@@ -617,6 +622,13 @@ export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdge
   // ③ Autonomous Character Planner
   const plans = planCharacters(rcList, affectionMap, intent)
 
+  // ③.5 🔥 Madness Personality Engine — inject controlled psychological fractures
+  const madnessResult = generateMadnessState(rcList, plans, affectionMap, uskState, compiledList)
+  if (madnessResult?.madnessStates) {
+    $.madnessStates = madnessResult.madnessStates
+    $.madnessDynamicBlock = madnessResult.dynamicBlock || ''
+  }
+
   // ④ Attention War System
   const war = simulateAttentionWar(plans, attnResult.split)
 
@@ -677,6 +689,18 @@ export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdge
     }
   }
   sections.push(planLines.join('\n'))
+
+  // ③.3 🧬 RCC Strategy Context — compiled behavioral guidance
+  const rccStrategy = buildCEKStrategyContext(character)
+  if (rccStrategy) {
+    sections.push('')
+    sections.push(rccStrategy)
+  }
+
+  // ③.5 🔥 Madness Personality State — controlled psychodynamic injection
+  if ($.madnessDynamicBlock) {
+    sections.push($.madnessDynamicBlock)
+  }
 
   // ④ Attention War — current battle state
   if (war?.active) {
@@ -1026,7 +1050,8 @@ export function buildCEKv4StaticPrefix() {
 · 每一个角色都有隐藏目标——他们说的和想要的不一样。
 · 注意力战争永不停歇——每个角色都在争夺、阻断、引导、或替代。
 · 场景必须有变化——不能"仍然是之前的氛围"。
-· CEK v4 = 让AI不再扮演角色，而是导演角色之间的欲望战争。`
+· CEK v4 = 让AI不再扮演角色，而是导演角色之间的欲望战争。
+${buildMadnessStaticPrefix()}`
 }
 
 // ═══════════════════════════════════════════════════
@@ -1041,6 +1066,8 @@ export function resetCEKv4() {
   $.narrativeIntent = null; $.sceneCard = null
   $.characterPlans.clear(); $.conflictSim = null
   $.attentionWar = null; $.narrativeBranch = null
+  $.madnessStates = null; $.madnessDynamicBlock = ''
+  resetMadnessEngine()
 }
 
 export function getDirectorState() {

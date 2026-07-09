@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   getApiKey, saveApiKey,
   getModel, saveModel,
+  getAuditModel, saveAuditModel,
   getUserAvatar, saveUserAvatar,
   getCharacters,
 } from '../utils/storage'
@@ -44,12 +45,15 @@ export default function Settings({ onBack, showToast }) {
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelError, setModelError] = useState('')
 
+  const [auditModel, setAuditModel] = useState('deepseek-v4-flash')
+
   const [userAvatar, setUserAvatar] = useState('')
   const avatarInputRef = useRef(null)
 
   useEffect(() => {
     setApiKey(getApiKey())
     setModel(getModel())
+    setAuditModel(getAuditModel())
     setUserAvatar(getUserAvatar())
   }, [])
 
@@ -65,6 +69,7 @@ export default function Settings({ onBack, showToast }) {
   const handleSave = () => {
     saveApiKey(apiKey.trim())
     saveModel(model)
+    saveAuditModel(auditModel)
     setSaved(true)
     showToast && showToast('设置已保存', 'success')
     setTimeout(() => setSaved(false), 2000)
@@ -158,6 +163,24 @@ export default function Settings({ onBack, showToast }) {
           ) : !loadingModels ? (
             <input type="text" value={model} onChange={e => handleModelChange(e.target.value)} style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '14px', color: 'var(--text)', fontFamily: 'inherit', outline: 'none' }} placeholder="deepseek-chat" />
           ) : null}
+        </div>
+
+        {/* Audit Model — RQA/RCC 专用独立模型 */}
+        <div style={{ background: 'var(--bg2)', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <label style={{ fontSize: '13px', color: 'var(--text2)', display: 'block', marginBottom: '4px' }}>
+            🔍 审计模型（RQA/RCC）
+          </label>
+          <p style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '8px' }}>
+            独立于主生成模型。用于运行时质量审计（RQA）和角色宪法编译（RCC）。<br/>
+            推荐使用快速模型（deepseek-v4-flash）以降低延迟和成本。
+          </p>
+          <input
+            type="text"
+            value={auditModel}
+            onChange={e => setAuditModel(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '0.5px solid var(--border)', background: 'var(--bg)', fontSize: '14px', color: 'var(--text)', fontFamily: 'inherit', outline: 'none' }}
+            placeholder="deepseek-v4-flash"
+          />
         </div>
 
         {/* Avatar */}
