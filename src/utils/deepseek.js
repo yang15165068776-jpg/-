@@ -1383,7 +1383,7 @@ export async function* streamCompletion(messages, apiKey, model, temperature, to
       model,
       messages,
       stream: true,
-      max_tokens: 4096,  // Enough for a full narrative paragraph — prevents truncation
+      max_tokens: 8192,  // Increased for dual-track narrative (ITRL) + inner thoughts
     }
     if (temperature != null) body.temperature = temperature
     if (topP != null) body.top_p = topP
@@ -1438,7 +1438,11 @@ export async function* streamCompletion(messages, apiKey, model, temperature, to
           const content = delta?.content || ''
           const reasoningContent = delta?.reasoning_content || ''
           const usage = parsed.usage || null
-          yield { content, reasoningContent, usage }
+          const finishReason = parsed.choices?.[0]?.finish_reason
+          if (finishReason && finishReason !== 'null') {
+            console.log('[DeepSeek] finish_reason:', finishReason, usage ? '| tokens: ' + JSON.stringify(usage).slice(0, 120) : '')
+          }
+          yield { content, reasoningContent, usage, finishReason }
         } catch { /* skip malformed chunks */ }
       }
     }
@@ -2537,6 +2541,10 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
 
     const data = await response.json()
     const rawContent = data.choices?.[0]?.message?.content || ''
+
+    if (!rawContent || !rawContent.trim()) {
+      throw new Error('压缩模型返回空响应——可能对话太长超出了模型处理能力，请减少对话轮次后再试')
+    }
 
     // Try to parse as structured JSON (v3 format)
     let structured = null

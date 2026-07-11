@@ -34,8 +34,15 @@ import { loadCanon, saveCanon, buildStoryCanonBlock, scanAndUpdateCanon, lockFac
 import { InteractionKernel } from '../engine/interactionKernel'
 import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
 import { runCEKv4PostValidation, resetCEKv4 } from '../runtime/characterExecutionKernelV4'
-import { runRQAAudit, shouldRewrite, getMaxRewrites, buildRQACorrection, buildRQAContextFromScope } from '../runtime/rqa'
+import { runRQAAudit, shouldRewrite, getMaxRewrites, buildRQACorrection, buildRQAContextFromScope } from '../runtime/rqa'  // ⚠️ DEPRECATED — RSE replaces RQA
+import { runDirectorPass, injectContractIntoPrompt, runSupervisorPass, buildRevisionInjection, resetNDCState } from '../runtime/rse'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
+import { buildITRLBlock } from '../runtime/innerThoughtRenderer'
+import { buildCompressedBlock } from '../runtime/promptCompressionLayer'
+import { runDeterministicAudit, resetValidator } from '../runtime/runtimeValidator'
+import { createSSMState, buildSSMConstraintBlock, extractSSMUpdate, applySSMUpdate, validateAgainstSSM, loadSSMState, saveSSMState } from '../runtime/sceneStateManager'
+import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM, loadISMState, saveISMState } from '../runtime/interactionStateMachine'
+import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
 
 // Global state (persists across turns within a session)
 let _worldState = null
@@ -47,6 +54,9 @@ let _powerGraph = null     // v3.5: Power Dynamics Engine state
 let _storyCanon = null     // 🔴 Story Canon Kernel — immutable timeline
 let _characterId = null    // Current character ID for storage keys
 let _rqaReminder = ''      // 🔍 RQA stage reminder — injected at prompt tail
+let _ssmState = null       // 📐 SSM — scene state (positions, clothing, objects, actions)
+let _ismState = null       // 🔗 ISM — interaction state machine (distance, touch, conversation, conflict, dominance)
+let _esState = null        // 💭 ES — emotion simulator (emotional inertia engine)
 let _currentSaveId = null  // Current save ID for per-save canon isolation
 
 /**
@@ -63,11 +73,15 @@ export function initAgentSystem(character, affections, messages) {
   if (!_memoryGraph && character.romanceCharacters?.length) {
     _memoryGraph = initGraphFromCharacter(character, affections)
     console.log('[Coordinator] Memory Graph initialized from character data')
-  } else if (_memoryGraph) {
-    console.log('[Coordinator] Memory Graph loaded:',
-      Object.keys(_memoryGraph.edges || {}).length, 'edges,',
-      (_memoryGraph.event_log || []).length, 'events')
   }
+  // 🔒 Guaranteed fallback: _memoryGraph must never be null after init
+  if (!_memoryGraph) {
+    _memoryGraph = { edges: {}, event_log: [], nodes: {}, createdAt: Date.now(), updatedAt: Date.now() }
+    console.log('[Coordinator] Memory Graph created as empty fallback')
+  }
+  console.log('[Coordinator] Memory Graph:',
+    Object.keys(_memoryGraph.edges || {}).length, 'edges,',
+    (_memoryGraph.event_log || []).length, 'events')
 
   // ── 🔴 Load Story Canon — immutable timeline ──
   _currentSaveId = InteractionKernel.state?.saveId || null
@@ -116,6 +130,34 @@ export function initAgentSystem(character, affections, messages) {
       'tilt:', Math.round(_powerGraph.globalTilt * 100) + '%')
   }
 
+  // ── 📐 Load SSM (Scene State Manager) state ──
+  _ssmState = loadSSMState(_characterId, _currentSaveId)
+  if (!_ssmState) {
+    _ssmState = createSSMState()
+    console.log('[Coordinator] SSM state initialized')
+  } else {
+    console.log('[Coordinator] SSM state loaded')
+  }
+
+  // ── 🔗 Load ISM (Interaction State Machine) state ──
+  _ismState = loadISMState(_characterId, _currentSaveId)
+  if (!_ismState) {
+    _ismState = createISMState()
+    console.log('[Coordinator] ISM state initialized')
+  } else {
+    console.log('[Coordinator] ISM state loaded')
+  }
+
+  // ── 💭 Load ES (Emotion Simulator) state ──
+  _esState = loadESState(_characterId, _currentSaveId)
+  if (!_esState) {
+    _esState = createESState()
+    console.log('[Coordinator] ES state initialized')
+  } else {
+    const charCount = Object.keys(_esState.characters || {}).length
+    console.log('[Coordinator] ES state loaded:', charCount, 'characters tracked')
+  }
+
   console.log('[Coordinator] Agent system initialized',
     Object.keys(_worldState.characters).length, 'agents registered')
   return { world: _worldState, bus: _eventBus, graph: _memoryGraph, cps: _cpsState }
@@ -133,9 +175,14 @@ export function resetAgentTurn() {
   _powerGraph = null
   _storyCanon = null
   _rqaReminder = ''
+  _ssmState = null
+  _ismState = null
+  _esState = null
   _currentSaveId = null
   resetPersonaState()
   resetCEKv4()
+  resetNDCState()
+  resetValidator()
   _characterId = null
 }
 
@@ -317,6 +364,16 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     return { reply: null, error: new Error('IdentityKernel: player.name 无效（' + (pp?.name || '(空)') + '），请在 PlayerProfile 中设置你的真实名字。') }
   }
 
+  // ── 🎬 NDC Pass 1: Director — generate plan ──
+  const prevAssistantMsg = [...(messages || [])].reverse().find(m => m.role === 'assistant')
+  let _ndcPlan = null
+  try {
+    const ndcCtx = { userInput, character, usk, prevReply: prevAssistantMsg?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '' }
+    const dirResult = await runDirectorPass(ndcCtx, apiKey)
+    _ndcPlan = dirResult.plan
+    if (_ndcPlan) console.log('[NDC] Plan: goal=' + (_ndcPlan.sceneGoal?.type || '?') + ' rhythm=' + (_ndcPlan.rhythm || '?'))
+  } catch (e) { console.warn('[NDC] Director crashed:', e.message); _ndcPlan = null }
+
   // ── Phase 6: Build Narrator prompt + CPS injection ──
   const systemPrompt = buildNarratorPrompt(
     _worldState, character, narrativeHints, userInput, _isFirstTurn
@@ -374,6 +431,18 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     narratorMessages.push({ role: 'system', content: character._ndosSceneCard })
   }
 
+  // Layer 3.95-3.99: 🧠📐🔗💭 Runtime State (ITRL + SSM + ISM + ES) — merged into one message
+  // Reduces system message count from 4 to 1 to prevent attention fragmentation.
+  const runtimeStateBlocks = [
+    buildITRLBlock(character, usk),
+    buildSSMConstraintBlock(_ssmState, character?.romanceCharacters || []),
+    buildISMConstraintBlock(_ismState),
+    buildESConstraintBlock(_esState, character?.romanceCharacters || []),
+  ].filter(Boolean)
+  if (runtimeStateBlocks.length > 0) {
+    narratorMessages.push({ role: 'system', content: runtimeStateBlocks.join('\n\n') })
+  }
+
   // Layer 4: Event memory → now covered by Fact Ledger actionFacts
   // Layer 5: Working memory (last few user/assistant turns for continuity)
   const conversationMsgs = (messages || []).filter(m => m.role !== 'system').slice(-6)
@@ -381,18 +450,25 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     narratorMessages.push({ role: msg.role, content: msg.content || '' })
   }
 
-  // Layer 5.5: 🔥 Per-character offensive tail — last word before generation (max recency bias)
-  const offensiveTail = buildOffensiveTail(character)
-  if (offensiveTail) {
-    narratorMessages.push({ role: 'system', content: offensiveTail })
+  // Note: OffensiveTail + ASL removed — characterPrefix personality unleash + Runtime Validator handle this in code.
+
+  // 🎬 NDC Director Plan — inject before user input
+  const ndcBlock = injectContractIntoPrompt(_ndcPlan)
+  if (ndcBlock) {
+    narratorMessages.push({ role: 'system', content: ndcBlock })
   }
 
-  // Layer 6: ASL v1 Reinforcement — per-turn alignment suppression (recency bias)
-  narratorMessages.push({ role: 'system', content: buildASLReinforcement() })
-
-  // 🔍 RQA Stage Reminder — injected at tail for max recency bias
-  if (_rqaReminder) {
-    narratorMessages.push({ role: 'system', content: '【RQA阶段提醒】' + _rqaReminder })
+  // 📐 PCL — Compressed RCC constitution (scene-relevant rules only)
+  const rcc = character?._rcc
+  const pclCtx = {
+    sceneGoalType: _ndcPlan?.sceneGoal?.type || '',
+    affection: _worldState?.characters?.[character?.romanceCharacters?.[0]?.name]?.affection ?? 50,
+    ismState: _ismState,
+    ndcPlan: _ndcPlan,
+  }
+  const pclBlock = buildCompressedBlock(rcc, pclCtx)
+  if (pclBlock) {
+    narratorMessages.push({ role: 'system', content: pclBlock })
   }
 
   // Add current user input
@@ -403,18 +479,11 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   const temperature = character.temperature
   const topP = character.topP
   const thinkingEnabled = character.thinkingEnabled
-
-  // Collect forbidden words from all characters
   const allForbiddenWords = []
-  if (character.forbiddenWords?.length) {
-    allForbiddenWords.push(...character.forbiddenWords.filter(w => w.trim()))
-  }
+  if (character.forbiddenWords?.length) allForbiddenWords.push(...character.forbiddenWords.filter(w => w.trim()))
   for (const rc of (character.romanceCharacters || [])) {
-    if (rc.forbiddenWords?.length) {
-      allForbiddenWords.push(...rc.forbiddenWords.filter(w => w.trim()))
-    }
+    if (rc.forbiddenWords?.length) allForbiddenWords.push(...rc.forbiddenWords.filter(w => w.trim()))
   }
-
   let reply = ''
   let reasoningContent = ''
   let usage = null
@@ -493,87 +562,180 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
-  // 🔍 RQA v1 — Runtime Quality Assurance audit + rewrite loop
+  // 📐 SSM — Extract scene state updates from reply, strip markers
+  if (reply && !error) {
+    const { cleanReply, sceneUpdates, actions } = extractSSMUpdate(reply)
+    if (sceneUpdates || actions) {
+      const result = applySSMUpdate(_ssmState, sceneUpdates, actions, _ismState, _worldState?.roundIndex ?? 0)
+      if (result.warnings?.length) console.warn('[SSM] Warnings:', result.warnings.join(' | '))
+      // Sync ISM from SSM touch/distance changes
+      const ismWarnings = syncISMFromSSM(_ismState, _ssmState)
+      if (ismWarnings.length) console.warn('[ISM] Warnings:', ismWarnings.join(' | '))
+      console.log('[SSM] Updated:',
+        sceneUpdates ? Object.keys(sceneUpdates).join(',') : '',
+        actions ? 'actions:' + (actions.finished?.length || 0) + 'f/' + (actions.unfinished?.length || 0) + 'u' : '')
+    }
+
+    // Validate reply against SSM state
+    const ssmValidation = validateAgainstSSM(cleanReply, _ssmState)
+    if (!ssmValidation.valid) {
+      console.warn('[SSM] Validation failed:', ssmValidation.violations.join(' | '))
+    }
+
+    reply = cleanReply
+  }
+
+  // 💭 ES — Run emotion simulation tick (after generation, before RQA)
+  const esResults = {}
+  if (reply && !error) {
+    const tension = _cpsState?.tensionLevel != null ? Math.round(_cpsState.tensionLevel * 100) : 30
+    for (const rc of (character?.romanceCharacters || [])) {
+      const affValue = _worldState?.characters?.[rc.name]?.affection ?? rc.affectionInitial ?? 50
+      const affDelta = affectionResult?.deltas?.[rc.name] ?? 0
+      const result = simulateEmotionTick(_esState, rc, affValue, userInput, reply, affDelta, tension)
+      Object.assign(esResults, result)
+    }
+    if (Object.keys(esResults).length > 0) {
+      console.log('[ES] Tick complete:',
+        Object.entries(esResults).map(([name, r]) =>
+          name + '[' + Object.keys(r.deltas || {}).map(e => e + ':' + (r.deltas[e] > 0 ? '+' : '') + r.deltas[e]).join(',') + ']'
+        ).join(' '))
+    }
+  }
+
+  // 🔍 Runtime Validator — deterministic pre-audit (pure code, runs before flash RCL)
   let rqaResult = null
   if (reply && !error) {
     const pp = character._playerProfile
-    const prevAssistantMsg = [...messages].reverse().find(m => m.role === "assistant")
-    const rqaCtx = buildRQAContextFromScope({
+    const rcList = character?.romanceCharacters || []
+    const mainRC = rcList[0]
+    const rcProfile = mainRC ? detectAggressionProfile(mainRC) : null
+    const affValue = _worldState?.characters?.[mainRC?.name]?.affection ?? mainRC?.affectionInitial ?? 50
+
+    const detAudit = runDeterministicAudit(reply, {
       character,
-      usk,
-      playerName: pp?.name || "",
-      mode: "drama",
-      prevReply: prevAssistantMsg?.content?.slice(-500) || "",
-      userInput,
+      ndcPlan: _ndcPlan,
+      ssmState: _ssmState,
+      ismState: _ismState,
+      affection: affValue,
+      rcProfile,
     })
 
-    for (let rqaAttempt = 0; rqaAttempt <= getMaxRewrites(); rqaAttempt++) {
-      rqaResult = await runRQAAudit(reply, rqaCtx, apiKey)
+    if (!detAudit.passed) {
+      console.warn('[Validator] Deterministic audit FAIL — ' + detAudit.violations.length + ' violations, rewriting...')
 
-      if (!shouldRewrite(rqaResult)) {
-        if (rqaResult.action === "CONTINUE" && rqaResult.issues.length > 0) {
-          console.warn("[RQA] ⚠️ Minor issues (CONTINUE):",
-            rqaResult.issues.map(i => "[" + i.priority + "] " + i.type + ": " + i.message).join(" | "))
-        }
-        // Store stage reminder for next turn's prompt tail
-        if (rqaResult.reminder) {
-          _rqaReminder = rqaResult.reminder
-        }
-        break
-      }
-
-      if (rqaAttempt >= getMaxRewrites()) {
-        console.warn("[RQA] Max rewrites (" + getMaxRewrites() + ") reached, continuing")
-        break
-      }
-
-      console.warn("[RQA] 🔄 Rewrite " + (rqaAttempt + 1) + "/" + getMaxRewrites() + " — " +
-        rqaResult.issues.length + " issues: " +
-        rqaResult.issues.map(i => "[" + i.priority + "] " + i.message).join(" | "))
-
-      const correctionMsg = buildRQACorrection(rqaResult.issues)
+      // Rewrite without flash call — inject fix instruction directly
       const rewriteMessages = [
         ...narratorMessages.slice(0, -1),
-        { role: "system", content: correctionMsg },
+        { role: 'system', content: detAudit.fixInstruction },
         narratorMessages[narratorMessages.length - 1],
       ]
 
       try {
-        let fullReply = ""
-        let fullReasoning = ""
+        let fullReply = ''
+        let fullReasoning = ''
         let streamUsage = null
-
-        onToken("", "", true)
+        onToken('', '', true)
 
         for await (const chunk of streamCompletion(rewriteMessages, apiKey, model, temperature, topP, thinkingEnabled)) {
-          if (chunk.content) {
-            fullReply += chunk.content
-            onToken(chunk.content, fullReply)
-          }
-          if (chunk.reasoningContent) {
-            fullReasoning += chunk.reasoningContent
-          }
-          if (chunk.usage) {
-            streamUsage = chunk.usage
-          }
+          if (chunk.content) { fullReply += chunk.content; onToken(chunk.content, fullReply) }
+          if (chunk.reasoningContent) fullReasoning += chunk.reasoningContent
+          if (chunk.usage) streamUsage = chunk.usage
         }
 
         if (allForbiddenWords.length > 0) {
           const hit = findForbiddenWord(fullReply, allForbiddenWords)
-          if (hit) {
-            console.warn("[RQA] Forbidden word in rewrite:", hit, "— keeping previous")
-            break
+          if (!hit) { reply = fullReply; reasoningContent = fullReasoning; usage = streamUsage }
+        } else {
+          reply = fullReply; reasoningContent = fullReasoning; usage = streamUsage
+        }
+        console.log('[Validator] ✅ Code-based rewrite complete')
+      } catch (err) {
+        console.error('[Validator] Rewrite failed:', err.message)
+      }
+
+      rqaResult = { action: 'REWRITE', issues: detAudit.violations, reminder: '' }
+    }
+  }
+
+  // 🎬 RCL — flash model audit (only if deterministic audit passed)
+  if (reply && !error && (!rqaResult || rqaResult.action !== 'REWRITE')) {
+    const pp = character._playerProfile
+    const rseCtx = {
+      userInput,
+      character,
+      usk,
+      prevReply: [...messages].reverse().find(m => m.role === 'assistant')?.content?.slice(-300) || '',
+      sceneContext: _worldState?.locations?.main?.description || '',
+    }
+
+    const supResult = await runSupervisorPass(reply, _ndcPlan, rseCtx, apiKey)
+
+    if (!supResult.passed) {
+      console.warn('[RSE] Supervisor FAIL — ' + supResult.violations.length + ' violations, severity=' + supResult.severity)
+
+      if (supResult.severity === 'critical') {
+        // Rewrite once with revision injection
+        const revisionBlock = buildRevisionInjection(supResult.violations)
+        if (revisionBlock) {
+          const rewriteMessages = [
+            ...narratorMessages.slice(0, -1),
+            { role: 'system', content: revisionBlock },
+            narratorMessages[narratorMessages.length - 1],
+          ]
+
+          try {
+            let fullReply = ''
+            let fullReasoning = ''
+            let streamUsage = null
+
+            onToken('', '', true)
+
+            for await (const chunk of streamCompletion(rewriteMessages, apiKey, model, temperature, topP, thinkingEnabled)) {
+              if (chunk.content) {
+                fullReply += chunk.content
+                onToken(chunk.content, fullReply)
+              }
+              if (chunk.reasoningContent) {
+                fullReasoning += chunk.reasoningContent
+              }
+              if (chunk.usage) {
+                streamUsage = chunk.usage
+              }
+            }
+
+            if (allForbiddenWords.length > 0) {
+              const hit = findForbiddenWord(fullReply, allForbiddenWords)
+              if (hit) {
+                console.warn('[RSE] Forbidden word in rewrite:', hit, '— keeping previous')
+              } else {
+                reply = fullReply
+                reasoningContent = fullReasoning
+                usage = streamUsage
+                console.log('[RSE] ✅ Rewrite successful')
+              }
+            } else {
+              reply = fullReply
+              reasoningContent = fullReasoning
+              usage = streamUsage
+              console.log('[RSE] ✅ Rewrite successful')
+            }
+          } catch (err) {
+            console.error('[RSE] Rewrite generation failed:', err.message)
           }
         }
-
-        reply = fullReply
-        reasoningContent = fullReasoning
-        usage = streamUsage
-        console.log("[RQA] ✅ Rewrite " + (rqaAttempt + 1) + " successful")
-      } catch (err) {
-        console.error("[RQA] Rewrite generation failed:", err.message)
-        break
+      } else {
+        console.warn('[RSE] Minor issues — continuing')
       }
+    } else {
+      console.log('[RSE] Supervisor: PASS')
+    }
+
+    // Store simplified RQA-compatible result for turn report
+    rqaResult = {
+      action: supResult.passed ? 'PASS' : (supResult.severity === 'critical' ? 'REWRITE' : 'CONTINUE'),
+      issues: supResult.violations || [],
+      reminder: '',
     }
   }
 
@@ -646,6 +808,10 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   // ── Phase 9a: Persist Memory Graph + CPS state ──
   if (_memoryGraph && _characterId && reply) {
     try {
+      // Ensure graph structure is valid
+      if (!_memoryGraph.edges) _memoryGraph.edges = {}
+      if (!_memoryGraph.event_log) _memoryGraph.event_log = []
+
       // Update graph edges with current affection values
       for (const [name, val] of Object.entries(updatedAffections)) {
         const edgeKey = 'user_' + name
@@ -709,6 +875,29 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
+  // ── 📐 Persist SSM (Scene State Manager) state ──
+  if (_ssmState && _characterId) {
+    try {
+      saveSSMState(_characterId, _currentSaveId, _ssmState)
+    } catch (e) { console.warn('[Coordinator] SSM persist failed:', e) }
+  }
+
+  // ── 🔗 Persist ISM (Interaction State Machine) state ──
+  if (_ismState && _characterId) {
+    try {
+      saveISMState(_characterId, _currentSaveId, _ismState)
+    } catch (e) { console.warn('[Coordinator] ISM persist failed:', e) }
+  }
+
+  // ── 💭 Persist ES (Emotion Simulator) state ──
+  if (_esState && _characterId) {
+    try {
+      saveESState(_characterId, _currentSaveId, _esState)
+    } catch (e) {
+      console.warn('[Coordinator] ES persist failed:', e)
+    }
+  }
+
   // ── Phase 10: Build turn report ──
   const turnReport = {
     round: _worldState.roundIndex,
@@ -727,6 +916,7 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     cekPassed: cekValidation ? cekValidation.passed : true,
     cekViolations: cekValidation ? cekValidation.violations.length : 0,
     isFirstTurn: _isFirstTurn,
+    nceTrackedChars: _ssmState ? Object.keys(_ssmState.positions || {}).length : 0,
     promptTokens: Math.ceil(systemPrompt.length / 2.5),
   }
 

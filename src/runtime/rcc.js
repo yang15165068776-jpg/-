@@ -94,12 +94,18 @@ export function extractCharacterProfile(character) {
         sections.push('### ' + stage.name + '（' + (stage.min ?? 0) + ' ~ ' + (stage.max ?? 100) + '）')
         if (stage.coreState) sections.push('核心状态：' + stage.coreState.slice(0, 400))
         if (stage.playerStrategy) sections.push('玩家策略：' + stage.playerStrategy.slice(0, 300))
-        if (stage.forbiddenBehaviors?.length > 0) {
-          const fbs = stage.forbiddenBehaviors.filter(b => b.trim()).slice(0, 10)
+        const fbArr = Array.isArray(stage.forbiddenBehaviors)
+          ? stage.forbiddenBehaviors
+          : String(stage.forbiddenBehaviors || '').split('\n')
+        if (fbArr.length > 0) {
+          const fbs = fbArr.filter(b => b.trim()).slice(0, 10)
           if (fbs.length > 0) sections.push('禁止行为：\n' + fbs.map(b => '  - ' + b.trim()).join('\n'))
         }
-        if (stage.languageSamples?.length > 0) {
-          const samples = stage.languageSamples.filter(s => s.trim()).slice(0, 5)
+        const lsArr = Array.isArray(stage.languageSamples)
+          ? stage.languageSamples
+          : String(stage.languageSamples || '').split('\n')
+        if (lsArr.length > 0) {
+          const samples = lsArr.filter(s => s.trim()).slice(0, 5)
           if (samples.length > 0) sections.push('语言样例：' + samples.join(' / '))
         }
         if (stage.selfDriveBehaviors?.length > 0) {

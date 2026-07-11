@@ -143,17 +143,11 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   // Only the level numbers change per turn — saves ~3500 tokens/turn.
   // 🆕 v8.5.7: Added one-line concrete description per level for recency-bias reinforcement.
   if (character._darkActionLevel != null || character._desireLevel != null || character._initiativeLevel != null) {
-    const kernelLines = ['【本轮行为核——参照缓存模板+以下等级执行】']
-    if (character._darkActionLevel != null) {
-      kernelLines.push('🖤 黑暗行为=Lv' + character._darkActionLevel + '：' + (DARK_ACTION_DESC[character._darkActionLevel] || ''))
-    }
-    if (character._desireLevel != null) {
-      kernelLines.push('🔥 欲望驱动=Lv' + character._desireLevel + '：' + (DESIRE_DESC[character._desireLevel] || ''))
-    }
-    if (character._initiativeLevel != null) {
-      kernelLines.push('⚡ 物理行动=Lv' + character._initiativeLevel + '：' + (PHYSICAL_DESC[character._initiativeLevel] || ''))
-    }
-    sections.push(kernelLines.join('\n'))
+    const parts = []
+    if (character._darkActionLevel != null) parts.push('🖤Lv' + character._darkActionLevel)
+    if (character._desireLevel != null) parts.push('🔥Lv' + character._desireLevel)
+    if (character._initiativeLevel != null) parts.push('⚡Lv' + character._initiativeLevel)
+    sections.push('行为核：' + parts.join(' '))
   }
 
   // ── Behavior Locks (state-gated + attribution + personality correction) ──
@@ -254,50 +248,25 @@ function buildWarmLowAffectionSupplement() {
  * @returns {string} compact state reinforcement block
  */
 function buildStateReinforcement(character, world) {
+  // NDC (Narrative Director Core) now provides sceneGoal + sceneBeat + runtimeDirective.
+  // This block is reduced to a compact recency-bias anchor — per-character data + self-check.
   const rcList = character.romanceCharacters || []
   if (rcList.length === 0) return ''
 
-  const lines = []
-  lines.push('━━━ 🔥 本轮进攻指令——最高优先级 ━━━')
-  lines.push('严格执行缓存中的「人格释放指令」+「行为底线配额」+「黑暗混沌协议」。')
-  lines.push('以下为各角色本轮关键数据。不进攻=角色死亡。不是"差点做"——是"做"。')
-  lines.push('')
-
+  const parts = []
   for (const rc of rcList) {
     const affValue = world.characters?.[rc.name]?.affection ?? rc.affectionInitial ?? 50
     const stage = getCurrentAffectionStage(rc, affValue)
-    const profile = detectAggressionProfile(rc)
     if (!stage) continue
-
-    const profileLabel = profile === AGGRESSION_PROFILES.GENTLE ? '温柔'
-      : profile === AGGRESSION_PROFILES.PURSUER ? '侵略'
-      : profile === AGGRESSION_PROFILES.CONFRONTATIONAL ? '对抗'
-      : profile === AGGRESSION_PROFILES.ALOOF ? '疏离'
-      : '未知'
-
-    lines.push('【' + rc.name + '】' + profileLabel + '型 | 好感=' + affValue + ' | ' + (stage.name || '?'))
-
-    if (stage.playerStrategy) {
-      lines.push('  对玩家：' + stage.playerStrategy.slice(0, 80))
-    }
-
-    // Low-affection special: pursuer/confrontational → chaos, not calculation
-    if (affValue <= 30 && (profile === AGGRESSION_PROFILES.PURSUER || profile === AGGRESSION_PROFILES.CONFRONTATIONAL)) {
-      lines.push('  ⚠️ 低好感=混沌模式（砸/吼/自毁/不可预测——不是算计）')
-    }
-
-    if (stage.forbiddenBehaviors) {
-      lines.push('  阶段禁止：' + stage.forbiddenBehaviors.slice(0, 80))
-    }
+    const profile = detectAggressionProfile(rc)
+    const pLabel = profile === AGGRESSION_PROFILES.PURSUER ? '侵略' : profile === AGGRESSION_PROFILES.CONFRONTATIONAL ? '对抗' : profile === AGGRESSION_PROFILES.ALOOF ? '疏离' : '温柔'
+    let line = `${rc.name}/${pLabel}/好感${affValue}/${stage.name || '?'}`
+    if (stage.forbiddenBehaviors) line += ` 禁:${stage.forbiddenBehaviors.slice(0, 50)}`
+    if (affValue <= 30 && (profile === AGGRESSION_PROFILES.PURSUER || profile === AGGRESSION_PROFILES.CONFRONTATIONAL)) line += ' ⚠️混沌'
+    parts.push(line)
   }
 
-  // Universal self-check — compact
-  lines.push('')
-  lines.push('━━━ ⚡ 回复自检（不满足→重写）━━━')
-  lines.push('①主动推剧情 ②比上轮更紧张 ③让对方不安 ④结尾有钩子 ⑤有脏话/碎句/吼叫 ⑥禁止"好的""行""算了""你走吧"')
-  lines.push('进攻型不进攻=死亡。做——不是"差点做"，是"做"。')
-
-  return lines.join('\n')
+  return `━━━ 🔥 ${parts.join(' | ')} ━━━\n进攻型不进攻=死亡。不满足NDC目标→重写。`
 }
 
 /**

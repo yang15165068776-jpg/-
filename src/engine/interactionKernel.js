@@ -110,6 +110,7 @@ export const InteractionKernel = {
       totalCacheMissTokens: 0,
     },
     _initialized: false,
+    _nrs: null,  // NRS instance — created lazily on first turn
   },
 
   // ═══════════════════════════════════════════════════
@@ -794,7 +795,7 @@ export const InteractionKernel = {
         })
       }
 
-      // 3. Call agent coordinator
+      // 2.XX. Call agent coordinator
       const result = await runAgentTurn(
         userText,
         character,
@@ -807,7 +808,6 @@ export const InteractionKernel = {
 
       // 4. Handle error
       if (result.error || !result.reply) {
-        // Remove the orphaned user message on failure
         this.state.messages.pop()
         return {
           error: result.error || new Error('No reply from coordinator'),

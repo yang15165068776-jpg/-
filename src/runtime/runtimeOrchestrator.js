@@ -14,11 +14,12 @@
  *   ✅ Clear data flow — each step reads/writes a shared context
  *   ✅ Pluggable — add/remove/reorder steps without touching the LLM
  *
- * Architecture (v8.7):
- *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → EVENTS → CAUSAL → CEKv4 → BUILD → RENDER → RQA
+ * Architecture (v8.9):
+ *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → EVENTS → CAUSAL → CEKv4 → ITRL → BUILD → RENDER → RSE
  *                                                                                             ↑
- *                                                    RQA: Runtime Quality Assurance — 10-dimension LLM audit
- *                                                    critical/major → rewrite, minor/silent → log + continue
+ *   ITRL: Inner Thought Rendering Layer — dual-track narrative (v8.8)
+ *   RSE: Runtime Supervisor Engine — Director → Main Model → Supervisor closed loop (v8.9)
+ *   Director(flash) → Runtime Contract → Main Model → Supervisor(flash) → PASS/REWRITE
  *
  * This is NOT a new module. It's the CONDUCTOR for all existing modules.
  */
