@@ -117,6 +117,17 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   // CHARACTER PREFIX (characterPrefix.js). It's available every turn via
   // cache hit. The variable suffix no longer carries constitutional data.
 
+  // ── First turn: opening scene directive ──
+  if (isFirstTurn) {
+    const charNames = (character?.romanceCharacters || []).map(c => c.name).filter(Boolean).join('、')
+    sections.push('━━━ 🎬 开场指令 ★本轮是故事第一轮★ ━━━')
+    sections.push('这是故事的开场。请根据角色设定中的开场场景描写，开始叙述。')
+    if (charNames) sections.push('当前场景中应出现的角色：' + charNames)
+    sections.push('不要等待玩家输入开场——直接根据设定中的开场剧情开始描写场景、氛围、角色状态。')
+    sections.push('玩家输入是玩家对开场场景的回应，你要先描写开场再回应玩家。')
+    sections.push('')
+  }
+
   // ── User action ──
   if (userAction) {
     sections.push('【玩家本轮行动】\n' + userAction)

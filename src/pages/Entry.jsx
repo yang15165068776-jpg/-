@@ -166,20 +166,21 @@ export default function Entry({
                   <button
                     onClick={e => {
                       e.stopPropagation()
-                      if (confirm(`确定删除世界"${f.name}"？`)) {
+                      if (confirm(`确定删除世界"${f.name}"？\n（角色、存档、好感度等数据一并清除）`)) {
                         deleteFolder(f.id)
                         if (isSelected) setSelectedFolder(null)
                         setFolders(getAllFolders(getActiveAccountId()))
                       }
                     }}
                     style={{
-                      position: 'absolute', top: '-4px', right: '-4px',
-                      width: '16px', height: '16px', borderRadius: '50%',
-                      border: 'none', background: 'var(--coral)', color: '#fff',
-                      fontSize: '10px', cursor: 'pointer', display: 'flex',
+                      position: 'absolute', top: '-6px', right: '-6px',
+                      width: '24px', height: '24px', borderRadius: '50%',
+                      border: '2px solid var(--bg)', background: 'var(--coral)', color: '#fff',
+                      fontSize: '14px', fontWeight: 600, cursor: 'pointer', display: 'flex',
                       alignItems: 'center', justifyContent: 'center',
+                      zIndex: 2,
                     }}
-                    title="删除"
+                    title="删除世界"
                   >×</button>
                 </div>
               )
@@ -257,10 +258,7 @@ export default function Entry({
         {/* Subtitle — world info */}
         {displayFolder && (
           <div style={{ fontSize: '12px', color: 'var(--text3)', textAlign: 'center', maxWidth: '260px', lineHeight: 1.5 }}>
-            {displayFolder.worldview ? displayFolder.worldview.slice(0, 60) + (displayFolder.worldview.length > 60 ? '…' : '') : '暂无世界观'}
-            {displayFolder.characterData && (
-              <div style={{ marginTop: '4px' }}>{displayFolder.characterData.length} 位角色</div>
-            )}
+            <div style={{ marginTop: '4px' }}>{(displayFolder.characterData || []).length} 位角色 · {displayFolder.saveIds?.length || 0} 个存档</div>
           </div>
         )}
 

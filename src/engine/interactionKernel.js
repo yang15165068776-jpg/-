@@ -152,29 +152,7 @@ export const InteractionKernel = {
       messages = getSaveMessages(activeSaveId, folderId, mode === 'drama' ? 'drama' : 'daily')
       }
 
-    // Inject opening scene for drama mode if missing (handles both fresh + cache w/o opening)
-    if (mode === 'drama') {
-      const hasOpening = messages.some(m => m.isOpening)
-      if (!hasOpening) {
-        const mainChar = characters[0]
-        const folder = getFolder(folderId)
-        const openingText = mainChar?.openingScenario || folder?.story_intro || ''
-        if (openingText) {
-          messages = [{
-            id: 'opening-' + generateMsgId(),
-            role: 'assistant',
-            content: openingText,
-            timestamp: Date.now(),
-            isOpening: true,
-            immutable: true,
-          }, ...messages]
-          // Persist immediately
-          if (this.state.saveId) {
-            saveSaveMessages(this.state.saveId, folderId, 'drama', messages)
-          }
-        }
-      }
-    }
+    // v9: No opening message injection — DramaPage auto-triggers first turn
 
     this.state.messages = messages
 
@@ -1012,6 +990,7 @@ export const InteractionKernel = {
         silent: false,
         turnReport: result.turnReport || null,
         worldState: result.worldState || null,
+        qualityIssues: result.qualityIssues || [],
       }
     } catch (err) {
       // Remove orphaned user message on exception

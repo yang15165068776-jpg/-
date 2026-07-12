@@ -101,25 +101,28 @@ function _writeSaves(folderId, saves) {
  * @param {string} accountId — 归属账户 ID（可选，默认取活跃账户）
  * @returns {object} Folder
  */
-export function createFolder(name, worldview = '', storyIntro = '', accountId = '') {
-  // accountId must be passed by caller to avoid circular dependency with accountStore.
-  // If empty, the migration in accountStore.runAccountMigration() will assign it later.
+export function createFolder(name, worldview = '', storyIntro = '', accountId = '', playerName = '', playerGender = '', playerDescription = '') {
+  // accountId kept for backward compat, but no longer required.
+  // playerName/playerGender/playerDescription are the v9 simplified identity model.
   const folders = _readFolders()
   const folder = {
     id: generateId(),
     name: name || '未命名世界',
     worldview,
     story_intro: storyIntro,
-    accountId: accountId || '',  // which player account owns this world
-    characterIds: [],       // legacy character ids imported into this folder
-    characterData: [],      // inline character data for folder-native characters
+    accountId: accountId || '',
+    // v9: player identity is per-world, not global account
+    playerName: playerName || '',
+    playerGender: playerGender || '',
+    playerDescription: playerDescription || '',
+    characterIds: [],
+    characterData: [],
     saveIds: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
   folders.push(folder)
   _writeFolders(folders)
-  // Initialize empty saves store
   _writeSaves(folder.id, {})
   return folder
 }
@@ -187,7 +190,7 @@ export function updateFolder(id, updates) {
   const folders = _readFolders()
   const idx = folders.findIndex(f => f.id === id)
   if (idx === -1) return null
-  const allowed = ['name', 'worldview', 'story_intro', 'characterIds', 'characterData', 'saveIds', 'accountId']
+  const allowed = ['name', 'worldview', 'story_intro', 'characterIds', 'characterData', 'saveIds', 'accountId', 'playerName', 'playerGender', 'playerDescription']
   for (const key of allowed) {
     if (updates[key] !== undefined) {
       folders[idx][key] = updates[key]
@@ -208,8 +211,33 @@ export function deleteFolder(id) {
   _writeFolders(folders)
   // Remove saves
   try { localStorage.removeItem(SAVES_PREFIX + id) } catch {}
-  // Remove USK
-  try { localStorage.removeItem('jsjg_folder_usk_' + id) } catch {}
+  // Remove all USK variants (folder-level + per-save)
+  try {
+    const uskPrefix = 'jsjg_folder_usk_' + id
+    localStorage.removeItem(uskPrefix)
+    // Also remove per-save USK keys
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(uskPrefix + '_')) localStorage.removeItem(key)
+    }
+  } catch {}
+  // Remove NIO (narrative identity)
+  try {
+    const niPrefix = 'jsjg_ni_' + id
+    localStorage.removeItem(niPrefix)
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(niPrefix + '_')) localStorage.removeItem(key)
+    }
+  } catch {}
+  // Remove hydration cache
+  try {
+    const hydPrefix = 'jsjg_hyd_' + id
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(hydPrefix)) localStorage.removeItem(key)
+    }
+  } catch {}
   return true
 }
 

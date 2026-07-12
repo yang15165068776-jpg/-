@@ -102,7 +102,7 @@ async function _callFlash(prompt, apiKey) {
  * @returns {Promise<{ plan: object|null, error: string|null }>}
  */
 export async function runDirectorPass(ctx, apiKey) {
-  const { userInput, character, usk } = ctx
+  const { userInput, character, usk, prevIssues } = ctx
   const rcList = character?.romanceCharacters || []
 
   _ndcState.turnIndex++
@@ -129,6 +129,16 @@ export async function runDirectorPass(ctx, apiKey) {
 剧情必须先有目标，再有正文。
 主模型只负责"怎么写"。你负责"这一轮应该发生什么"。
 
+【★人格驱动——最重要★】
+角色的性格写在设定文本里。你必须从设定中提取关键人格特质，然后让指令体现这些特质。
+步骤1：读角色的设定文本，找出2-3个核心人格关键词（如：控制欲极强/从不道歉/疯起来不要命/表面温柔实则偏执）
+步骤2：基于这些具体特质生成指令——不是套用"疯批/病娇"的通用模板，而是根据设定里写的具体行为来
+步骤3：指令中的行动必须是这个角色"会做的事"——设定里说他从不道歉，指令就不能让他说对不起；设定里说他不说话只盯人，指令就让他沉默压迫
+★指令质量标准★：
+- 好指令："你设定里写他生气时不说话只盯人→被玩家拒绝后，沉默三秒，然后慢慢走近直到把她困在墙和自己之间，还是不说话，就盯着她。"
+- 差指令："角色生气地回应"——没有体现设定里的具体行为特征
+角色温和=指令失败。你的指令必须让角色做出符合其设定文本中描述的具体极端行为。
+
 【Scene Goal】
 只有一个主目标。禁止多个Goal同时推进。
 目标类型：试探/拉近/误会/吃醋/争执/缓和/揭露/诱导/交易/妥协/逃避/观察
@@ -140,6 +150,7 @@ export async function runDirectorPass(ctx, apiKey) {
 【Scene Beat】
 每轮应有2-4个节拍（Beat）。正文围绕Beat推进。
   例：Beat1:玩家靠近 → Beat2:角色观察 → Beat3:角色试探 → Beat4:停在等待回应
+★每个节拍中的角色动作必须体现剧情张力——不是"他说"而是"他掐灭烟头靠过来"、不是"她难过"而是"她指甲掐进掌心"。动作要有力度、有后果、有情绪。
 
 【Expected Change】
 本轮结束时世界状态应发生什么变化。如：距离/信任/信息/情绪。
@@ -153,7 +164,7 @@ export async function runDirectorPass(ctx, apiKey) {
 push=推进/进攻 | pull=收手/留白/吊胃口 | observe=观察玩家反馈后决定
 每1-2轮自动切换相位。不要在push上连续停留超过2轮。${loopCtx}${rhythmCtx}
 
-【当前场景】${ctx.sceneContext || '未指定'}
+${prevIssues?.length ? '【上轮审计问题——本轮必须避免】\n' + prevIssues.slice(-8).map((q, i) => `${i + 1}. ${q.dimension || q.type || '?'}: ${q.description || ''}${q.snippet ? ' "' + q.snippet + '"' : ''}`).join('\n') + '\n\n' : ''}【当前场景】${ctx.sceneContext || '未指定'}
 【角色】\n${charBlocks}
 【玩家输入】${userInput?.slice(0, 200) || '(空)'}
 【上轮回复】${ctx.prevReply?.slice(0, 300) || '(首轮)'}

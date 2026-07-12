@@ -107,12 +107,14 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       const folder = getFolder(folderId)
       const mergedBg = mainChar.background || (folder ? folder.worldview : '') || ''
       const playerAcct = getActiveAccount()
+      const pName = folder?.playerName || playerAcct?.name || ''
       const initChar = {
         name: mainChar.name,
         background: mergedBg,
         personality: mainChar.personality || '',
-        romanceCharacters: [{ name: mainChar.name, personality: mainChar.personality || '', background: mergedBg }],
-        _playerProfile: playerAcct ? { name: playerAcct.name || '' } : null,
+        romanceCharacters: [{ name: mainChar.name, personality: mainChar.personality || '', background: mergedBg, description: mainChar.description || '', archetype: mainChar.archetype || 'pursuer', affectionStages: mainChar.affectionStages || [{ name: '默认', min: 0, max: 100, description: '' }] }],
+        _playerProfile: { name: pName },
+        _playerName: pName,
       }
       AutonomousInitiativeSystem.init(initChar, usk || {})
     }
@@ -145,6 +147,9 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       const folder = getFolder(folderId)
       const mergedBg = mainChar.background || (folder ? folder.worldview : '') || ''
       const playerAcct = getActiveAccount()
+      const pName2 = folder?.playerName || playerAcct?.name || ''
+      const pGender2 = folder?.playerGender || playerAcct?.gender || ''
+      const pDesc2 = folder?.playerDescription || playerAcct?.description || ''
       const char = {
         id: mainChar.id || folderId, name: mainChar.name, chatStyle: 'casual',
         background: mergedBg, personality: mainChar.personality || '',
@@ -152,7 +157,8 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
         styleRules: mainChar.styleRules || [], forbiddenWords: mainChar.forbiddenWords || [],
         temperature: mainChar.temperature ?? 0.9, topP: mainChar.topP ?? 0.95,
         contextWindow: mainChar.contextWindow || 40,
-        _playerProfile: playerAcct ? { _id: playerAcct.id || '', name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
+        _playerProfile: { name: pName2, gender: pGender2, personalityTags: playerAcct?.personalityTags || [], description: pDesc2 },
+        _playerName: pName2, _playerGender: pGender2, _playerDescription: pDesc2,
       }
 
       // Build intent-specific prompt from AIIS (or fallback to generic)
@@ -215,6 +221,9 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
     const folder = getFolder(folderId)
     const mergedBackground = mainChar.background || (folder ? folder.worldview : '') || ''
     const playerAcct = getActiveAccount()
+    const pName3 = folder?.playerName || playerAcct?.name || ''
+    const pGender3 = folder?.playerGender || playerAcct?.gender || ''
+    const pDesc3 = folder?.playerDescription || playerAcct?.description || ''
 
     const char = {
       id: mainChar.id || folderId,
@@ -232,7 +241,8 @@ export default function DailyPage({ folderId, folderChars, saveId: propSaveId, o
       contextWindow: mainChar.contextWindow || 40,
       thinkingEnabled: mainChar.thinkingEnabled || false,
       nickname: mainChar.nickname || '',
-      _playerProfile: playerAcct ? { _id: playerAcct.id || '', name: playerAcct.name || '', gender: playerAcct.gender || '', personalityTags: playerAcct.personalityTags || [], description: playerAcct.description || '' } : null,
+      _playerProfile: { name: pName3, gender: pGender3, personalityTags: playerAcct?.personalityTags || [], description: pDesc3 },
+      _playerName: pName3, _playerGender: pGender3, _playerDescription: pDesc3,
     }
 
     const uskState = { characters: { [mainChar.name]: { relationship, emotion, tension, life } } }

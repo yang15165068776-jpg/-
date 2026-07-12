@@ -28,6 +28,8 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
   const [lastDecision, setLastDecision] = useState(null)
   const [editingIndex, setEditingIndex] = useState(null) // non-null = editing this msg
   const [compressing, setCompressing] = useState(false)
+  const [qualityIssues, setQualityIssues] = useState([])
+  const [showQuality, setShowQuality] = useState(false)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -44,6 +46,15 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
     setSaveId(state.saveId)
     setAffections(state.affections)
   }, [folderId])
+
+  // ── Auto-generate opening scene on first entry ──
+  const openedRef = useRef(false)
+  useEffect(() => {
+    if (!loading && saveId && messages.length === 0 && !openedRef.current) {
+      openedRef.current = true
+      setTimeout(() => doSend('（开场）'), 400)
+    }
+  }, [messages.length, saveId, loading])
 
   // ── Auto-save safety net ──
   useEffect(() => {
@@ -63,15 +74,35 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
     const mergedWorldSetting = mainChar.worldSetting || (folder ? folder.worldview : '') || ''
     const mergedOpening = mainChar.openingScenario || (folder ? folder.story_intro : '') || ''
 
-    // Inject active player account so AI knows who it's talking to
-    const playerAccount = getActiveAccount()
-    const _playerProfile = playerAccount ? {
-      _id: playerAccount.id || '',
-      name: playerAccount.name || '',
-      gender: playerAccount.gender || '',
-      personalityTags: playerAccount.personalityTags || [],
-      description: playerAccount.description || '',
-    } : null
+    // v9: Player identity from folder (per-world), fallback to account
+    const playerName = folder?.playerName || getActiveAccount()?.name || ''
+    const playerGender = folder?.playerGender || getActiveAccount()?.gender || ''
+    const playerDescription = folder?.playerDescription || getActiveAccount()?.description || ''
+    const _playerProfile = {
+      name: playerName,
+      gender: playerGender,
+      personalityTags: getActiveAccount()?.personalityTags || [],
+      description: playerDescription,
+    }
+
+    // v9: Build romanceCharacters from ALL folder chars
+    const allChars = folderChars.length > 0 ? folderChars : [mainChar]
+    const romanceCharacters = allChars.map(c => ({
+      id: c.id || c.name,
+      name: c.name,
+      description: c.description || '',
+      background: c.background || '',
+      personality: c.personality || '',
+      speakingStyle: c.speakingStyle || '',
+      styleRules: c.styleRules || [],
+      forbiddenWords: c.forbiddenWords || [],
+      affectionEnabled: c.affectionEnabled !== false,
+      affectionInitial: c.affectionInitial ?? 0,
+      affectionStages: c.affectionStages || [{ name: '默认', min: 0, max: 100, description: '' }],
+      behavior: c.behavior || '',
+      archetype: c.archetype || 'pursuer',
+      nickname: c.nickname || '',
+    }))
 
     return {
       id: mainChar.id || folderId,
@@ -87,25 +118,17 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
       forbiddenWords: mainChar.forbiddenWords || [],
       activeMessageEnabled: mainChar.activeMessageEnabled || false,
       activePrompt: mainChar.activePrompt || '',
-      romanceCharacters: mainChar.romanceCharacters || [{
-        id: mainChar.id, name: mainChar.name,
-        background: mainChar.background || '',
-        personality: mainChar.personality || '',
-        speakingStyle: mainChar.speakingStyle || '',
-        styleRules: mainChar.styleRules || [],
-        forbiddenWords: mainChar.forbiddenWords || [],
-        affectionEnabled: mainChar.affectionEnabled !== false,
-        affectionInitial: mainChar.affectionInitial ?? 50,
-        affectionStages: mainChar.affectionStages || [],
-        behavior: mainChar.behavior || '',
-      }],
+      romanceCharacters,
       npcs: mainChar.npcs || [],
       affectionStages: mainChar.affectionStages || [],
       temperature: mainChar.temperature ?? 0.9,
       topP: mainChar.topP ?? 0.95,
       thinkingEnabled: mainChar.thinkingEnabled || false,
       contextWindow: mainChar.contextWindow || 40,
-      _playerProfile,  // injected into AI prompt via buildPlayerIdentityBlock()
+      _playerProfile,
+      _playerName: playerName,         // v9: per-world player name
+      _playerGender: playerGender,     // v9: per-world player gender
+      _playerDescription: playerDescription, // v9: per-world player description
     }
   }, [folderId, mainChar])
 
@@ -167,6 +190,9 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
     }
     setAffection(result.affection)
     setTension(result.tension)
+    if (result.qualityIssues?.length) {
+      setQualityIssues(result.qualityIssues)
+    }
   }, [apiKey, buildCharacterForLLM, editingIndex])
 
   const handleSend = () => {
@@ -366,7 +392,8 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
   }
 
   const mainCharName = mainChar.name || '角色'
-  const affFlashSingle = affectionFlash?.[mainCharName] || null
+  const charNames = Object.keys(affections).filter(n => affections[n] != null)
+  if (charNames.length === 0 && mainCharName) charNames.push(mainCharName)
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
@@ -385,39 +412,36 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
         <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)' }}>{mainCharName} · 剧情</span>
       </div>
 
-      {/* ── Progress Bars ── */}
-      <div style={{ padding: '8px 16px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <ProgressBar label="好感度" value={affection} color="var(--purple)" height={4} flash={affFlashSingle} showValue />
-          </div>
-          <button
-            onClick={() => {
-              const newVal = InteractionKernel.manualAffectionAdjust(mainCharName || '角色', -2)
-              setAffection(newVal)
-              setAffections(InteractionKernel.getAffections())
-            }}
-            style={{
-              width: '24px', height: '24px', borderRadius: '6px', border: '0.5px solid var(--border)',
-              background: 'var(--bg)', color: 'var(--coral)', fontSize: '13px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}
-            title="好感 -2"
-          >−</button>
-          <button
-            onClick={() => {
-              const newVal = InteractionKernel.manualAffectionAdjust(mainCharName || '角色', 2)
-              setAffection(newVal)
-              setAffections(InteractionKernel.getAffections())
-            }}
-            style={{
-              width: '24px', height: '24px', borderRadius: '6px', border: '0.5px solid var(--border)',
-              background: 'var(--bg)', color: 'var(--teal)', fontSize: '13px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}
-            title="好感 +2"
-          >+</button>
-        </div>
+      {/* ── Progress Bars — one per character ── */}
+      <div style={{ padding: '4px 16px', borderBottom: '0.5px solid var(--border2)', flexShrink: 0 }}>
+        {charNames.map(cName => {
+          const cAff = affections[cName] ?? 0
+          const cFlash = affectionFlash?.[cName] || null
+          return (
+            <div key={cName} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
+              <span style={{ fontSize: '10px', color: 'var(--text2)', minWidth: '48px', flexShrink: 0 }}>{cName}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <ProgressBar value={cAff} color="var(--purple)" height={3} flash={cFlash} showValue />
+              </div>
+              <button
+                onClick={() => {
+                  InteractionKernel.manualAffectionAdjust(cName, -2)
+                  setAffections({...InteractionKernel.getAffections()})
+                }}
+                style={{ width: '20px', height: '20px', borderRadius: '4px', border: '0.5px solid var(--border)', background: 'var(--bg)', color: 'var(--coral)', fontSize: '11px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title={cName + ' -2'}
+              >−</button>
+              <button
+                onClick={() => {
+                  InteractionKernel.manualAffectionAdjust(cName, 2)
+                  setAffections({...InteractionKernel.getAffections()})
+                }}
+                style={{ width: '20px', height: '20px', borderRadius: '4px', border: '0.5px solid var(--border)', background: 'var(--bg)', color: 'var(--teal)', fontSize: '11px', cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title={cName + ' +2'}
+              >+</button>
+            </div>
+          )
+        })}
         {/* Decision indicator */}
         {lastDecision && lastDecision.type !== 'normal_reply' && (
           <div style={{
@@ -492,6 +516,30 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
           >{compressing ? '压缩中…' : '压缩'}</button>
         </div>
       </div>
+
+      {/* ── Quality Report (audit findings, no rewrite) ── */}
+      {qualityIssues.length > 0 && (
+        <div style={{ padding: '0 16px', flexShrink: 0 }}>
+          <div
+            onClick={() => setShowQuality(!showQuality)}
+            style={{ fontSize: '10px', color: 'var(--coral)', cursor: 'pointer', padding: '4px 8px', borderRadius: '6px', background: 'var(--coral-l)', display: 'flex', alignItems: 'center', gap: '4px' }}
+          >
+            ⚠ {qualityIssues.length} 个质量问题 {showQuality ? '▲' : '▼'}
+          </div>
+          {showQuality && (
+            <div style={{ marginTop: '4px', maxHeight: '200px', overflowY: 'auto', fontSize: '10px', lineHeight: 1.5 }}>
+              {qualityIssues.map((q, i) => (
+                <div key={i} style={{ padding: '3px 6px', marginBottom: '2px', borderRadius: '4px', background: 'var(--bg2)', color: 'var(--text2)' }}>
+                  <span style={{ color: 'var(--text3)', marginRight: '4px' }}>[{q.source}]</span>
+                  <span style={{ fontWeight: 500 }}>{q.dimension || q.type || '?'}</span>
+                  {q.description && <span>: {q.description}</span>}
+                  {q.snippet && <span style={{ color: 'var(--text3)', marginLeft: '4px' }}>"{q.snippet}"</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Narrative Area ── */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px' }}>

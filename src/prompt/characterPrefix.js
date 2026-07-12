@@ -28,6 +28,7 @@ import { buildASLSystemPrompt } from '../runtime/alignmentSuppression'
 import { buildPowerSystemPrompt, buildBehaviorTranslationPrompt } from '../runtime/powerDynamics'
 import { detectAggressionProfile, AGGRESSION_PROFILES } from '../runtime/aggressionProfile'
 import { buildCEKv4StaticPrefix } from '../runtime/characterExecutionKernelV4'
+import { buildNarrativeIdentityBlock } from '../state/narrativeIdentity'
 import writingSamplesRaw from '../utils/writing-samples.txt?raw'
 
 // ═══════════════════════════════════════════════════════════
@@ -64,6 +65,11 @@ function _computeStageKey(character, affectionMap = {}) {
     }
     return rc.name + ':disabled'
   })
+  // 🎭 NIO: Include narrative identity phase in cache key so phase changes trigger rebuild
+  const ni = character?._narrativeIdentity
+  if (ni?.active && ni?.scenario) {
+    keys.push('__nio__:' + ni.scenario + ':' + (ni.currentOverlay?.phase || ''))
+  }
   return keys.join('|')
 }
 
@@ -253,36 +259,48 @@ function buildCharacterIdentityBlock(character, affectionMap = {}) {
   lines.push('沉默、矛盾、攻击性、回避、崩溃——这些比温和无害的回复更真实。')
   lines.push('每轮回复前先检查：这句话是这个角色会说的吗？还是小说里的优美对白？')
 
-  // ── 🔵 将玩家身份织入角色认知 ──
-  const playerProfile = character._playerProfile
-  if (playerProfile && playerProfile.name) {
+  // ── 🔵 玩家身份（v9: per-world, 非全局账户）──
+  const playerName = character._playerName || (character._playerProfile?.name) || ''
+  const playerGender = character._playerGender || (character._playerProfile?.gender) || ''
+  const playerDesc = character._playerDescription || (character._playerProfile?.description) || ''
+  const playerTags = character._playerProfile?.personalityTags || []
+  if (playerName) {
     lines.push('')
     lines.push('━━━ 所有角色的互动对象 ━━━')
     lines.push('你扮演的所有角色正在与同一个人互动——')
-    lines.push('名字：' + playerProfile.name)
-    if (playerProfile.gender) lines.push('性别：' + playerProfile.gender)
-    if (playerProfile.personalityTags && playerProfile.personalityTags.length > 0) {
-      lines.push('性格：' + playerProfile.personalityTags.join('、'))
-    }
-    if (playerProfile.description) lines.push('简介：' + playerProfile.description.slice(0, 200))
+    lines.push('名字：' + playerName)
+    if (playerGender) lines.push('性别：' + playerGender)
+    if (playerTags.length > 0) lines.push('性格：' + playerTags.join('、'))
+    if (playerDesc) lines.push('简介：' + playerDesc.slice(0, 200))
     lines.push('')
-    lines.push('每个角色都认识「' + playerProfile.name + '」。')
-    lines.push('每个角色对「' + playerProfile.name + '」的关系由各自的好感度阶段决定。')
-    lines.push('称呼只能用「' + playerProfile.name + '」或角色设定中的昵称。禁止编造其他名字。')
+    lines.push('每个角色都认识「' + playerName + '」。')
+    lines.push('每个角色对「' + playerName + '」的关系由各自的好感度阶段决定。')
+    lines.push('称呼只能用「' + playerName + '」或角色设定中的昵称。禁止编造其他名字。')
+  }
+
+  // ── 🎭 Narrative Identity Overlay (v8.9) — per-save mutable identity ──
+  const niBlock = buildNarrativeIdentityBlock(character._narrativeIdentity)
+  if (niBlock) {
+    lines.push(niBlock)
   }
 
   const rcList = character.romanceCharacters || []
   for (const rc of rcList) {
     lines.push('')
     lines.push('【' + rc.name + '】')
-    if (rc.background) lines.push('背景：' + rc.background)
-    if (rc.personality) lines.push('核心性格：' + rc.personality)
-    if (rc.speakingStyle) lines.push('说话方式：' + rc.speakingStyle)
-    if (rc.styleRules?.length) {
-      lines.push('行为准则：\n' + rc.styleRules.filter(r => r.trim()).map(r => '- ' + r).join('\n'))
-    }
-    if (rc.forbiddenWords?.length) {
-      lines.push('绝对禁止：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
+    // v9: Natural language description as primary source
+    if (rc.description) {
+      lines.push(rc.description)
+    } else {
+      if (rc.background) lines.push('背景：' + rc.background)
+      if (rc.personality) lines.push('核心性格：' + rc.personality)
+      if (rc.speakingStyle) lines.push('说话方式：' + rc.speakingStyle)
+      if (rc.styleRules?.length) {
+        lines.push('行为准则：\n' + rc.styleRules.filter(r => r.trim()).map(r => '- ' + r).join('\n'))
+      }
+      if (rc.forbiddenWords?.length) {
+        lines.push('绝对禁止：\n' + rc.forbiddenWords.filter(w => w.trim()).map(w => '- ' + w).join('\n'))
+      }
     }
 
     // Stage behavior lock — was first-turn only, now CACHED (rebuilt on stage change)
@@ -295,23 +313,28 @@ function buildCharacterIdentityBlock(character, affectionMap = {}) {
         const isGentleChar = rcProfile === AGGRESSION_PROFILES.GENTLE
         const isAloofChar = rcProfile === AGGRESSION_PROFILES.ALOOF
 
+        lines.push('')
+        lines.push('⚠️【' + rc.name + ' 当前行为锁——本轮必须严格执行】')
+        lines.push('当前阶段：' + (stage.name || '') + '（好感度 ' + affValue + '）')
+        // v9: Natural language stage description as primary
+        if (stage.description) {
+          lines.push('阶段描述：' + stage.description)
+        } else {
+          if (stage.coreState) lines.push('当前核心状态：' + stage.coreState)
+          if (stage.playerStrategy) lines.push('对玩家的策略：' + stage.playerStrategy)
+          if (stage.languageSamples) lines.push('本阶段语言样本（必须模仿此风格和语气）：\n' + stage.languageSamples)
+          if (stage.forbiddenBehaviors) lines.push('本阶段绝对禁止（违反即重写）：\n' + stage.forbiddenBehaviors)
+          if (stage.stageDetails) lines.push('【必须高频自发穿插的表现细节】：\n' + stage.stageDetails)
+          if (stage.emotionalTraits) lines.push('【必须严格遵循的底层情绪特征】：\n' + stage.emotionalTraits)
+          if (stage.stageExplosion) lines.push('【本阶段随时可能引爆的转折点名场面】：\n' + stage.stageExplosion)
+        }
+        // Personality-appropriate enforcement footer
         lines.push(
-          '\n⚠️【' + rc.name + ' 当前行为锁——本轮必须严格执行】\n' +
-          '当前阶段：' + (stage.name || '') + '\n' +
-          '当前核心状态：' + (stage.coreState || '') + '\n' +
-          '对玩家的策略：' + (stage.playerStrategy || '') + '\n' +
-          (stage.languageSamples ? '本阶段语言样本（必须模仿此风格和语气）：\n' + stage.languageSamples + '\n' : '') +
-          (stage.forbiddenBehaviors ? '本阶段绝对禁止（违反即重写）：\n' + stage.forbiddenBehaviors + '\n' : '') +
-          (stage.stageDetails ? '【必须高频自发穿插的表现细节】：\n' + stage.stageDetails + '\n' : '') +
-          (stage.emotionalTraits ? '【必须严格遵循的底层情绪特征】：\n' + stage.emotionalTraits + '\n' : '') +
-          (stage.stageExplosion ? '【本阶段随时可能引爆的转折点名场面】：\n' + stage.stageExplosion + '\n' : '') +
-          // Personality-appropriate enforcement footer:
-          (isGentleChar
+          isGentleChar
             ? '⚠️ 温柔是你的核心人设——但温柔不等于退让。你可以温柔地不放过，用包容制造压力，用理解让对方无法离开。不准报复不准冷暴力。'
             : isAloofChar
               ? '⚠️ 冷到极点的存在感才是你的武器——不是攻击，是压迫。任何主动讨好/热情回应/过度表达都是人设违规。'
               : '⚠️ 任何温柔/体贴/居家/暖心的表达都是人设违规，宁愿沉默爆发也不能变软。'
-          )
         )
       }
     }
@@ -328,16 +351,20 @@ function buildCharacterIdentityBlock(character, affectionMap = {}) {
     }
   }
 
-  // Player character — Canonical Identity Kernel v1
-  const pp = character._playerProfile
-  const playerName = (pp && pp.name) ? pp.name : '(身份未配置——请在 PlayerProfile 中设置你的名字)'
-  lines.push('\n【玩家身份】' + playerName +
-    (pp && pp.gender ? '（' + pp.gender + '）' : '') + ' — ' +
-    (pp && pp.personalityTags && pp.personalityTags.length > 0 ? pp.personalityTags.join('、') : '未设定'))
-  if (pp && pp.description) {
-    lines.push('玩家设定：' + pp.description.slice(0, 200))
+  // Player identity footer (v9: per-world name, fallback to _playerProfile)
+  const displayName = playerName || '(身份未配置——请在创建世界时设置玩家名字)'
+  lines.push('\n【玩家身份】' + displayName +
+    (playerGender ? '（' + playerGender + '）' : '') +
+    (playerTags.length > 0 ? ' — ' + playerTags.join('、') : ''))
+  if (playerDesc) {
+    lines.push('玩家设定：' + playerDesc.slice(0, 200))
   }
-  lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。禁止猜测或推断玩家名字。')
+  if (character._narrativeIdentity?.active && character._narrativeIdentity?.scenario) {
+    lines.push('⚠️ 叙事身份覆盖已激活 — 称呼和认知规则见上方「🎭 叙事身份覆盖」区块。')
+    lines.push('角色对玩家的称呼必须严格遵循感知规则：看真相的角色叫真名，只看外表的叫外表名。')
+  } else {
+    lines.push('你必须用上述名字称呼玩家。禁止使用任何其他名字。禁止猜测或推断玩家名字。')
+  }
 
   lines.push('')
   lines.push('⚠️ 禁止人设偏离：')

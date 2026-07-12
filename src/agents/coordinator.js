@@ -43,6 +43,7 @@ import { runDeterministicAudit, resetValidator } from '../runtime/runtimeValidat
 import { createSSMState, buildSSMConstraintBlock, extractSSMUpdate, applySSMUpdate, validateAgainstSSM, loadSSMState, saveSSMState } from '../runtime/sceneStateManager'
 import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM, loadISMState, saveISMState } from '../runtime/interactionStateMachine'
 import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
+import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, applyIdentityChange } from '../state/narrativeIdentity'
 
 // Global state (persists across turns within a session)
 let _worldState = null
@@ -58,6 +59,9 @@ let _ssmState = null       // 📐 SSM — scene state (positions, clothing, obj
 let _ismState = null       // 🔗 ISM — interaction state machine (distance, touch, conversation, conflict, dominance)
 let _esState = null        // 💭 ES — emotion simulator (emotional inertia engine)
 let _currentSaveId = null  // Current save ID for per-save canon isolation
+let _currentFolderId = null // Current folder ID for per-save NIO isolation
+let _niState = null        // 🎭 NIO — narrative identity overlay (per-save mutable player identity)
+let _prevQualityIssues = [] // v9: previous round quality issues → feed to next director
 
 /**
  * Initialize or reset the agent system for a new session.
@@ -158,6 +162,15 @@ export function initAgentSystem(character, affections, messages) {
     console.log('[Coordinator] ES state loaded:', charCount, 'characters tracked')
   }
 
+  // ── 🎭 Load NIO (Narrative Identity Overlay) state ──
+  _currentFolderId = InteractionKernel.state?.folderId || null
+  _niState = loadNarrativeIdentity(_currentFolderId, _currentSaveId)
+  _prevQualityIssues = []  // Fresh session, clear accumulated issues
+  if (_niState?.active) {
+    console.log('[NIO] Loaded:', _niState.scenario, '| phase:', _niState.currentOverlay?.phase,
+      '| log entries:', _niState.changeLog?.length || 0)
+  }
+
   console.log('[Coordinator] Agent system initialized',
     Object.keys(_worldState.characters).length, 'agents registered')
   return { world: _worldState, bus: _eventBus, graph: _memoryGraph, cps: _cpsState }
@@ -179,6 +192,9 @@ export function resetAgentTurn() {
   _ismState = null
   _esState = null
   _currentSaveId = null
+  _currentFolderId = null
+  _niState = null
+  _prevQualityIssues = []
   resetPersonaState()
   resetCEKv4()
   resetNDCState()
@@ -358,17 +374,23 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
-  // ── 🔍 Canonical Identity Kernel v1: pre-send validation ──
+  // ── 🔍 Pre-send validation (v9: per-world player name) ──
   const pp = character._playerProfile
-  if (!pp?.name || pp.name === '玩家' || pp.name === '新玩家') {
-    return { reply: null, error: new Error('IdentityKernel: player.name 无效（' + (pp?.name || '(空)') + '），请在 PlayerProfile 中设置你的真实名字。') }
+  const pn = pp?.name || ''
+  if (!pn) {
+    return { reply: null, error: new Error('玩家名字未设置。请在创建世界时填写玩家名字。') }
+  }
+
+  // ── 🎭 NIO: Attach narrative identity to character for prompt injection ──
+  if (_niState?.active) {
+    character._narrativeIdentity = _niState
   }
 
   // ── 🎬 NDC Pass 1: Director — generate plan ──
   const prevAssistantMsg = [...(messages || [])].reverse().find(m => m.role === 'assistant')
   let _ndcPlan = null
   try {
-    const ndcCtx = { userInput, character, usk, prevReply: prevAssistantMsg?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '' }
+    const ndcCtx = { userInput, character, usk, prevReply: prevAssistantMsg?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '', prevIssues: _prevQualityIssues }
     const dirResult = await runDirectorPass(ndcCtx, apiKey)
     _ndcPlan = dirResult.plan
     if (_ndcPlan) console.log('[NDC] Plan: goal=' + (_ndcPlan.sceneGoal?.type || '?') + ' rhythm=' + (_ndcPlan.rhythm || '?'))
@@ -603,142 +625,64 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
-  // 🔍 Runtime Validator — deterministic pre-audit (pure code, runs before flash RCL)
-  let rqaResult = null
+  // 🔍 Quality Audit (no rewrite — collect issues, feed to next round)
+  let qualityIssues = []
   if (reply && !error) {
-    const pp = character._playerProfile
-    const rcList = character?.romanceCharacters || []
-    const mainRC = rcList[0]
-    const rcProfile = mainRC ? detectAggressionProfile(mainRC) : null
-    const affValue = _worldState?.characters?.[mainRC?.name]?.affection ?? mainRC?.affectionInitial ?? 50
-
-    const detAudit = runDeterministicAudit(reply, {
-      character,
-      ndcPlan: _ndcPlan,
-      ssmState: _ssmState,
-      ismState: _ismState,
-      affection: affValue,
-      rcProfile,
-    })
-
-    if (!detAudit.passed) {
-      console.warn('[Validator] Deterministic audit FAIL — ' + detAudit.violations.length + ' violations, rewriting...')
-
-      // Rewrite without flash call — inject fix instruction directly
-      const rewriteMessages = [
-        ...narratorMessages.slice(0, -1),
-        { role: 'system', content: detAudit.fixInstruction },
-        narratorMessages[narratorMessages.length - 1],
-      ]
-
-      try {
-        let fullReply = ''
-        let fullReasoning = ''
-        let streamUsage = null
-        onToken('', '', true)
-
-        for await (const chunk of streamCompletion(rewriteMessages, apiKey, model, temperature, topP, thinkingEnabled)) {
-          if (chunk.content) { fullReply += chunk.content; onToken(chunk.content, fullReply) }
-          if (chunk.reasoningContent) fullReasoning += chunk.reasoningContent
-          if (chunk.usage) streamUsage = chunk.usage
-        }
-
-        if (allForbiddenWords.length > 0) {
-          const hit = findForbiddenWord(fullReply, allForbiddenWords)
-          if (!hit) { reply = fullReply; reasoningContent = fullReasoning; usage = streamUsage }
-        } else {
-          reply = fullReply; reasoningContent = fullReasoning; usage = streamUsage
-        }
-        console.log('[Validator] ✅ Code-based rewrite complete')
-      } catch (err) {
-        console.error('[Validator] Rewrite failed:', err.message)
+    // Deterministic audit
+    try {
+      const detAudit = runDeterministicAudit(reply, {
+        character,
+        ndcPlan: _ndcPlan,
+        ssmState: _ssmState,
+        ismState: _ismState,
+        affection: _worldState?.characters?.[character?.romanceCharacters?.[0]?.name]?.affection ?? 50,
+        rcProfile: character?.romanceCharacters?.[0] ? detectAggressionProfile(character.romanceCharacters[0]) : null,
+      })
+      if (!detAudit.passed) {
+        console.warn('[Audit] Deterministic: ' + detAudit.violations.length + ' issues')
+        qualityIssues.push(...detAudit.violations.map(v => ({ source: 'code', ...v })))
       }
+    } catch (e) { console.warn('[Audit] Deterministic error:', e.message) }
 
-      rqaResult = { action: 'REWRITE', issues: detAudit.violations, reminder: '' }
-    }
-  }
-
-  // 🎬 RCL — flash model audit (only if deterministic audit passed)
-  if (reply && !error && (!rqaResult || rqaResult.action !== 'REWRITE')) {
-    const pp = character._playerProfile
-    const rseCtx = {
-      userInput,
-      character,
-      usk,
-      prevReply: [...messages].reverse().find(m => m.role === 'assistant')?.content?.slice(-300) || '',
-      sceneContext: _worldState?.locations?.main?.description || '',
-    }
-
-    const supResult = await runSupervisorPass(reply, _ndcPlan, rseCtx, apiKey)
-
-    if (!supResult.passed) {
-      console.warn('[RSE] Supervisor FAIL — ' + supResult.violations.length + ' violations, severity=' + supResult.severity)
-
-      if (supResult.severity === 'critical') {
-        // Rewrite once with revision injection
-        const revisionBlock = buildRevisionInjection(supResult.violations)
-        if (revisionBlock) {
-          const rewriteMessages = [
-            ...narratorMessages.slice(0, -1),
-            { role: 'system', content: revisionBlock },
-            narratorMessages[narratorMessages.length - 1],
-          ]
-
-          try {
-            let fullReply = ''
-            let fullReasoning = ''
-            let streamUsage = null
-
-            onToken('', '', true)
-
-            for await (const chunk of streamCompletion(rewriteMessages, apiKey, model, temperature, topP, thinkingEnabled)) {
-              if (chunk.content) {
-                fullReply += chunk.content
-                onToken(chunk.content, fullReply)
-              }
-              if (chunk.reasoningContent) {
-                fullReasoning += chunk.reasoningContent
-              }
-              if (chunk.usage) {
-                streamUsage = chunk.usage
-              }
-            }
-
-            if (allForbiddenWords.length > 0) {
-              const hit = findForbiddenWord(fullReply, allForbiddenWords)
-              if (hit) {
-                console.warn('[RSE] Forbidden word in rewrite:', hit, '— keeping previous')
-              } else {
-                reply = fullReply
-                reasoningContent = fullReasoning
-                usage = streamUsage
-                console.log('[RSE] ✅ Rewrite successful')
-              }
-            } else {
-              reply = fullReply
-              reasoningContent = fullReasoning
-              usage = streamUsage
-              console.log('[RSE] ✅ Rewrite successful')
-            }
-          } catch (err) {
-            console.error('[RSE] Rewrite generation failed:', err.message)
-          }
-        }
+    // Flash audit (RSE Supervisor — report only, no rewrite)
+    try {
+      const rseCtx = { userInput, character, usk, prevReply: [...messages].reverse().find(m => m.role === 'assistant')?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '' }
+      const supResult = await runSupervisorPass(reply, _ndcPlan, rseCtx, apiKey)
+      if (!supResult.passed) {
+        console.warn('[Audit] RSE: ' + supResult.violations.length + ' issues, score=' + supResult.score)
+        qualityIssues.push(...(supResult.violations || []).map(v => ({ source: 'rse', ...v })))
       } else {
-        console.warn('[RSE] Minor issues — continuing')
+        console.log('[Audit] RSE: PASS (score=' + supResult.score + ')')
       }
-    } else {
-      console.log('[RSE] Supervisor: PASS')
-    }
+    } catch (e) { console.warn('[Audit] RSE error:', e.message) }
+  }
 
-    // Store simplified RQA-compatible result for turn report
-    rqaResult = {
-      action: supResult.passed ? 'PASS' : (supResult.severity === 'critical' ? 'REWRITE' : 'CONTINUE'),
-      issues: supResult.violations || [],
-      reminder: '',
+  // Accumulate issues for next rounds (keep last 10, deduplicate by description)
+  if (qualityIssues.length > 0) {
+    const seen = new Set(_prevQualityIssues.map(q => q.description))
+    for (const q of qualityIssues) {
+      if (!seen.has(q.description)) {
+        _prevQualityIssues.push(q)
+        seen.add(q.description)
+      }
+    }
+    // Keep last 10
+    if (_prevQualityIssues.length > 10) {
+      _prevQualityIssues = _prevQualityIssues.slice(-10)
     }
   }
 
+  // ── 🎭 NIO: Narrative Identity Change Detection (rule-based, no LLM call) ──
+  if (reply && !error && _niState?.active) {
+    const charNames = (character?.romanceCharacters || []).map(rc => rc.name)
+    const niChange = detectIdentityChange(reply, _niState, charNames)
+    if (niChange) {
+      applyIdentityChange(_niState, niChange, _worldState?.roundIndex || 0)
+      console.log('[NIO] Identity change detected:', niChange.summary)
+      // Update character reference so characterPrefix cache key reflects change
+      character._narrativeIdentity = _niState
+    }
+  }
 
   // 🔒 State Locks v1 — post-generation hard constraint validation
   if (reply && !error) {
@@ -898,6 +842,15 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   }
 
+  // ── 🎭 Persist NIO (Narrative Identity Overlay) state ──
+  if (_niState && _currentFolderId) {
+    try {
+      saveNarrativeIdentity(_currentFolderId, _currentSaveId, _niState)
+    } catch (e) {
+      console.warn('[Coordinator] NIO persist failed:', e)
+    }
+  }
+
   // ── Phase 10: Build turn report ──
   const turnReport = {
     round: _worldState.roundIndex,
@@ -945,6 +898,7 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     updatedAffections,
     turnReport,
     aslValidation,
+    qualityIssues,   // v9: audit findings for user review (no rewrite)
   }
 }
 
