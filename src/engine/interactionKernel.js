@@ -45,7 +45,7 @@ import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } f
 import { AgencyEngine } from '../runtime/agencyEngine'
 import { RelationshipPhysics } from '../runtime/relationshipPhysics'
 import { AutonomousWorldEngine } from '../runtime/autonomousWorldEngine'
-import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedgerBlock, enforceSceneContinuity } from '../runtime/factLedger'
+import { loadLedger, saveLedger, seedIdentityFacts, extractTurnFacts, buildLedgerBlock, enforceSceneContinuity, reconstructSceneStateFromMessages } from '../runtime/factLedger'
 import { buildConstitution } from '../runtime/characterConstitution'
 import { EventGraph } from '../runtime/eventGraph'
 import { RuntimeOrchestrator } from '../runtime/runtimeOrchestrator'
@@ -246,6 +246,12 @@ export const InteractionKernel = {
     this.state._ledger = loadLedger(charId, this.state.saveId)
     if (mainChar) {
       seedIdentityFacts(this.state._ledger, mainChar, mainChar._playerProfile)
+      // 🔥 v9 fix: Reconstruct scene state from message history on re-entry
+      // This ensures physical state (e.g. naked/clothed) survives save reload
+      if (messages.length > 0) {
+        const charNames = characters.map(c => c.name || c.id).filter(Boolean)
+        reconstructSceneStateFromMessages(this.state._ledger, messages, charNames)
+      }
       saveLedger(charId, this.state.saveId, this.state._ledger)
     }
 
@@ -961,7 +967,9 @@ export const InteractionKernel = {
 
       // 13. 🔒 Fact Ledger — extract new facts from this turn
       if (this.state._ledger && cleanReply) {
-        const charId = (character && character.name) || this.state.folderId
+        // Must match the charId used in init() for loadLedger:
+        // init uses mainChar?.id || mainChar?.name || folderId
+        const charId = (character && (character.id || character.name)) || this.state.folderId
         extractTurnFacts(this.state._ledger, userText, cleanReply, {
           playerName: mainCharName || '玩家',
           characterNames: Object.keys(this.state.affections),

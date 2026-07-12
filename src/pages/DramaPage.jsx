@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { parseMultiCharacterMessage, findCharacterAvatar, compressChatHistory } from '../utils/deepseek'
 import { getApiKey } from '../utils/storage'
-import { getFolder } from '../state/folderStore'
+import { getFolder, updateFolder } from '../state/folderStore'
 import { getActiveAccount } from '../state/accountStore'
 import { InteractionKernel } from '../engine/interactionKernel'
 import ProgressBar from '../components/ProgressBar'
@@ -30,6 +30,7 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
   const [compressing, setCompressing] = useState(false)
   const [qualityIssues, setQualityIssues] = useState([])
   const [showQuality, setShowQuality] = useState(false)
+  const [openingExpanded, setOpeningExpanded] = useState(false)
   const scrollRef = useRef(null)
   const inputRef = useRef(null)
   const messagesEndRef = useRef(null)
@@ -37,24 +38,67 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
   const mainChar = folderChars[0] || {}
   const apiKey = getApiKey()
 
+  // ── Extract opening text from character settings ──
+  const getOpeningText = useCallback(() => {
+    // 1. Legacy: explicit openingScenario
+    const explicit = mainChar.openingScenario || mainChar.raw?.openingScenario
+    if (explicit?.trim()) return explicit.trim()
+
+    // 2. Folder story_intro
+    const folder = getFolder(folderId)
+    if (folder?.story_intro?.trim()) return folder.story_intro.trim()
+
+    // 3. Extract from v9 description text (regex)
+    const desc = mainChar.description || mainChar.raw?.description || ''
+    if (desc.trim()) {
+      const patterns = [
+        /(?:开场|开场剧情|开场场景|开局)[：:]\s*([\s\S]+?)(?=\n\n[^\n]{0,4}(?:角色|好感|人物|设定|世界|背景|性格|身份|玩家|男主|女主|称呼|备注|注意|规则|风格|禁止|写作|结尾|\n{2,}|$))/i,
+        /(?:^|\n\n)([^\n]{30,300}?(?:开场|开始|起初|这天|那天|晚上|早上|下午|深夜|酒吧|房间|门口|推门|走进)[^\n]{0,300})/,
+      ]
+      for (const pat of patterns) {
+        const m = desc.match(pat)
+        if (m?.[1]?.trim().length > 15) return m[1].trim()
+      }
+      // Fallback: first substantial paragraph (likely the intro)
+      const firstPara = desc.split(/\n\n+/).find(p => p.trim().length > 30)
+      if (firstPara?.trim()) return firstPara.trim()
+    }
+    return null
+  }, [folderId, mainChar])
+
   // ── Init: kernel handles hydration → save → USK ──
   useEffect(() => {
     const state = InteractionKernel.init(folderId, folderChars, 'drama', null, propSaveId)
-    setMessages(state.messages)
+    let msgs = state.messages
+
+    // Inject opening scene as first message (pre-written, zero token cost)
+    if (msgs.length === 0) {
+      const openingText = getOpeningText()
+      if (openingText) {
+        const openingMsg = {
+          id: 'opening_' + Date.now(),
+          role: 'assistant',
+          content: openingText,
+          isOpening: true,
+          timestamp: Date.now(),
+        }
+        msgs = [openingMsg]
+        InteractionKernel.state.messages = msgs
+
+        // Persist to folder so buildCharacterForLLM → narratorPrompt picks it up
+        const folder = getFolder(folderId)
+        if (folder && !folder.story_intro) {
+          updateFolder(folderId, { story_intro: openingText })
+        }
+      }
+    }
+
+    setMessages([...msgs])
     setAffection(state.affection)
     setTension(state.tension)
     setSaveId(state.saveId)
     setAffections(state.affections)
   }, [folderId])
-
-  // ── Auto-generate opening scene on first entry ──
-  const openedRef = useRef(false)
-  useEffect(() => {
-    if (!loading && saveId && messages.length === 0 && !openedRef.current) {
-      openedRef.current = true
-      setTimeout(() => doSend('（开场）'), 400)
-    }
-  }, [messages.length, saveId, loading])
 
   // ── Auto-save safety net ──
   useEffect(() => {
@@ -338,17 +382,71 @@ export default function DramaPage({ folderId, folderChars, saveId: propSaveId, o
     }
 
     const sections = parseMultiCharacterMessage(msg.content)
+
+    // Opening message: render only the collapsible module, nothing else
+    if (msg.isOpening) {
+      const fullText = msg.content || ''
+      const previewLen = 300
+      const needsTruncate = fullText.length > previewLen + 50
+      const preview = needsTruncate ? '…' + fullText.slice(-previewLen) : fullText
+      return (
+        <div key={i} style={{ marginBottom: '24px' }}>
+          <div style={{ marginBottom: '12px' }}>
+            <button
+              onClick={() => setOpeningExpanded(!openingExpanded)}
+              style={{
+                display: 'block', width: '100%', padding: '0',
+                borderRadius: '10px', border: '0.5px solid var(--border)',
+                background: 'var(--bg3)', cursor: 'pointer', textAlign: 'left',
+                fontFamily: 'inherit', overflow: 'hidden',
+              }}
+            >
+              <div style={{ padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text2)' }}>📋 开场剧情</span>
+                <span style={{ fontSize: '10px', color: 'var(--text3)' }}>{openingExpanded ? '收起 ▲' : '展开 ▼'}</span>
+              </div>
+              {!openingExpanded && (
+                <div style={{
+                  padding: '0 14px 10px',
+                  fontSize: '12px', lineHeight: 1.7, color: 'var(--text3)',
+                  whiteSpace: 'pre-wrap', maxHeight: '80px', overflow: 'hidden',
+                  position: 'relative',
+                }}>
+                  {preview}
+                  {needsTruncate && (
+                    <div style={{
+                      position: 'absolute', bottom: 0, left: 0, right: 0,
+                      height: '32px',
+                      background: 'linear-gradient(transparent, var(--bg3))',
+                    }} />
+                  )}
+                </div>
+              )}
+            </button>
+            {openingExpanded && (
+              <div style={{
+                marginTop: '8px', padding: '12px 16px',
+                background: 'var(--bg)', borderRadius: '10px',
+                border: '0.5px solid var(--border)',
+              }}>
+                <div style={{
+                  fontSize: '14px', lineHeight: 1.8, color: 'var(--text)',
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {fullText}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div key={i} style={{ marginBottom: '24px', position: 'relative' }}
         onMouseEnter={e => { e.currentTarget.querySelector('.msg-actions')?.style.setProperty('opacity', '1') }}
         onMouseLeave={e => { e.currentTarget.querySelector('.msg-actions')?.style.setProperty('opacity', '0') }}
       >
-        {msg.isOpening && (
-          <div style={{ textAlign: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--purple)', background: 'var(--purple-l)', padding: '2px 8px', borderRadius: '8px' }}>开场剧情</span>
-          </div>
-        )}
-        {/* Per-message actions */}
         {!msg.immutable && (
           <div className="msg-actions" style={{ position: 'absolute', top: 0, right: 0, display: 'flex', gap: '2px', opacity: 0, transition: 'opacity 0.15s' }}>
             <button onClick={() => handleRegenerate(i)} title="重刷"

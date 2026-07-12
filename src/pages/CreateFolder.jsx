@@ -21,6 +21,7 @@ const S = {
 export default function CreateFolder({ onBack, onCreated }) {
   const [settingText, setSettingText] = useState('')
   const [charNames, setCharNames] = useState('')
+  const [worldName, setWorldName] = useState('')
   const [creating, setCreating] = useState(false)
 
   const handleCreate = () => {
@@ -29,25 +30,27 @@ export default function CreateFolder({ onBack, onCreated }) {
     const text = settingText.trim()
     if (!text) return
 
-    // Character names must be provided by user
+    // Character names
     const raw = charNames.trim()
     const names = raw ? raw.split(/[,，\s\n]+/).filter(Boolean) : []
     if (names.length === 0) {
       alert('请在"角色名"输入框中填写至少一个角色名字（多个用逗号分隔）')
+      setCreating(false)
       return
     }
 
-    const worldName = names.join('、')
+    // World name: user input, fallback to character names
+    const name = worldName.trim() || names.join('、')
 
-    const folder = createFolder(worldName, '', text, getActiveAccountId(), '', '', '')
+    const folder = createFolder(name, '', text, getActiveAccountId(), '', '', '')
     const charsForUSK = []
 
-    for (const name of names) {
+    for (const cname of names) {
       const charData = {
         id: generateId(),
-        name,
-        description: text,           // 完整设定文本，LLM 直接读
-        archetype: 'pursuer',        // 默认，LLM 会从设定中自行判断
+        name: cname,
+        description: text,
+        archetype: 'pursuer',
         affectionInitial: 0,
         affectionStages: [{ name: '默认', min: 0, max: 100, description: '好感度变化由设定文本中的描述决定' }],
         nickname: '',
@@ -56,7 +59,7 @@ export default function CreateFolder({ onBack, onCreated }) {
         topP: 0.95,
       }
       addInlineCharacter(folder.id, charData)
-      charsForUSK.push({ id: name, name, affectionInitial: 0 })
+      charsForUSK.push({ id: cname, name: cname, affectionInitial: 0 })
     }
 
     const usk = createFolderUSK(folder.id, charsForUSK, { sourceMode: 'drama' })
@@ -78,12 +81,25 @@ export default function CreateFolder({ onBack, onCreated }) {
 
       <div style={S.body}>
         <div>
+          <label style={S.label}>🌍 世界名称</label>
+          <div style={{ ...S.hint, marginBottom: '4px' }}>
+            给你的世界起个名字。留空则自动用角色名拼凑。
+          </div>
+          <input
+            style={S.input}
+            value={worldName}
+            onChange={e => setWorldName(e.target.value)}
+            placeholder="如：暗潮、权与血、荆棘婚约…"
+          />
+        </div>
+
+        <div>
           <label style={S.label}>📝 粘贴角色设定</label>
           <div style={{ ...S.hint, marginBottom: '6px' }}>
             不分字段、不分阶段——把你想写的一切都写在这个框里。AI 会直接读懂。
           </div>
           <textarea
-            style={{ ...S.textarea, minHeight: 'calc(100vh - 260px)' }}
+            style={{ ...S.textarea, minHeight: 'calc(100vh - 380px)' }}
             value={settingText}
             onChange={e => setSettingText(e.target.value)}
             placeholder={`把你脑子里的设定直接倒进来，像这样：

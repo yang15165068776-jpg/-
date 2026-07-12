@@ -35,7 +35,7 @@ import { InteractionKernel } from '../engine/interactionKernel'
 import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
 import { runCEKv4PostValidation, resetCEKv4 } from '../runtime/characterExecutionKernelV4'
 import { runRQAAudit, shouldRewrite, getMaxRewrites, buildRQACorrection, buildRQAContextFromScope } from '../runtime/rqa'  // ⚠️ DEPRECATED — RSE replaces RQA
-import { runDirectorPass, injectContractIntoPrompt, runSupervisorPass, buildRevisionInjection, resetNDCState } from '../runtime/rse'
+import { runDirectorPass, injectContractIntoPrompt, runSupervisorPass, buildRevisionInjection, buildTargetedFixPrompt, resetNDCState } from '../runtime/rse'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
 import { buildITRLBlock } from '../runtime/innerThoughtRenderer'
 import { buildCompressedBlock } from '../runtime/promptCompressionLayer'
@@ -44,6 +44,8 @@ import { createSSMState, buildSSMConstraintBlock, extractSSMUpdate, applySSMUpda
 import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM, loadISMState, saveISMState } from '../runtime/interactionStateMachine'
 import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
 import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, applyIdentityChange } from '../state/narrativeIdentity'
+
+const BASE_URL = 'https://api.deepseek.com'
 
 // Global state (persists across turns within a session)
 let _worldState = null
@@ -644,13 +646,69 @@ export async function runAgentTurn(userInput, character, affections, messages, a
       }
     } catch (e) { console.warn('[Audit] Deterministic error:', e.message) }
 
-    // Flash audit (RSE Supervisor — report only, no rewrite)
+    // 🔍 RSE Supervisor — audit + targeted fix rewrite (v9)
     try {
       const rseCtx = { userInput, character, usk, prevReply: [...messages].reverse().find(m => m.role === 'assistant')?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '' }
       const supResult = await runSupervisorPass(reply, _ndcPlan, rseCtx, apiKey)
       if (!supResult.passed) {
         console.warn('[Audit] RSE: ' + supResult.violations.length + ' issues, score=' + supResult.score)
-        qualityIssues.push(...(supResult.violations || []).map(v => ({ source: 'rse', ...v })))
+
+        // Check if we have fixable violations with specific fix instructions
+        const fixableViolations = (supResult.violations || []).filter(v =>
+          v.fixInstruction && (v.severity === 'critical' || v.severity === 'major' || v.priority === 'P0' || v.priority === 'P1')
+        )
+
+        if (fixableViolations.length > 0) {
+          // Build targeted fix prompt and run spot-fix rewrite
+          const fixPrompt = buildTargetedFixPrompt(reply, fixableViolations)
+          if (fixPrompt) {
+            console.log('[Audit] Running targeted fix rewrite for ' + fixableViolations.length + ' violations...')
+            try {
+              const fixMessages = [
+                { role: 'system', content: fixPrompt },
+                { role: 'user', content: '请输出修改后的完整回复。' },
+              ]
+              const fixResponse = await fetch(BASE_URL + '/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + apiKey,
+                },
+                body: JSON.stringify({
+                  model: getModel(),
+                  messages: fixMessages,
+                  max_tokens: Math.max(1024, Math.ceil((reply || '').length * 1.3)),
+                  temperature: temperature ?? 0.9,
+                  top_p: topP ?? 0.95,
+                  stream: false,
+                }),
+              })
+              if (fixResponse.ok) {
+                const fixData = await fixResponse.json()
+                const fixedReply = fixData.choices?.[0]?.message?.content || ''
+                if (fixedReply && fixedReply.trim().length > reply.trim().length * 0.3) {
+                  // Only accept if the fix didn't drastically shorten or lose content
+                  console.log('[Audit] ✅ Targeted fix applied — ' + reply.length + ' → ' + fixedReply.length + ' chars')
+                  reply = fixedReply
+                  // Record fixed violations for quality tracking
+                  qualityIssues.push(...fixableViolations.map(v => ({ source: 'rse-fixed', ...v })))
+                } else {
+                  console.warn('[Audit] ⚠️ Fix response too short (' + fixedReply.length + ' vs original ' + reply.length + '), keeping original')
+                  qualityIssues.push(...(supResult.violations || []).map(v => ({ source: 'rse', ...v })))
+                }
+              } else {
+                console.warn('[Audit] Fix API call failed, keeping original')
+                qualityIssues.push(...(supResult.violations || []).map(v => ({ source: 'rse', ...v })))
+              }
+            } catch (fixErr) {
+              console.warn('[Audit] Fix rewrite error:', fixErr.message)
+              qualityIssues.push(...(supResult.violations || []).map(v => ({ source: 'rse', ...v })))
+            }
+          }
+        } else {
+          // Non-fixable violations — just log
+          qualityIssues.push(...(supResult.violations || []).map(v => ({ source: 'rse', ...v })))
+        }
       } else {
         console.log('[Audit] RSE: PASS (score=' + supResult.score + ')')
       }

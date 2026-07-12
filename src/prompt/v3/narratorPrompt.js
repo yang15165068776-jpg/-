@@ -120,11 +120,19 @@ export function buildNarratorPrompt(world, character, narrativeHints, userAction
   // ── First turn: opening scene directive ──
   if (isFirstTurn) {
     const charNames = (character?.romanceCharacters || []).map(c => c.name).filter(Boolean).join('、')
+    const openingScenario = character?.openingScenario || ''
     sections.push('━━━ 🎬 开场指令 ★本轮是故事第一轮★ ━━━')
-    sections.push('这是故事的开场。请根据角色设定中的开场场景描写，开始叙述。')
+    if (openingScenario) {
+      sections.push('以下开场剧情已展示给玩家。玩家现在对此场景做出回应。')
+      sections.push('')
+      sections.push('【已展示的开场剧情——请据此理解当前场景状态】')
+      sections.push(openingScenario)
+      sections.push('')
+      sections.push('请根据此开场剧情设定的场景、氛围、角色位置，生成角色对玩家输入的回应。')
+    } else {
+      sections.push('这是故事的开场。请根据角色设定和玩家输入开始叙述。')
+    }
     if (charNames) sections.push('当前场景中应出现的角色：' + charNames)
-    sections.push('不要等待玩家输入开场——直接根据设定中的开场剧情开始描写场景、氛围、角色状态。')
-    sections.push('玩家输入是玩家对开场场景的回应，你要先描写开场再回应玩家。')
     sections.push('')
   }
 

@@ -432,12 +432,12 @@ PASS (score >= 75):
 {"passed":true,"score":85,"severity":"silent","violations":[],"fixInstruction":""}
 
 FAIL (score < 75):
-{"passed":false,"score":55,"severity":"critical","violations":[{"dimension":"Action Repetition","description":"连续第3次摸手动作","snippet":"他伸手握住你的手指"}],"fixInstruction":"停止身体接触动作。改用语言试探或制造距离。保持言默前期猎手身份——不要表达依赖。"}
+{"passed":false,"score":55,"severity":"critical","violations":[{"dimension":"Action Repetition","description":"连续第3次摸手动作","snippet":"他伸手握住你的手指","fixInstruction":"删除'他伸手握住你的手指'这一句，改为语言试探，例如：'他靠在门框上，嘴角微扬：\"怎么，怕我？\"'注意保持言默前期猎手身份——用眼神和距离制造压迫感，不要用肢体接触暴露需求感。"}],"fixInstruction":"全文级别修改指导（可选）：停止身体接触动作。改用语言试探或制造距离。"}
 
 规则：
 - score 0-100，75以上通过
 - severity: critical(P0违规)/major(明显问题)/minor(风格差异)
-- fixInstruction 必须是具体的修改指导，不是泛泛的"注意人设"
+- ⚠️ 每个violation的fixInstruction必须是针对该violation的【具体修改方案】，包含：(1)明确指出原文哪里要改 (2)给出具体的替换文本或改写方向 (3)说明修改后的效果。不能是泛泛的"注意人设"或"调整语气"。
 - 风格差异≠违规。不要吹毛求疵。
 只输出 JSON。`
 
@@ -475,11 +475,12 @@ export function parseSupervisorResponse(raw) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 5. Revision Injection
+// 5. Revision Injection (Legacy — full rewrite, kept for compat)
 // ═══════════════════════════════════════════════════════════
 
 /**
- * Build a revision prompt for main model rewrite.
+ * Legacy: Build a revision prompt for full rewrite.
+ * Prefer buildTargetedFixPrompt for spot-fix approach.
  *
  * @param {Array} violations — from Supervisor
  * @returns {string} revision instruction
@@ -512,6 +513,91 @@ export function buildRevisionInjection(violations) {
   }
 
   lines.push('请重新生成完整的回复——不要接着上一版的结尾写，从头开始。修正上述所有问题。')
+
+  return lines.join('\n')
+}
+
+// ═══════════════════════════════════════════════════════════
+// 5.5 Targeted Fix Prompt Builder (v9 — spot-fix only)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Build a targeted fix prompt for the main model.
+ *
+ * Instead of "regenerate the entire reply", this provides the original reply
+ * with marked problem areas and specific fix instructions. The main model only
+ * modifies the problematic parts — everything else stays unchanged.
+ *
+ * This saves tokens, preserves good content, and avoids introducing new issues
+ * in parts that were already correct.
+ *
+ * @param {string} originalReply — the main model's full reply to fix
+ * @param {Array} violations — from Supervisor, each with dimension/description/snippet/fixInstruction
+ * @returns {string} targeted fix prompt (system message content)
+ */
+export function buildTargetedFixPrompt(originalReply, violations) {
+  if (!violations?.length || !originalReply) return ''
+
+  const lines = [
+    '【🔧 RSE 定向修改——以下是你的上一轮回复。',
+    '你只需要修改标记的问题部分，其他内容逐字保留，不要改动任何正确的地方。】',
+    '',
+    '═══ 原始回复（需要修改的完整文本）═══',
+    originalReply,
+    '═══ 需要修改的问题 ═══',
+    '',
+  ]
+
+  const critical = violations.filter(v =>
+    v.severity === 'critical' || v.priority === 'P0'
+  )
+  const major = violations.filter(v =>
+    v.severity === 'major' || v.priority === 'P1'
+  )
+  const minor = violations.filter(v =>
+    v.severity === 'minor' || v.priority === 'P2' || (!v.severity && !v.priority)
+  )
+
+  if (critical.length > 0) {
+    lines.push('🔴 必须修改：')
+    for (const v of critical) {
+      const dim = v.dimension || v.type || '问题'
+      lines.push(`  · ${dim}：${v.description || ''}`)
+      if (v.snippet) lines.push(`    原文位置："${v.snippet}"`)
+      if (v.fixInstruction) lines.push(`    修改方案：${v.fixInstruction}`)
+      lines.push('')
+    }
+  }
+
+  if (major.length > 0) {
+    lines.push('🟠 需要修改：')
+    for (const v of major) {
+      const dim = v.dimension || v.type || '问题'
+      lines.push(`  · ${dim}：${v.description || ''}`)
+      if (v.snippet) lines.push(`    原文位置："${v.snippet}"`)
+      if (v.fixInstruction) lines.push(`    修改方案：${v.fixInstruction}`)
+      lines.push('')
+    }
+  }
+
+  if (minor.length > 0) {
+    lines.push('🟡 建议修改（非强制）：')
+    for (const v of minor) {
+      const dim = v.dimension || v.type || '问题'
+      lines.push(`  · ${dim}：${v.description || ''}`)
+      if (v.snippet) lines.push(`    原文位置："${v.snippet}"`)
+      if (v.fixInstruction) lines.push(`    修改方案：${v.fixInstruction}`)
+      lines.push('')
+    }
+  }
+
+  lines.push('═══ 修改规则 ═══')
+  lines.push('1. 只修改上述标记的问题部分——其他内容【逐字保留，一字不改】')
+  lines.push('2. 保持原有的叙事节奏、段落结构、对话顺序完全不变')
+  lines.push('3. 每个修改只替换需要改的那一句话或短语，不要扩写、不要缩写、不要重排段落')
+  lines.push('4. 🚫 禁止为修改而修改——没标记为问题的部分绝对不要动')
+  lines.push('5. 修改后的总字数应与原文接近（±10%以内）')
+  lines.push('6. 输出完整的修改后回复（包含未修改的正确部分），不要只输出修改片段')
 
   return lines.join('\n')
 }

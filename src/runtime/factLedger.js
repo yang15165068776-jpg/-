@@ -209,20 +209,33 @@ export function extractTurnFacts(ledger, userInput, aiReply, context = {}) {
   for (const name of charNames) {
     if (!aiReply.includes(name)) continue
 
-    // Detect clothing state changes
-    if (/脱[掉下了去]|解开|褪[去下]|赤裸|裸露|光着/.test(aiReply) && aiReply.includes(name)) {
-      const isNaked = /赤裸|全裸|一丝不挂|光着身子|脱[光净]/.test(aiReply)
-      const state = isNaked ? '全身赤裸' : '衣物已被脱去部分'
+    // Detect clothing/nakedness state changes — comprehensive patterns (v9 fix)
+    const undressAction = /脱[掉下了去光净完]|解[开扣]|褪[去下净光尽]|扒[掉下光净]|扯[掉下开]|剥[掉光净]|撕[开掉]/
+    const nakedState = /赤裸|全裸|裸体|裸露|光着|一丝不挂|光溜溜|没穿|衣不蔽体|袒露|赤身|裸[露身]|袒胸|露[出点]|脱[光净]|褪[尽光]|赤条条|身无[片寸]缕|毫无遮掩/
+    const getDressedAction = /穿[上好了回起戴]|套[上了]|披[上了]|裹[上了紧]|系[好上]|扣[好上]|拉[上]|整理[好]?衣|重新穿|穿戴整齐|着装/
+
+    // Check for getting dressed (reverse of naked — LATER message wins)
+    if (getDressedAction.test(aiReply)) {
+      updateSceneState(ledger, {
+        characterStates: { [name]: '已穿好衣服' },
+      })
+      lockStateFact(ledger, name + '当前已穿好衣服')
+    }
+    // Check for undressing or naked state
+    else if (undressAction.test(aiReply) || nakedState.test(aiReply)) {
+      const isFullyNaked = /全裸|一丝不挂|光着身子|脱[光净]|赤条条|身无[片寸]缕|完全赤裸|浑身赤裸|彻底裸露|毫无遮掩|全[身上下]赤裸/.test(aiReply)
+      const state = isFullyNaked ? '全身赤裸' : '衣物已被脱去部分/衣着不整'
       updateSceneState(ledger, {
         characterStates: { [name]: state },
       })
       lockStateFact(ledger, name + '当前' + state)
     }
 
-    // Detect location
-    const locMatch = aiReply.match(/(?:在|坐在|躺在|站在|靠在)([^，。！？\n]{2,10})/)
+    // Detect location — broader pattern
+    const locMatch = aiReply.match(/(?:在|坐在|躺在|站在|靠在|走进|来到|回到)([^，。！？\n]{2,15})/)
     if (locMatch && !ledger.sceneState.location) {
-      ledger.sceneState.location = locMatch[1]
+      const loc = locMatch[1].replace(/[了着的]/g, '').trim()
+      if (loc.length >= 2) ledger.sceneState.location = loc
     }
 
     // Detect key character actions
@@ -269,16 +282,21 @@ export function buildLedgerBlock(ledger) {
 
   const lines = ['【🔒 FACT LEDGER —— 不可篡改】']
 
-  // ── Scene state (compact) ──
+  // ── Scene state — HIGH PRIORITY: current physical reality ──
   const stateEntries = Object.entries(ledger.sceneState.characterStates || {})
   if (ledger.sceneState.location || stateEntries.length > 0) {
-    let sceneLine = '📍 '
-    if (ledger.sceneState.location) sceneLine += ledger.sceneState.location
+    lines.push('━━━ 📍 当前场景状态 ★不可自行改变★ ━━━')
+    let sceneLine = ''
+    if (ledger.sceneState.location) sceneLine += '场景：' + ledger.sceneState.location
     if (ledger.sceneState.timePhase) sceneLine += ' · ' + ledger.sceneState.timePhase
+    lines.push(sceneLine)
     if (stateEntries.length > 0) {
-      sceneLine += ' | ' + stateEntries.map(([n, s]) => n + ':' + s).join(' ')
+      for (const [n, s] of stateEntries) {
+        lines.push('  ' + n + '：【' + s + '】← 这是此刻的真实状态')
+      }
     }
-    lines.push(sceneLine + ' ← 此刻物理现实，禁止自行改变')
+    lines.push('⚠️ 以上角色衣着/位置/身体状态是已确立的叙事事实。禁止自行让角色穿回衣服/换位置/恢复原状，除非有明确的剧情事件触发。')
+    lines.push('')
   }
 
   // ── Identity (compact, last 5) ──
@@ -313,6 +331,12 @@ export function buildLedgerBlock(ledger) {
 
   lines.push('⚠ 以上事实不可改写/补剧情/回溯。场景状态不会自己变。')
 
+  // Fallback: if no scene state is recorded, explicitly tell LLM to check history
+  if (!ledger.sceneState.location && Object.keys(ledger.sceneState.characterStates || {}).length === 0) {
+    lines.push('')
+    lines.push('📌 场景连续性检查：请在生成回复前，检查对话历史中最后确立的角色衣着/位置/身体状态，并在回复中保持该状态的连续性。角色不会自己穿上衣服、不会自己换位置、不会自己改变身体状态——除非有明确的剧情事件触发变化。')
+  }
+
   return lines.join('\n')
 }
 
@@ -333,10 +357,124 @@ export function enforceSceneContinuity(ledger, lastAIMessage) {
     if (!currentState) continue
 
     // If character was naked last turn, reinforce it
-    if (/赤裸|全裸|一丝不挂|光着/.test(currentState)) {
+    if (/赤裸|全裸|一丝不挂|光着|裸体|没穿|袒露/.test(currentState)) {
       lockStateFact(ledger, name + '此刻依然是赤裸的——衣物没有自己穿回去')
       lockForbiddenFact(ledger, '禁止声称' + name + '已经穿好衣服或变成半裸——ta依然是赤裸的')
     }
+    // If character had clothes partially removed, reinforce that too
+    if (/脱去|褪去|不整|敞开|袒露|半裸/.test(currentState)) {
+      lockStateFact(ledger, name + '此刻衣着依然不整——状态没有自己恢复')
+    }
+  }
+
+  // Also scan the last AI message for clothing state that may have been missed
+  if (lastAIMessage && Object.keys(ledger.sceneState.characterStates || {}).length === 0) {
+    // Scene state is empty — try to extract from the last message
+    const nakedStateRegex = /(全裸|一丝不挂|光着身子|赤裸|赤条条|没穿衣服|袒露|裸体|脱[光净])/
+    const dressedRegex = /(穿[上好了]|套[上了]|披[上了]|裹[上了]|整理[好]?衣)/
+    const charNames = Object.keys(ledger.sceneState.characterStates || {})
+    // If we have no state at all, the extraction step already attempts this in extractTurnFacts
+  }
+
+  return ledger
+}
+
+// ═══════════════════════════════════════════════════════════
+// 6.5 Scene State Reconstruction — rebuild on save re-entry
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Reconstruct current scene state from recent message history.
+ * Called when re-entering a save to recover physical state that may have
+ * been missed by per-turn extractTurnFacts regex.
+ *
+ * Scans the last N messages for clothing/location/position descriptions
+ * and rebuilds ledger.sceneState.
+ *
+ * @param {object} ledger — the loaded Fact Ledger
+ * @param {object[]} messages — recent messages (role + content)
+ * @param {string[]} characterNames — names to track
+ * @returns {object} updated ledger
+ */
+export function reconstructSceneStateFromMessages(ledger, messages, characterNames = []) {
+  if (!ledger || !messages?.length) return ledger
+  if (!characterNames.length) return ledger
+
+  // Comprehensive detection patterns (same as extractTurnFacts + extra patterns)
+  const undressAction = /脱[掉下了去光净完]|解[开扣]|褪[去下净光尽]|扒[掉下光净]|扯[掉下开]|剥[掉光净]|撕[开掉]/
+  const nakedStateRe = /赤裸|全裸|裸体|裸露|光着|一丝不挂|光溜溜|没穿|衣不蔽体|袒露|赤身|裸[露身]|袒胸|露[出点]|脱[光净]|褪[尽光]|赤条条|身无[片寸]缕|毫无遮掩/
+  const getDressedRe = /穿[上好了回起戴]|套[上了]|披[上了]|裹[上了紧]|系[好上]|扣[好上]|拉[上拉链]|整理[好]?衣|重新穿|穿戴整齐|着装/
+  const locationRe = /(?:在|坐在|躺在|站在|靠在|走进|来到|回到|身处)([^，。！？\n]{2,15})/
+
+  // Track per-character state: scan from oldest → newest (last match wins)
+  const charStates = {}
+  let lastLocation = ''
+  let lastTimePhase = ''
+
+  // Scan last 8 messages (enough to capture recent state)
+  const recentMsgs = messages.slice(-8)
+  for (const msg of recentMsgs) {
+    const content = msg.content || ''
+    if (!content) continue
+
+    // Time phase detection
+    if (/深夜|凌晨|清晨|早晨|中午|下午|傍晚|晚上|黄昏|午夜/.test(content)) {
+      const tm = content.match(/深夜|凌晨|清晨|早晨|中午|下午|傍晚|晚上|黄昏|午夜/)
+      if (tm) lastTimePhase = tm[0]
+    }
+
+    // Location detection
+    const locMatch = content.match(locationRe)
+    if (locMatch) {
+      const loc = locMatch[1].replace(/[了着的]/g, '').trim()
+      if (loc.length >= 2 && loc.length <= 15) lastLocation = loc
+    }
+
+    // Per-character clothing state detection
+    for (const name of characterNames) {
+      if (!content.includes(name)) continue
+
+      // Check for getting dressed (wins over naked)
+      if (getDressedRe.test(content)) {
+        charStates[name] = '已穿好衣服'
+        continue
+      }
+      // Check for undressing or naked state
+      if (undressAction.test(content) || nakedStateRe.test(content)) {
+        const isFullyNaked = /全裸|一丝不挂|光着身子|脱[光净]|赤条条|身无[片寸]缕|完全赤裸|浑身赤裸|彻底裸露|毫无遮掩|全[身上下]赤裸/.test(content)
+        charStates[name] = isFullyNaked ? '全身赤裸' : '衣物已被脱去部分/衣着不整'
+        continue
+      }
+    }
+  }
+
+  // Apply reconstructed state to ledger
+  if (Object.keys(charStates).length > 0) {
+    // Only update if the ledger doesn't already have newer state
+    for (const [name, state] of Object.entries(charStates)) {
+      const existingState = ledger.sceneState.characterStates?.[name]
+      if (!existingState) {
+        // No existing state — apply reconstruction
+        if (!ledger.sceneState.characterStates) ledger.sceneState.characterStates = {}
+        ledger.sceneState.characterStates[name] = state
+        lockStateFact(ledger, name + '当前' + state + '（存档恢复重建）')
+      }
+      // If existing state exists, keep it (it's from a more recent extraction)
+    }
+  }
+
+  // Apply location if not already set
+  if (lastLocation && !ledger.sceneState.location) {
+    ledger.sceneState.location = lastLocation
+  }
+  if (lastTimePhase && !ledger.sceneState.timePhase) {
+    ledger.sceneState.timePhase = lastTimePhase
+  }
+
+  // If we found scene state, lock it as a forbidden fact to prevent the LLM
+  // from silently reverting the scene
+  if (Object.keys(charStates).length > 0 || lastLocation) {
+    lockForbiddenFact(ledger, '禁止自行改变角色的衣着/位置/场景状态——必须保持与Fact Ledger记录一致')
   }
 
   return ledger
