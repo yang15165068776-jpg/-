@@ -45,6 +45,7 @@ import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM,
 import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
 import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, applyIdentityChange } from '../state/narrativeIdentity'
 import { tickCIE, getCIEState, loadCIEState, saveCIEState, resetCIE } from '../runtime/characterIntentEngine'
+import { diagnosePromptLayers, quickDiagnose } from '../runtime/promptLayerDiagnostic'
 
 const BASE_URL = 'https://api.deepseek.com'
 
@@ -185,6 +186,25 @@ export function initAgentSystem(character, affections, messages) {
 
   console.log('[Coordinator] Agent system initialized',
     Object.keys(_worldState.characters).length, 'agents registered')
+
+  // 🔍 Expose diagnostic to browser console: type __pld() to see prompt layers
+  if (typeof window !== 'undefined') {
+    window.__pld = () => {
+      console.log('🔍 Prompt Layer Diagnostic — 手动触发')
+      console.log('提示：下一轮对话后将自动打印每轮摘要，每10轮打印完整报告。')
+      console.log('在浏览器控制台查看 [PLD] 开头的日志即可。')
+      return '诊断已激活。查看控制台 [PLD] 日志。'
+    }
+    window.__pldFull = () => {
+      const msg = InteractionKernel.getState()?.messages
+      if (msg) {
+        console.log('当前消息数:', msg.length, '— 这只是对话历史，不是完整prompt。')
+        console.log('完整诊断在下一轮对话后自动出现在 [PLD] 日志中。')
+      }
+      return msg ? `${msg.length} 条消息` : '暂无消息'
+    }
+  }
+
   return { world: _worldState, bus: _eventBus, graph: _memoryGraph, cps: _cpsState }
 }
 
@@ -527,6 +547,17 @@ export async function runAgentTurn(userInput, character, affections, messages, a
 
   // Add current user input
   narratorMessages.push({ role: 'user', content: userInput })
+
+  // ── 🔍 Prompt Layer Diagnostic — 每轮快速摘要 + 每10轮全量报告 ──
+  if (_worldState?.roundIndex && _worldState.roundIndex % 10 === 0) {
+    // Full diagnostic every 10 turns
+    diagnosePromptLayers(narratorMessages, { verbose: false, showDead: true })
+  } else {
+    // Quick summary every turn
+    const qd = quickDiagnose(narratorMessages)
+    console.log('[PLD] ' + qd.layerCount + '层 / ~' + qd.totalTokens.toLocaleString() +
+      ' tokens | layers: ' + qd.presentLayers.filter(l => l !== 'UNKNOWN' && l !== 'CONVERSATION').join(','))
+  }
 
   // ── Phase 8: Narrator LLM call (v3 prompt — direct API) ──
   const model = getModel()
