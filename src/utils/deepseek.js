@@ -24,7 +24,7 @@
  * ============================================================
  */
 
-import { getModel } from './storage'
+import { getModel, getAuditModel } from './storage'
 import writingSamplesRaw from './writing-samples.txt?raw'
 import { buildAntiSmoothingV21 } from '../runtime/antiSmoothing'
 import { buildPersonaShield } from '../runtime/personaIntegrity'
@@ -2443,22 +2443,35 @@ export function estimateTokens(text) {
 }
 
 export async function compressChatHistory(messages, apiKey, storyTime, existingMemory) {
-  const model = getModel()
+  // 🔧 v9.1 fix: Use audit/flash model instead of main model for compression.
+  // Flash models are: cheaper, faster, better at structured JSON output,
+  // and don't refuse complex prompts like main models sometimes do.
+  const model = getAuditModel() || 'deepseek-v4-flash'
 
-  const chatText = messages
+  // Truncate each message to avoid exceeding token limits
+  const MAX_MSG_LEN = 1200
+  const MAX_TOTAL_CHARS = 15000
+
+  let chatText = messages
     .filter(m => m.role !== 'system')
     .map(m => {
       const prefix = m.role === 'user' ? '用户' : '角色'
-      return prefix + ': ' + (m.content || '').slice(0, 2000)
+      const content = (m.content || '').slice(0, MAX_MSG_LEN)
+      return prefix + ': ' + content
     })
     .join('\n\n')
+
+  // Truncate from the beginning if total is too long (keep most recent)
+  if (chatText.length > MAX_TOTAL_CHARS) {
+    chatText = '…(早期对话已省略)…\n\n' + chatText.slice(-MAX_TOTAL_CHARS)
+  }
 
   if (!chatText.trim()) {
     return { summary: null, error: new Error('没有可压缩的对话内容') }
   }
 
   const existingMemorySection = existingMemory && existingMemory.trim()
-    ? '\n\n## ⚠️ 已有历史存档（必须完整保留到输出中）\n' +
+    ? '\n\n## 已有历史存档（必须完整保留到输出中）\n' +
       '以下是从对话开始至今所有重要事件的存档。新压缩必须将以下内容与新对话合并，不能省略任何已有事件：\n\n' +
       existingMemory.trim() +
       '\n\n━━━━以上是已存档的历史，以下是本轮需要压缩的新对话━━━━\n\n'
@@ -2468,11 +2481,12 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
     ? '【故事当前时间】' + storyTime + '\n\n'
     : ''
 
-  const prompt =
+  const systemPrompt = '你是剧情结构压缩器。你的唯一职责是把对话历史压缩成结构化 JSON。只输出 JSON，禁止任何其他文字。'
+
+  const userPrompt =
     storyTimeSection +
     '请把以下对话历史压缩成结构化存档。\n' +
-    '严格按以下三段式格式输出 JSON，不要输出任何其他内容：\n\n' +
-    '```json\n' +
+    '严格按以下格式输出 JSON：\n\n' +
     '{\n' +
     '  "events": [\n' +
     '    {\n' +
@@ -2486,87 +2500,113 @@ export async function compressChatHistory(messages, apiKey, storyTime, existingM
     '  ],\n' +
     '  "relationships": {\n' +
     '    "角色名": {\n' +
-    '      "affection": 0到100的整数,\n' +
-    '      "trust": 0到100的整数,\n' +
-    '      "dominance": 0到1的浮点数,\n' +
-    '      "stage_hint": "当前阶段简述，≤10字"\n' +
+    '      "affection": 0到100,\n' +
+    '      "trust": 0到100,\n' +
+    '      "dominance": 0到1,\n' +
+    '      "stage_hint": "≤10字阶段描述"\n' +
     '    }\n' +
     '  },\n' +
     '  "skeleton": {\n' +
-    '    "active_conflicts": ["≤15字的冲突描述"],\n' +
-    '    "key_events": ["≤15字的关键事件"],\n' +
-    '    "current_state": "≤30字的当前剧情状态",\n' +
-    '    "unresolved": ["未解决的伏笔或问题"]\n' +
+    '    "active_conflicts": ["≤15字冲突描述"],\n' +
+    '    "key_events": ["≤15字关键事件"],\n' +
+    '    "current_state": "≤30字当前剧情状态",\n' +
+    '    "unresolved": ["未解决的伏笔"]\n' +
     '  },\n' +
     '  "last_scene": {\n' +
     '    "location": "当前地点",\n' +
     '    "present": ["在场角色名"],\n' +
-    '    "mood": "场景氛围，≤10字"\n' +
+    '    "mood": "≤10字场景氛围"\n' +
     '  },\n' +
-    '  "last_reply_verbatim": "最后一轮的角色回复原文，不做任何修改，保留【角色名】前缀"\n' +
-    '}\n' +
-    '```\n\n' +
-    '关键规则（非常重要）：\n' +
-    '❌ 禁止压缩进输出：对话复述、原文总结、情绪描写堆砌、场景叙述\n' +
-    '✅ 必须压缩成：事件类型 + 状态变化 + 关系数值变化\n' +
+    '  "last_reply_verbatim": "最后一轮角色回复原文，保留【角色名】前缀"\n' +
+    '}\n\n' +
+    '关键规则：\n' +
+    '❌ 禁止：对话复述、原文总结、情绪描写堆砌\n' +
+    '✅ 必须：事件类型 + 状态变化 + 关系数值变化\n' +
     '每个 event 只保留事件骨架，不要写成故事。\n' +
-    'relationships 里的数值必须根据对话内容做合理推测，不是默认值。\n' +
-    'skeleton 是给 AI 快速理解的"剧情骨架"，不是文学摘要。\n\n' +
+    'relationships 数值必须根据对话做合理推测，不是默认值。\n\n' +
     (existingMemorySection
-      ? '⚠️⚠️⚠️ 最高优先级：上方已有历史存档包含对话早期的关键事件。你必须将所有已有事件原样保留到输出的 events 数组中，然后追加本轮新对话中提取的事件。已有事件一条都不能省略。\n\n'
+      ? '⚠️ 最高优先级：上方已有历史存档的事件必须原样保留到 events 数组，然后追加新事件。已有事件一条都不能省略。\n\n'
       : '') +
-    '━━━ 待压缩对话（从最早到最新）━━━\n' +
+    '━━━ 待压缩对话 ━━━\n' +
     existingMemorySection +
     chatText
 
-  try {
-    const response = await fetch(BASE_URL + '/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        stream: false,
-        max_tokens: 2000,
-      }),
-    })
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}))
-      throw new Error(errData.error?.message || `API error: ${response.status}`)
-    }
-
-    const data = await response.json()
-    const rawContent = data.choices?.[0]?.message?.content || ''
-
-    if (!rawContent || !rawContent.trim()) {
-      throw new Error('压缩模型返回空响应——可能对话太长超出了模型处理能力，请减少对话轮次后再试')
-    }
-
-    // Try to parse as structured JSON (v3 format)
-    let structured = null
-    let summary = rawContent.trim()
-
-    // Extract JSON block from markdown code fence if present
-    const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/)
-    const jsonStr = jsonMatch ? jsonMatch[1].trim() : rawContent.trim()
-
+  // 🔧 v9.1: Retry once on failure (flash models sometimes need a second attempt)
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      structured = JSON.parse(jsonStr)
-      // Auto-generate backward-compatible summary string from structured data
-      summary = formatStructuredSummary(structured)
-    } catch {
-      // Fallback: raw text is used as summary (backward compatible)
-      console.log('[Compress] JSON parse failed, using raw text as summary')
-    }
+      const response = await fetch(BASE_URL + '/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          stream: false,
+          max_tokens: 2048,
+          temperature: 0.1,  // Low temp for structured output
+        }),
+      })
 
-    return { summary, structured, error: null }
-  } catch (err) {
-    return { summary: null, structured: null, error: err }
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        const errMsg = errData.error?.message || `API ${response.status}`
+        if (attempt === 0) {
+          console.warn('[Compress] Attempt 1 failed (' + errMsg + '), retrying…')
+          continue
+        }
+        throw new Error(errMsg)
+      }
+
+      const data = await response.json()
+      const rawContent = data.choices?.[0]?.message?.content || ''
+
+      if (!rawContent || !rawContent.trim()) {
+        if (attempt === 0) {
+          console.warn('[Compress] Empty response on attempt 1, retrying…')
+          continue
+        }
+        throw new Error('压缩模型返回空响应——对话可能太长，请先手动删除部分旧消息再压缩')
+      }
+
+      // Parse JSON from response (with markdown code fence handling)
+      let structured = null
+      let summary = rawContent.trim()
+
+      const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/)
+      const jsonStr = jsonMatch ? jsonMatch[1].trim() : rawContent.trim()
+
+      try {
+        structured = JSON.parse(jsonStr)
+        summary = formatStructuredSummary(structured)
+      } catch {
+        // JSON parse failed — use raw text as summary (backward compatible)
+        if (attempt === 0 && rawContent.length < 100) {
+          console.warn('[Compress] Short response on attempt 1, retrying…')
+          continue
+        }
+        console.log('[Compress] JSON parse failed, using raw text as summary')
+      }
+
+      console.log('[Compress] Success — model=' + model + ', summary=' + summary.length + ' chars')
+      return { summary, structured, error: null }
+
+    } catch (err) {
+      if (attempt === 0) {
+        console.warn('[Compress] Attempt 1 error (' + err.message + '), retrying…')
+        continue
+      }
+      console.error('[Compress] All attempts failed:', err.message)
+      return { summary: null, structured: null, error: err }
+    }
   }
+
+  // Should never reach here, but TypeScript/ESLint needs it
+  return { summary: null, structured: null, error: new Error('压缩失败：未知错误') }
 }
 
 /**

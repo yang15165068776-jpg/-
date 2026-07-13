@@ -102,7 +102,7 @@ async function _callFlash(prompt, apiKey) {
  * @returns {Promise<{ plan: object|null, error: string|null }>}
  */
 export async function runDirectorPass(ctx, apiKey) {
-  const { userInput, character, usk, prevIssues } = ctx
+  const { userInput, character, usk, prevIssues, cieState } = ctx
   const rcList = character?.romanceCharacters || []
 
   _ndcState.turnIndex++
@@ -114,6 +114,14 @@ export async function runDirectorPass(ctx, apiKey) {
     const profile = detectAggressionProfile(rc)
     return `${rc.name}（${rc.personality || '?'} / ${profile}）好感${aff} 阶段${stage?.name || '?'}`
   }).join('\n')
+
+  // ── 🧠 CIE context — persistent character psychological motivations ──
+  const cieCtx = cieState && cieState.size > 0
+    ? '\n【🎯 角色长期心理动机 CIE——本轮 Director Plan 必须对齐以下动机】\n' +
+      [...cieState.entries()].map(([name, intent]) =>
+        `${name}: 核心意图="${(intent.primary_intent || '').slice(0, 100)}" | 关系方向=${intent.relationship_direction || '?'} | 自主行动="${(intent.autonomous_action || '').slice(0, 80)}" | 恐惧="${(intent.fear || '').slice(0, 60)}"`
+      ).join('\n') + '\n'
+    : ''
 
   // ── Loop detection context ──
   const loopCtx = _ndcState.goalRepeatCount >= 2
@@ -163,6 +171,7 @@ export async function runDirectorPass(ctx, apiKey) {
 当前节奏相位：${_ndcState.rhythm}。
 push=推进/进攻 | pull=收手/留白/吊胃口 | observe=观察玩家反馈后决定
 每1-2轮自动切换相位。不要在push上连续停留超过2轮。${loopCtx}${rhythmCtx}
+	${cieCtx}
 
 ${prevIssues?.length ? '【上轮审计问题——本轮必须避免】\n' + prevIssues.slice(-8).map((q, i) => `${i + 1}. ${q.dimension || q.type || '?'}: ${q.description || ''}${q.snippet ? ' "' + q.snippet + '"' : ''}`).join('\n') + '\n\n' : ''}【当前场景】${ctx.sceneContext || '未指定'}
 【角色】\n${charBlocks}
@@ -377,6 +386,55 @@ export function getNDCState() {
  * @param {string} apiKey
  * @returns {Promise<{ passed: boolean, severity: string, violations: Array, revisionNotes: string }>}
  */
+
+/**
+ * Build a compact character personality snapshot for audit use.
+ * Gives the Supervisor enough context to judge "is this in-character?"
+ */
+export function buildCharProfile(character, usk) {
+  if (!character) return ''
+  const rcList = character?.romanceCharacters || []
+  if (rcList.length === 0) return ''
+
+  const lines = []
+  for (const rc of rcList) {
+    const aff = usk?.characters?.[rc.name]?.relationship?.affection ?? rc.affectionInitial ?? 50
+    const stage = getCurrentAffectionStage(rc, aff)
+    const profile = detectAggressionProfile(rc)
+
+    lines.push('【' + rc.name + '】')
+    lines.push('  人格：' + (rc.personality || '未设定'))
+    lines.push('  背景：' + (rc.background || '').slice(0, 200))
+    lines.push('  侵略类型：' + (profile || 'unknown'))
+    lines.push('  好感度：' + aff + '（' + (stage?.name || '初始阶段') + '）')
+    if (stage?.coreState) lines.push('  当前核心状态：' + stage.coreState)
+    if (stage?.forbiddenBehaviors) lines.push('  阶段禁止行为：' + stage.forbiddenBehaviors)
+    if (rc.speakingStyle) lines.push('  说话风格：' + rc.speakingStyle)
+    if (rc.forbiddenWords?.length) lines.push('  禁词：' + rc.forbiddenWords.join('、'))
+
+    switch (profile) {
+      case AGGRESSION_PROFILES.PURSUER:
+        lines.push('  ⚠️ 行为底线：不能温柔、不能讨好、不能暴露依赖。必须进攻/制造张力/保持猎手姿态。')
+        break
+      case AGGRESSION_PROFILES.CONFRONTATIONAL:
+        lines.push('  ⚠️ 行为底线：不能顺从、不能妥协、不能示弱。必须对抗/找茬/用否定表达在乎。')
+        break
+      case AGGRESSION_PROFILES.ALOOF:
+        lines.push('  ⚠️ 行为底线：不能热情、不能主动靠近、不能情绪外露。冷到极点的存在感压制。')
+        break
+      case AGGRESSION_PROFILES.GENTLE:
+        lines.push('  ⚠️ 行为底线：温柔但不软弱。笑着说不行。温柔地不放过。')
+        break
+    }
+    lines.push('')
+  }
+
+  const pp = character._playerProfile
+  if (pp?.name) lines.push('玩家：' + pp.name + (pp.gender ? '（' + pp.gender + '）' : ''))
+
+  return lines.join('\n')
+}
+
 export async function runSupervisorPass(output, contract, ctx, apiKey) {
   if (!contract) {
     // No contract → pass through (Director must have failed)
@@ -384,6 +442,9 @@ export async function runSupervisorPass(output, contract, ctx, apiKey) {
   }
 
   const contractStr = JSON.stringify(contract, null, 2)
+  // Build rich character profile so Supervisor can judge character fidelity
+  const charProfile = _buildCharProfile(ctx.character, ctx.usk)
+
   const charName = ctx.character?.name || '角色'
   const playerName = ctx.character?._playerProfile?.name || '玩家'
 
@@ -397,14 +458,25 @@ ${contractStr}
 【主模型输出】
 ${output?.slice(0, 1500) || '(空)'}
 
+【★★★ 角色人设——最高优先级 ★★★】
+${charProfile || '（无详细人设）'}
+
 【上下文】角色：${charName} | 玩家：${playerName}
 
 ═══════════════════════════════════
-审查维度
+审查维度（按优先级排序）
 ═══════════════════════════════════
 
-① Character Fidelity（角色人格）
-回复是否符合角色当前阶段的人格？禁止：突然深情、讨好、暴露真实依赖。
+① ★ Character Fidelity（角色人格——最重要！）★
+对照上方【角色人设】，逐句检查回复是否偏离了角色的：
+- 人格基调（pursuer不能温柔、confrontational不能顺从、aloof不能主动、gentle不能软弱）
+- 当前阶段的行为约束（阶段禁止行为、核心状态）
+- 说话风格（是否用了不符合人设的语气/用词）
+- 禁词检查
+❌ 致命违规（直接 P0 critical）：
+  - pursuer/confrontational 角色出现温柔、深情、讨好、退让
+  - 角色说出不符合阶段的行为（初期就告白/暴露依赖）
+  - 角色行为违背人格底线（见上方行为底线）
 
 ② Intent Completion（意图完成）
 是否完成了 replyIntent？如果 Plan 说要"试探"，回复不能只是描写风景。
@@ -432,11 +504,11 @@ PASS (score >= 75):
 {"passed":true,"score":85,"severity":"silent","violations":[],"fixInstruction":""}
 
 FAIL (score < 75):
-{"passed":false,"score":55,"severity":"critical","violations":[{"dimension":"Action Repetition","description":"连续第3次摸手动作","snippet":"他伸手握住你的手指","fixInstruction":"删除'他伸手握住你的手指'这一句，改为语言试探，例如：'他靠在门框上，嘴角微扬：\"怎么，怕我？\"'注意保持言默前期猎手身份——用眼神和距离制造压迫感，不要用肢体接触暴露需求感。"}],"fixInstruction":"全文级别修改指导（可选）：停止身体接触动作。改用语言试探或制造距离。"}
+{"passed":false,"score":55,"severity":"critical","violations":[{"dimension":"Character Fidelity","description":"pursuer角色出现讨好式退让——回复中说'好，听你的'并且语气温柔，完全违背猎手人格底线","snippet":"好，听你的。","fixInstruction":"删除'好，听你的'整句。改为保持控制权的回应，例如：'他盯着你看了三秒，嘴角似笑非笑：\"行啊——但你得答应我一个条件。\"'——这样保持猎手身份：不退让、不讨好、把让步变成交易。"}],"fixInstruction":"全文级别修改指导（可选）：停止身体接触动作。改用语言试探或制造距离。"}
 
 规则：
-- score 0-100，75以上通过
-- severity: critical(P0违规)/major(明显问题)/minor(风格差异)
+- score 0-100，75以上通过。人格底线违规直接 score < 50。
+- severity: critical(P0违规——人格底线/人设崩塌)/major(明显问题)/minor(风格差异)
 - ⚠️ 每个violation的fixInstruction必须是针对该violation的【具体修改方案】，包含：(1)明确指出原文哪里要改 (2)给出具体的替换文本或改写方向 (3)说明修改后的效果。不能是泛泛的"注意人设"或"调整语气"。
 - 风格差异≠违规。不要吹毛求疵。
 只输出 JSON。`
@@ -535,10 +607,16 @@ export function buildRevisionInjection(violations) {
  * @param {Array} violations — from Supervisor, each with dimension/description/snippet/fixInstruction
  * @returns {string} targeted fix prompt (system message content)
  */
-export function buildTargetedFixPrompt(originalReply, violations) {
+export function buildTargetedFixPrompt(originalReply, violations, charProfile) {
   if (!violations?.length || !originalReply) return ''
 
+  // Build character personality constraints for the fix — ensures fix respects character identity
+  const charCtx = charProfile
+    ? '═══ 角色人设约束（修改必须遵守）═══\n' + charProfile + '\n═══ 修改时注意：修改后的文本必须符合以上角色人设的行为底线。不能为了修一个问题而制造另一个人设违规。═══\n\n'
+    : ''
+
   const lines = [
+    charCtx,
     '【🔧 RSE 定向修改——以下是你的上一轮回复。',
     '你只需要修改标记的问题部分，其他内容逐字保留，不要改动任何正确的地方。】',
     '',

@@ -286,7 +286,7 @@ function directScene(intent, rcList, playerName) {
  * @property {string} hiddenGoal — what they REALLY want (may differ from visible action)
  */
 
-function planCharacters(rcList, affectionMap, intent) {
+function planCharacters(rcList, affectionMap, intent, cieState = null) {
   const plans = new Map()
 
   for (const rc of rcList) {
@@ -346,6 +346,21 @@ function planCharacters(rcList, affectionMap, intent) {
         : profile === AGGRESSION_PROFILES.ALOOF ? 55 : 40
       riskTolerance = 30
       hiddenGoal = 'gather_information'
+    }
+
+    // ── 🧠 CIE override: persistent psychological motivation enriches hiddenGoal ──
+    const cieIntent = cieState?.get?.(rc.name) || cieState?.intents?.get?.(rc.name)
+    if (cieIntent && !cieIntent._fallback) {
+      // Override hiddenGoal with CIE's persistent intent (more specific than rule-based)
+      hiddenGoal = (cieIntent.primary_intent || hiddenGoal).slice(0, 80)
+      // CIE direction influences risk and manipulation
+      if (cieIntent.relationship_direction === 'self_destruct') {
+        riskTolerance = clamp(riskTolerance + 20, 0, 100)
+      } else if (cieIntent.relationship_direction === 'push_control') {
+        manipulationLevel = clamp(manipulationLevel + 15, 0, 100)
+      } else if (cieIntent.relationship_direction === 'maintain_distance') {
+        manipulationLevel = clamp(manipulationLevel - 10, 0, 100)
+      }
     }
 
     // ── Personality override: gentle characters use lower manipulation ──
@@ -571,7 +586,7 @@ function selectNarrativeBranch(tension, intent) {
  * Build the complete CEK v4 prompt block.
  * This is THE main entry point.
  */
-export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdges = {}) {
+export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdges = {}, cieState = null) {
   if (!character) return ''
 
   const rcList = character.romanceCharacters || []
@@ -620,7 +635,7 @@ export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdge
   const scene = directScene(intent, rcList, playerName)
 
   // ③ Autonomous Character Planner
-  const plans = planCharacters(rcList, affectionMap, intent)
+  const plans = planCharacters(rcList, affectionMap, intent, cieState)
 
   // ③.5 🔥 Madness Personality Engine — inject controlled psychological fractures
   const madnessResult = generateMadnessState(rcList, plans, affectionMap, uskState, compiledList)
@@ -663,6 +678,19 @@ export function buildCEKv4Block(character, uskState, affectionMap = {}, arslEdge
     sections.push('  必须: ' + (scene.requiredElements || []).join(' | '))
     sections.push('  禁止: ' + (scene.forbiddenElements || []).join(' | '))
     sections.push('  退场: ' + (scene.exitCondition || '?'))
+  }
+
+  // ⓪ 🧠 CIE Context — persistent character psychological motivations (v9.1)
+  if (cieState && cieState.size > 0) {
+    const cieLines = ['🧠 角色心理动机 CIE（长期意图——CEK 必须对齐）:']
+    for (const [name, intent] of cieState) {
+      cieLines.push('  ' + name + ': ' + (intent.primary_intent || '?').slice(0, 80))
+      cieLines.push('    欲望=' + (intent.desire || '?').slice(0, 50) +
+        ' | 恐惧=' + (intent.fear || '?').slice(0, 40) +
+        ' | 主动=' + (intent.autonomous_action || '?').slice(0, 50))
+    }
+    sections.push(cieLines.join('\n'))
+    sections.push('')
   }
 
   // ③ Character Plans — per-character strategic state

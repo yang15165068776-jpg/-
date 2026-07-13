@@ -14,9 +14,11 @@
  *   ✅ Clear data flow — each step reads/writes a shared context
  *   ✅ Pluggable — add/remove/reorder steps without touching the LLM
  *
- * Architecture (v8.9):
- *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → EVENTS → CAUSAL → CEKv4 → ITRL → BUILD → RENDER → RSE
+ * Architecture (v9.1):
+ *   INPUT → CCL → NTK → USK → ARSL → AIIS/ANDS/DAS/DCS/NDOS → CIE/TOM → EVENTS → CAUSAL → CEKv4 → BUILD → RENDER → RSE
  *                                                                                             ↑
+ *   CIE: Character Intent Engine — persistent psychological motivations (v9.1)
+ *   TOM: Turn Objective Manager — per-turn action objectives (v9.1)
  *   ITRL: Inner Thought Rendering Layer — dual-track narrative (v8.8)
  *   RSE: Runtime Supervisor Engine — Director → Main Model → Supervisor closed loop (v8.9)
  *   Director(flash) → Runtime Contract → Main Model → Supervisor(flash) → PASS/REWRITE
@@ -39,6 +41,8 @@ import { decideDarkActionLevel, trackLevel, getAntiAveragingOverride } from './d
 import { decideDesireLevel, trackDesireLevel, getDesireAntiAveragingOverride } from './desireKernel'
 import { decideInitiativeLevel } from './characterInitiativeKernel'
 import { buildCEKv4Block } from './characterExecutionKernelV4'
+import { buildCIEBlock, getCIEState } from './characterIntentEngine'
+import { schedule, buildTOMBlock, buildFallbackTOM } from './turnObjectiveManager'
 import { buildNarratorPrompt } from '../prompt/v3/narratorPrompt'
 import { runAgentTurn } from '../agents/coordinator'
 
@@ -412,17 +416,57 @@ const PIPELINE = [
       // Get ARSL edges for rivalry graph
       const arslEdges = RelationshipPhysics.edges || {}
 
-      // Build CEK v4 block — autonomous narrative director
-      const cekBlock = buildCEKv4Block(ctx.character, ctx.usk, affectionMap, arslEdges)
+      // Build CEK v4 block — autonomous narrative director (v9.1: CIE-enhanced)
+      const cieState = getCIEState()
+      const cekBlock = buildCEKv4Block(ctx.character, ctx.usk, affectionMap, arslEdges, cieState)
       if (cekBlock) {
         ctx.character._behaviorLocks = cekBlock
       }
     },
   },
 
-  // ═══════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
+  // STEP 7.6: CIE_INJECT — Character Intent Engine + Turn Objective Manager
+  //   🧠 CIE: persistent character psychological motivations
+  //   🎯 TOM: per-turn action objectives derived from CIE
+  //   CIE computation runs in interactionKernel (flash model, periodic).
+  //   This step injects cached CIE state + rule-based TOM into ctx.character.
+  // ═══════════════════════════════════════════════════════════
+  {
+    name: 'CIE_INJECT',
+    fn(ctx) {
+      if (!ctx.character) return
+
+      // CIE: inject persistent psychological intents from cached state
+      const cieBlock = buildCIEBlock(ctx.character)
+      if (cieBlock) {
+        ctx.character._cieContext = cieBlock
+      }
+
+      // TOM: compute per-turn objectives from CIE state (rule-based, no LLM)
+      const cieState = getCIEState()
+      if (cieState) {
+        const tomOutputs = schedule(ctx.character, cieState, {
+          turnCount: ctx.turnCount || 0,
+          userText: ctx.userText || '',
+          usk: ctx.usk,
+        })
+        if (tomOutputs) {
+          ctx.character._tomBlock = buildTOMBlock(tomOutputs)
+        }
+      } else {
+        // No CIE state yet (first turn before CIE compiled) — use fallback
+        const fallbackTOM = buildFallbackTOM(ctx.character, ctx.usk)
+        if (fallbackTOM) {
+          ctx.character._tomBlock = buildTOMBlock(fallbackTOM)
+        }
+      }
+    },
+  },
+
+  // ═══════════════════════════════════════════════════════════
   // STEP 8: NARRATIVE_BUILD — assemble the full prompt
-  // ═══════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   {
     name: 'NARRATIVE_BUILD',
     fn(ctx) {

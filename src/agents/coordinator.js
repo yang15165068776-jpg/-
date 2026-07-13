@@ -35,7 +35,7 @@ import { InteractionKernel } from '../engine/interactionKernel'
 import { runAllLocks, recordTurnState, resetPersonaState } from '../runtime/stateLocks'
 import { runCEKv4PostValidation, resetCEKv4 } from '../runtime/characterExecutionKernelV4'
 import { runRQAAudit, shouldRewrite, getMaxRewrites, buildRQACorrection, buildRQAContextFromScope } from '../runtime/rqa'  // ⚠️ DEPRECATED — RSE replaces RQA
-import { runDirectorPass, injectContractIntoPrompt, runSupervisorPass, buildRevisionInjection, buildTargetedFixPrompt, resetNDCState } from '../runtime/rse'
+import { runDirectorPass, injectContractIntoPrompt, runSupervisorPass, buildRevisionInjection, buildTargetedFixPrompt, resetNDCState, buildCharProfile } from '../runtime/rse'
 import { syncToMemoryGraph } from '../state/unifiedStateKernel'
 import { buildITRLBlock } from '../runtime/innerThoughtRenderer'
 import { buildCompressedBlock } from '../runtime/promptCompressionLayer'
@@ -44,6 +44,7 @@ import { createSSMState, buildSSMConstraintBlock, extractSSMUpdate, applySSMUpda
 import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM, loadISMState, saveISMState } from '../runtime/interactionStateMachine'
 import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
 import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, applyIdentityChange } from '../state/narrativeIdentity'
+import { tickCIE, getCIEState, loadCIEState, saveCIEState, resetCIE } from '../runtime/characterIntentEngine'
 
 const BASE_URL = 'https://api.deepseek.com'
 
@@ -64,6 +65,7 @@ let _currentSaveId = null  // Current save ID for per-save canon isolation
 let _currentFolderId = null // Current folder ID for per-save NIO isolation
 let _niState = null        // 🎭 NIO — narrative identity overlay (per-save mutable player identity)
 let _prevQualityIssues = [] // v9: previous round quality issues → feed to next director
+let _cieState = null        // 🧠 CIE — Character Intent Engine persistent state
 
 /**
  * Initialize or reset the agent system for a new session.
@@ -173,6 +175,14 @@ export function initAgentSystem(character, affections, messages) {
       '| log entries:', _niState.changeLog?.length || 0)
   }
 
+  // ── 🧠 Load CIE (Character Intent Engine) state ──
+  _cieState = loadCIEState(_characterId, _currentSaveId)
+  if (_cieState) {
+    console.log('[CIE] State loaded:', _cieState.size || 0, 'characters')
+  } else {
+    console.log('[CIE] No saved state — will compile on first trigger')
+  }
+
   console.log('[Coordinator] Agent system initialized',
     Object.keys(_worldState.characters).length, 'agents registered')
   return { world: _worldState, bus: _eventBus, graph: _memoryGraph, cps: _cpsState }
@@ -197,10 +207,12 @@ export function resetAgentTurn() {
   _currentFolderId = null
   _niState = null
   _prevQualityIssues = []
+  _cieState = null
   resetPersonaState()
   resetCEKv4()
   resetNDCState()
   resetValidator()
+  resetCIE()
   _characterId = null
 }
 
@@ -388,11 +400,19 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     character._narrativeIdentity = _niState
   }
 
+  // ── 🧠 CIE: Character Intent Engine — periodic psychological motivation refresh ──
+  try {
+    const refreshedCIE = await tickCIE(character, usk, _worldState?.roundIndex || 0, apiKey)
+    if (refreshedCIE) {
+      _cieState = refreshedCIE
+    }
+  } catch (e) { console.warn('[CIE] Tick error:', e.message) }
+
   // ── 🎬 NDC Pass 1: Director — generate plan ──
   const prevAssistantMsg = [...(messages || [])].reverse().find(m => m.role === 'assistant')
   let _ndcPlan = null
   try {
-    const ndcCtx = { userInput, character, usk, prevReply: prevAssistantMsg?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '', prevIssues: _prevQualityIssues }
+    const ndcCtx = { userInput, character, usk, prevReply: prevAssistantMsg?.content?.slice(-300) || '', sceneContext: _worldState?.locations?.main?.description || '', prevIssues: _prevQualityIssues, cieState: _cieState }
     const dirResult = await runDirectorPass(ndcCtx, apiKey)
     _ndcPlan = dirResult.plan
     if (_ndcPlan) console.log('[NDC] Plan: goal=' + (_ndcPlan.sceneGoal?.type || '?') + ' rhythm=' + (_ndcPlan.rhythm || '?'))
@@ -453,6 +473,16 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   // Layer 3.9: NDOS Scene Card (v8.4 — THE authoritative director's instruction for this scene)
   if (character._ndosSceneCard) {
     narratorMessages.push({ role: 'system', content: character._ndosSceneCard })
+  }
+
+  // Layer 3.91: CIE Character Intents (v9.1 — persistent character psychological motivations)
+  if (character._cieContext) {
+    narratorMessages.push({ role: 'system', content: character._cieContext })
+  }
+
+  // Layer 3.92: TOM Turn Objectives (v9.1 — per-turn character action objectives)
+  if (character._tomBlock) {
+    narratorMessages.push({ role: 'system', content: character._tomBlock })
   }
 
   // Layer 3.95-3.99: 🧠📐🔗💭 Runtime State (ITRL + SSM + ISM + ES) — merged into one message
@@ -660,7 +690,8 @@ export async function runAgentTurn(userInput, character, affections, messages, a
 
         if (fixableViolations.length > 0) {
           // Build targeted fix prompt and run spot-fix rewrite
-          const fixPrompt = buildTargetedFixPrompt(reply, fixableViolations)
+          const charProfileFix = buildCharProfile(character, usk)
+          const fixPrompt = buildTargetedFixPrompt(reply, fixableViolations, charProfileFix)
           if (fixPrompt) {
             console.log('[Audit] Running targeted fix rewrite for ' + fixableViolations.length + ' violations...')
             try {
@@ -907,6 +938,13 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     } catch (e) {
       console.warn('[Coordinator] NIO persist failed:', e)
     }
+  }
+
+  // ── 🧠 Persist CIE (Character Intent Engine) state ──
+  if (_cieState && _characterId) {
+    try {
+      saveCIEState(_characterId, _currentSaveId, _cieState)
+    } catch (e) { console.warn('[Coordinator] CIE persist failed:', e) }
   }
 
   // ── Phase 10: Build turn report ──
