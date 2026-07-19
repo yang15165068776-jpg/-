@@ -47,6 +47,7 @@ import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, app
 import { tickCIE, getCIEState, loadCIEState, saveCIEState, resetCIE } from '../runtime/characterIntentEngine'
 import { tickCDL, getCDLState, buildCDLBlock, loadCDLState, saveCDLState, resetCDL } from '../runtime/characterDesireLoop'
 import { buildCACBlock, shouldBuildCAC } from '../runtime/characterAgencyController'
+import { buildDASBlock, shouldBuildDAS } from '../runtime/dramaAutopilotV2'
 import { diagnosePromptLayers, quickDiagnose } from '../runtime/promptLayerDiagnostic'
 
 const BASE_URL = 'https://api.deepseek.com'
@@ -158,11 +159,29 @@ function buildStateSnapshot(character, ssmState, ismState, esState, worldState) 
     }
   }
 
+  // ── Relationship dynamics ──
+  if (wsChar) {
+    const trust = Math.round((wsChar.trust || 50))
+    const dependency = Math.round((wsChar.dependency || 30))
+    const tension = Math.round((wsChar.tension || 20))
+    lines.push('')
+    lines.push(`关系：信任${trust} | 依赖${dependency} | 张力${tension}`)
+  }
+
   // ── Unresolved tension ──
   const cpsConflicts = worldState?.activeConflicts || []
   if (cpsConflicts.length > 0) {
     lines.push('')
     lines.push(`⚡ 未解决冲突：${cpsConflicts.slice(0, 2).join('；')}`)
+  }
+
+  // ── Last event anchor ──
+  const eventLog = worldState?.eventLog || []
+  if (eventLog.length > 0) {
+    const last = eventLog[eventLog.length - 1]
+    if (last?.description) {
+      lines.push(`上次事件：${last.description.slice(0, 80)}`)
+    }
   }
 
   lines.push('')
@@ -762,16 +781,27 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     narratorMessages.push({ role: 'system', content: cdlBlock })
   }
 
-  // 🎯 CAC v2 — Character Agency Controller (max recency bias)
+  // 🎯 CAC v2 — Character Agency Controller (action commitment)
   if (shouldBuildCAC(character, _cieState)) {
     const cacBlock = buildCACBlock(
       character, _cieState, null, userInput,
       (messages || []).filter(m => m.role !== 'system').slice(-4),
       _worldState,
-      { maxTokens: 650 }
+      { maxTokens: 500 }  // trimmed from 650 — too heavy CAC suppresses creativity
     )
     if (cacBlock) {
       narratorMessages.push({ role: 'system', content: cacBlock })
+    }
+  }
+
+  // 🌋 DAS v2 — Drama Autopilot (event generation)
+  if (shouldBuildDAS(character)) {
+    const dasBlock = buildDASBlock(
+      character, _cdlState || getCDLState(), _worldState,
+      _worldState?.roundIndex || 0
+    )
+    if (dasBlock) {
+      narratorMessages.push({ role: 'system', content: dasBlock })
     }
   }
 

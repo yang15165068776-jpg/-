@@ -49,6 +49,7 @@ const LAYER_REGISTRY = [
   { id: 'STATE_SNAPSHOT', name: 'State Snapshot (HOT)',      category: '状态',    version: 'v9.2',   source: 'coordinator.js' },
   { id: 'CDL',            name: 'Character Desire Loop',      category: '动机',    version: 'v1',   source: 'characterDesireLoop.js' },
   { id: 'CAC',            name: 'Character Agency Controller', category: '自主性',  version: 'v2',   source: 'characterAgencyController.js' },
+  { id: 'DAS_V2',         name: 'Drama Autopilot v2',          category: '自主性',  version: 'v2',   source: 'dramaAutopilotV2.js' },
   { id: 'USER_INPUT',     name: 'User Input',               category: '输入',    version: '—',    source: 'player' },
 ]
 
@@ -105,6 +106,7 @@ function detectLayer(msg) {
   if (c.includes('写作铁律——本轮生成前') || c.includes('CORE_RECENCY')) return 'CORE_RECENCY'
   // CAC before CDL — both are large HOT blocks, CAC header is more distinctive
   if (c.includes('🎯 CAC') || c.includes('本轮自主控制')) return 'CAC'
+  if (c.includes('🌋 DAS') || c.includes('剧情事件')) return 'DAS_V2'
   if (c.includes('━━━ 🧠 CDL')) return 'CDL'
   if (c.includes('【玩家本轮行动】') || c.includes('世界快照')) return 'VAR_SUFFIX'
   if (c.includes('前情摘要')) return 'SUMMARY'
