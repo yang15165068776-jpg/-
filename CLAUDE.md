@@ -1,6 +1,6 @@
 # JSJG Character OS v9 — 极简化入口 + 强引导导演 + 审计闭环 + 定向修复
 
-> 最后更新：2026-07-13（v9.1 CIE+TOM 部署上线）
+> 最后更新：2026-07-13（v9.1.1 三层recency bias修复部署上线）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -116,6 +116,15 @@ v9.0.2: 🎯 RSE 定向修复 + 开场剧情工程化 + AI 取名→手动输入
         【取名】CreateFolder: 去掉 AI 自动取名 → 新增 🌍 世界名称 手动输入框
         【修复】开场消息双重渲染 — isOpening 消息 early return，不再重复渲染正文
         【修复】开场剧情 prompt 注入 — v9 世界 story_intro 为空导致首轮 prompt 无开场文本
+
+v9.1.1: 🔥 三层recency bias修复 + 📊 Prompt Layer Diagnostic（1新文件 + 1集成文件）
+        【诊断】promptLayerDiagnostic.js (~280行) — 逐层分析token消耗+可见区
+          四区: 🔥HOT(0-2K)/🟡WARM(2-6K)/❄️COLD(6-12K)/💀DEAD(12K+)
+          发现: CORE_SYSTEM_PREFIX(14K token)在#0 → CHAR_PREFIX被合并进blob → 模型看不清
+        【修复#1】CHAR_PREFIX尾部2500字注入HOT区（对话历史后，距生成~500 tokens）
+        【修复#2】CORE_RECENCY_BLOCK (~800 tokens, 14条写作铁律) 注入用户输入紧前面
+        【修复#3】诊断检测器: ANDS/DAS/DCS匹配模式修复
+        【效果】角色人设+写作指令从DEAD/WARM → HOT，模型真正看到
 
 v9.1: 🧠 CIE + 🎯 TOM — 角色主动意识引擎 + 回合目标调度器（2新文件 + 4集成文件）
         【核心】角色从"反应式"升级为"主动式"——拥有真正的内在动机
@@ -262,6 +271,7 @@ src/
 │   └── rcc.js                         # 🧬 RCC v1 — 角色宪法编译器 ★ACTIVE
 │   └── characterIntentEngine.js        # 🧠 CIE v1 — 角色主动意识引擎 ★NEW v9.1
 │   └── turnObjectiveManager.js         # 🎯 TOM v1 — 回合目标调度器 ★NEW v9.1
+│   └── promptLayerDiagnostic.js         # 📊 PLD v1 — Prompt层诊断器 ★NEW v9.1.1
 │
 ├── state/
 │   ├── identityKernel.js            # 🔵 玩家身份单源锁

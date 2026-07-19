@@ -45,6 +45,7 @@ const LAYER_REGISTRY = [
   { id: 'CONVERSATION',   name: 'Conversation History',     category: '对话',    version: '—',    source: 'messages array' },
   { id: 'NDC',            name: 'NDC Director Plan',        category: '导演',    version: 'v8.9', source: 'rse.js' },
   { id: 'PCL',            name: 'PCL Compressed Constitution', category: '宪法', version: 'v8.9', source: 'promptCompressionLayer.js' },
+  { id: 'CORE_RECENCY',   name: 'Core Recency Block',        category: '基础',    version: 'v9.1.1', source: 'coordinator.js' },
   { id: 'USER_INPUT',     name: 'User Input',               category: '输入',    version: '—',    source: 'player' },
 ]
 
@@ -82,8 +83,8 @@ function detectLayer(msg) {
   if (c.includes('━━━ ⚙️ CEK v4') || c.includes('CEK v4 · 本轮导演状态')) return 'CEK'  // embedded in VAR_SUFFIX
   if (c.includes('━━━ 🧠 CIE · 角色心理动机')) return 'CIE'
   if (c.includes('━━━ 🎯 TOM · 本轮角色目标')) return 'TOM'
-  if (c.includes('⚡ 权力动态') || c.includes('Power Dynamics')) return 'POWER'
-  if (c.includes('🔒 冲突持久化') || c.includes('CPS') || c.includes('冲突锁')) return 'CPS'
+  if (c.includes('⚡ 权力动态') || c.includes('Power Dynamics') || c.includes('权力结构')) return 'POWER'
+  if (c.includes('🔒 冲突持久化') || c.includes('CPS') || c.includes('冲突锁') || c.includes('CONFLICT PERSISTENCE') || c.includes('冲突持续系统')) return 'CPS'
   if (c.includes('AIIS') && c.includes('意图')) return 'AIIS'
   if (c.includes('🎬 ANDS') || c.includes('ANDS 叙事自主驱动')) return 'ANDS'
   if (c.includes('🎬 DAS') || c.includes('DAS 剧情自动驾驶')) return 'DAS'
@@ -95,7 +96,8 @@ function detectLayer(msg) {
   if (c.includes('ES') || c.includes('情绪模拟')) return 'ES'
   if (c.includes('🎬') && c.includes('NDC')) return 'NDC'
   if (c.includes('角色宪法 · 本轮有效条款') || c.includes('PCL')) return 'PCL'
-  if (c.includes('CHARACTER_PREFIX') || c.includes('━━━ 🗃️')) return 'CHAR_PREFIX'
+  if (c.includes('CHARACTER_PREFIX') || c.includes('━━━ 🗃️') || c.includes('🔥 角色人设')) return 'CHAR_PREFIX'
+  if (c.includes('写作铁律——本轮生成前') || c.includes('CORE_RECENCY')) return 'CORE_RECENCY'
   if (c.includes('【玩家本轮行动】') || c.includes('世界快照')) return 'VAR_SUFFIX'
   if (c.includes('前情摘要')) return 'SUMMARY'
 
