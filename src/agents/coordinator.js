@@ -45,6 +45,7 @@ import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM,
 import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
 import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, applyIdentityChange } from '../state/narrativeIdentity'
 import { tickCIE, getCIEState, loadCIEState, saveCIEState, resetCIE } from '../runtime/characterIntentEngine'
+import { tickCDL, getCDLState, buildCDLBlock, loadCDLState, saveCDLState, resetCDL } from '../runtime/characterDesireLoop'
 import { buildCACBlock, shouldBuildCAC } from '../runtime/characterAgencyController'
 import { diagnosePromptLayers, quickDiagnose } from '../runtime/promptLayerDiagnostic'
 
@@ -239,6 +240,7 @@ let _currentFolderId = null // Current folder ID for per-save NIO isolation
 let _niState = null        // 🎭 NIO — narrative identity overlay (per-save mutable player identity)
 let _prevQualityIssues = [] // v9: previous round quality issues → feed to next director
 let _cieState = null        // 🧠 CIE — Character Intent Engine persistent state
+let _cdlState = null        // 🧠 CDL — Character Desire Loop persistent state
 
 /**
  * Initialize or reset the agent system for a new session.
@@ -356,6 +358,14 @@ export function initAgentSystem(character, affections, messages) {
     console.log('[CIE] No saved state — will compile on first trigger')
   }
 
+  // ── 🧠 Load CDL (Character Desire Loop) state ──
+  _cdlState = loadCDLState(_characterId, _currentSaveId)
+  if (_cdlState) {
+    console.log('[CDL] State loaded:', _cdlState.size || 0, 'characters')
+  } else {
+    console.log('[CDL] No saved state — will compile on first trigger')
+  }
+
   console.log('[Coordinator] Agent system initialized',
     Object.keys(_worldState.characters).length, 'agents registered')
 
@@ -405,6 +415,7 @@ export function resetAgentTurn() {
   resetNDCState()
   resetValidator()
   resetCIE()
+  resetCDL()
   _characterId = null
 }
 
@@ -600,6 +611,14 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     }
   } catch (e) { console.warn('[CIE] Tick error:', e.message) }
 
+  // ── 🧠 CDL: Character Desire Loop — periodic deep psychology refresh ──
+  try {
+    const refreshedCDL = await tickCDL(character, usk, _worldState?.roundIndex || 0, apiKey)
+    if (refreshedCDL) {
+      _cdlState = refreshedCDL
+    }
+  } catch (e) { console.warn('[CDL] Tick error:', e.message) }
+
   // ── 🎬 NDC Pass 1: Director — generate plan ──
   const prevAssistantMsg = [...(messages || [])].reverse().find(m => m.role === 'assistant')
   let _ndcPlan = null
@@ -735,6 +754,12 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   const ndcBlock = injectContractIntoPrompt(_ndcPlan)
   if (ndcBlock) {
     narratorMessages.push({ role: 'system', content: ndcBlock })
+  }
+
+  // 🧠 CDL — Character Desire Loop (psychological "why" before CAC's "what")
+  const cdlBlock = buildCDLBlock(_cdlState || getCDLState(), character?.romanceCharacters?.[0]?.name)
+  if (cdlBlock) {
+    narratorMessages.push({ role: 'system', content: cdlBlock })
   }
 
   // 🎯 CAC v2 — Character Agency Controller (max recency bias)
@@ -1181,6 +1206,11 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     try {
       saveCIEState(_characterId, _currentSaveId, _cieState)
     } catch (e) { console.warn('[Coordinator] CIE persist failed:', e) }
+  }
+  if (_cdlState && _characterId) {
+    try {
+      saveCDLState(_characterId, _currentSaveId, _cdlState)
+    } catch (e) { console.warn('[Coordinator] CDL persist failed:', e) }
   }
 
   // ── Phase 10: Build turn report ──

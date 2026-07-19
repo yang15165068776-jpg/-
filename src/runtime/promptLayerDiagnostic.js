@@ -47,6 +47,7 @@ const LAYER_REGISTRY = [
   { id: 'PCL',            name: 'PCL Compressed Constitution', category: '宪法', version: 'v8.9', source: 'promptCompressionLayer.js' },
   { id: 'CORE_RECENCY',   name: 'Core Recency Block',        category: '基础',    version: 'v9.1.1', source: 'coordinator.js' },
   { id: 'STATE_SNAPSHOT', name: 'State Snapshot (HOT)',      category: '状态',    version: 'v9.2',   source: 'coordinator.js' },
+  { id: 'CDL',            name: 'Character Desire Loop',      category: '动机',    version: 'v1',   source: 'characterDesireLoop.js' },
   { id: 'CAC',            name: 'Character Agency Controller', category: '自主性',  version: 'v2',   source: 'characterAgencyController.js' },
   { id: 'USER_INPUT',     name: 'User Input',               category: '输入',    version: '—',    source: 'player' },
 ]
@@ -102,6 +103,7 @@ function detectLayer(msg) {
   if (c.includes('写作铁律——本轮生成前') || c.includes('CORE_RECENCY')) return 'CORE_RECENCY'
   if (c.includes('当前场景状态（硬约束')) return 'STATE_SNAPSHOT'
   if (c.includes('角色宪法（压缩——本轮核心约束）')) return 'PCL'
+  if (c.includes('🧠 CDL') || c.includes('欲望驱动')) return 'CDL'
   if (c.includes('🎯 CAC') || c.includes('本轮自主控制')) return 'CAC'
   if (c.includes('【玩家本轮行动】') || c.includes('世界快照')) return 'VAR_SUFFIX'
   if (c.includes('前情摘要')) return 'SUMMARY'
