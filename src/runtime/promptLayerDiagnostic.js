@@ -46,6 +46,7 @@ const LAYER_REGISTRY = [
   { id: 'NDC',            name: 'NDC Director Plan',        category: '导演',    version: 'v8.9', source: 'rse.js' },
   { id: 'PCL',            name: 'PCL Compressed Constitution', category: '宪法', version: 'v8.9', source: 'promptCompressionLayer.js' },
   { id: 'CORE_RECENCY',   name: 'Core Recency Block',        category: '基础',    version: 'v9.1.1', source: 'coordinator.js' },
+  { id: 'CAC',            name: 'Character Agency Controller', category: '自主性',  version: 'v1',   source: 'characterAgencyController.js' },
   { id: 'USER_INPUT',     name: 'User Input',               category: '输入',    version: '—',    source: 'player' },
 ]
 
@@ -98,6 +99,7 @@ function detectLayer(msg) {
   if (c.includes('角色宪法 · 本轮有效条款') || c.includes('PCL')) return 'PCL'
   if (c.includes('CHARACTER_PREFIX') || c.includes('━━━ 🗃️') || c.includes('🔥 角色人设')) return 'CHAR_PREFIX'
   if (c.includes('写作铁律——本轮生成前') || c.includes('CORE_RECENCY')) return 'CORE_RECENCY'
+  if (c.includes('🎯 CAC') || c.includes('本轮自主控制')) return 'CAC'
   if (c.includes('【玩家本轮行动】') || c.includes('世界快照')) return 'VAR_SUFFIX'
   if (c.includes('前情摘要')) return 'SUMMARY'
 

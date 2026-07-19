@@ -45,6 +45,7 @@ import { createISMState, buildISMConstraintBlock, transitionISM, syncISMFromSSM,
 import { createESState, simulateEmotionTick, buildESConstraintBlock, loadESState, saveESState } from '../runtime/emotionSimulator'
 import { loadNarrativeIdentity, saveNarrativeIdentity, detectIdentityChange, applyIdentityChange } from '../state/narrativeIdentity'
 import { tickCIE, getCIEState, loadCIEState, saveCIEState, resetCIE } from '../runtime/characterIntentEngine'
+import { buildCACBlock, shouldBuildCAC } from '../runtime/characterAgencyController'
 import { diagnosePromptLayers, quickDiagnose } from '../runtime/promptLayerDiagnostic'
 
 const BASE_URL = 'https://api.deepseek.com'
@@ -603,6 +604,21 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   const pclBlock = buildCompressedBlock(rcc, pclCtx)
   if (pclBlock) {
     narratorMessages.push({ role: 'system', content: pclBlock })
+  }
+
+  // 🎯 CAC — Character Agency Controller (HOT zone, max recency bias)
+  // Injected RIGHT BEFORE user input. This is the last thing the model
+  // reads before generating — it tells the character what they MUST
+  // proactively do, not just respond to the user.
+  if (shouldBuildCAC(character, _cieState)) {
+    const cacBlock = buildCACBlock(
+      character, _cieState, null, userInput,
+      (messages || []).filter(m => m.role !== 'system').slice(-4),
+      { maxTokens: 500 }
+    )
+    if (cacBlock) {
+      narratorMessages.push({ role: 'system', content: cacBlock })
+    }
   }
 
   // Add current user input
