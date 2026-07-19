@@ -608,9 +608,9 @@ export async function runAgentTurn(userInput, character, affections, messages, a
   // Add current user input
   narratorMessages.push({ role: 'user', content: userInput })
 
-  // ── 🔍 Prompt Layer Diagnostic — 每轮快速摘要 + 每10轮全量报告 ──
-  if (_worldState?.roundIndex && _worldState.roundIndex % 10 === 0) {
-    // Full diagnostic every 10 turns
+  // ── 🔍 Prompt Layer Diagnostic — 每轮快速摘要 + 每5轮全量报告 ──
+  if (_worldState?.roundIndex && _worldState.roundIndex % 5 === 0) {
+    // Full diagnostic every 5 turns
     diagnosePromptLayers(narratorMessages, { verbose: false, showDead: true })
   } else {
     // Quick summary every turn
