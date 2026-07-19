@@ -1,6 +1,6 @@
-# JSJG Character OS v9 — 极简化入口 + 强引导导演 + 审计闭环 + 定向修复
+# JSJG Character OS v9.2 — Runtime 自主叙事引擎
 
-> 最后更新：2026-07-13（v9.1.1 三层recency bias修复部署上线）
+> 最后更新：2026-07-19（v9.2 欲望→行动→事件→执行 闭环上线）
 > 仓库：https://github.com/yang15165068776-jpg/-.git
 > 部署：https://jsjg.vercel.app
 
@@ -224,12 +224,41 @@ v8.6: 🧠 疯批人格引擎 v3 — 关系系统自我黑化引擎（1文件）
 → ⑫ RSE Supervisor     — 🔍 flash audit → violations + fixInstruction (具体替换方案)
 → ⑬ TARGETED_FIX       — 🔧 定向修复: buildTargetedFixPrompt → 主模型只改有问题的地方
 → ⑭ CEK v4 Post-Validation（软校验: 锚定/防火墙/无张力对话）
-→ ⑮ 存档持久化（含 CIE） + 好感度裁判（每3轮 LLM judge + console.log）
+→ ⑮ 存档持久化（含 CIE + CDL） + SML状态写回 + 好感度裁判
+```
+
+### v9.2 HOT 区注入架构 — 每轮 prompt 实际布局
+
+```
+❄️ COLD (6K-12K):
+  #0  CORE_SYSTEM_PREFIX  (~20K tokens) — 系统铁律主体，距离太远，权重低
+  #1  POWER / CPS / AIIS / ANDS / DAS(旧) / DCS / NDOS
+  #2  CIE / TOM — WARM 区边缘
+
+🟡 WARM (2K-6K):
+  #9  ITRL (内心活动，合并 SSM+ISM+ES)
+  #10-15 CONVERSATION / USER_INPUT (对话历史+用户消息)
+  #16 CHAR_PREFIX 尾部 (~1400 tokens) — 角色人设 recency boost
+
+🔥 HOT (0-2K) — 模型真正读取:
+  #17 CORE_RECENCY       (~455 tokens)  — 14条写作铁律
+  #18 STATE_SNAPSHOT     (~250 tokens)  — 场景+关系+ISM/ES状态（SSM/ISM/ES数据合并于此）
+  #19 PCL                (~150 tokens)  — 角色宪法压缩（RCC fallback）
+  #20 NDC                (~70 tokens)   — 导演计划
+  #21 CDL                (~400 tokens)  — 角色欲望（为什么）
+  #22 CAC v2             (~500 tokens)  — 行动承诺（做什么）
+  #23 DAS_V2             (~500 tokens)  — 剧情事件（世界发生什么）
+  #24 AEL                (~250 tokens)  — 执行强制（回复必须体现）
+  #25 USER_INPUT         (~4 tokens)    — 玩家输入
+
+闭环: CDL(欲望) → CAC(行动) → DAS_V2(事件) → AEL(强制) → USER_INPUT → 生成
+                                                                        ↓
+                                                              SML(状态写回) → STATE_SNAPSHOT(下轮)
 ```
 
 ---
 
-## 1. 文件清单（v8.5）
+## 1. 文件清单（v9.2）
 
 ```
 src/
@@ -269,9 +298,16 @@ src/
 │   └── madnessPersonalityGenerator.js # 🧠 疯批人格引擎 v3 — CEK Plug-in ★ACTIVE
 │   └── rqa.js                         # 🔍 RQA v1 — 运行时质量保障层 ★ACTIVE
 │   └── rcc.js                         # 🧬 RCC v1 — 角色宪法编译器 ★ACTIVE
-│   └── characterIntentEngine.js        # 🧠 CIE v1 — 角色主动意识引擎 ★NEW v9.1
-│   └── turnObjectiveManager.js         # 🎯 TOM v1 — 回合目标调度器 ★NEW v9.1
-│   └── promptLayerDiagnostic.js         # 📊 PLD v1 — Prompt层诊断器 ★NEW v9.1.1
+│   └── characterIntentEngine.js        # 🧠 CIE v1 — 角色主动意识引擎
+│   └── turnObjectiveManager.js         # 🎯 TOM v1 — 回合目标调度器
+│   └── promptLayerDiagnostic.js         # 📊 PLD v1 — Prompt层诊断器
+│   │
+│   │  # ═══ v9.2 Runtime 自主叙事闭环 ═══
+│   ├── characterDesireLoop.js           # 🧠 CDL v1 — 角色欲望循环（flash model, 每6轮）
+│   ├── characterAgencyController.js     # 🎯 CAC v2 — 角色行动控制器（场景解析+行动承诺）
+│   ├── dramaAutopilotV2.js              # 🌋 DAS v2 — 剧情事件生成器（规则驱动, 36预设事件）
+│   ├── actionEnforcementLayer.js        # ⚡ AEL v1 — 行动强制层（回复必须体现变化）
+│   └── stateMutationLayer.js            # 🔄 SML v1 — 状态变更层（回复后状态写回）
 │
 ├── state/
 │   ├── identityKernel.js            # 🔵 玩家身份单源锁
@@ -547,6 +583,15 @@ DAS 制造事件，DCS 控制"发生什么、对谁发生、节奏对不对"。
 ✅ v8.8: 🧠 ITRL v1 — 内心活动渲染层（角色内在世界+好感度动态+记忆隔离）
 ✅ v8.9: 🎬 RSE + Runtime 工程化 — 导演闭环+代码审计+Prompt压缩+状态机
 ✅ v9.1: 🧠 CIE + 🎯 TOM — 角色主动意识引擎 + 回合目标调度器
+✅ v9.1.1: 🔥 三层recency bias修复 + 📊 Prompt Layer Diagnostic
+✅ v9.2: 🔄 Runtime 自主叙事闭环 — CDL + CAC v2 + DAS v2 + AEL + SML
+        【欲望→行动→事件→执行→状态写回】完整闭环
+        【CDL】characterDesireLoop.js (~340行) — flash model 驱动: core_desire, fear, belief, hidden_need, internal_conflict, desired_outcome。每6轮刷新，fallback 四级人格×四阶段=16种预设。欲望演化: 正面→强化/负面→恐惧驱动/不明→焦虑。
+        【CAC v2】characterAgencyController.js (~460行) — 从"提醒"(156 tokens)升级为"行动控制器"(~500 tokens)。7种场景解析(靠近/示弱/提问/反抗/服从/挑衅/沉默)×4级人格=策略矩阵。新增局面解读+强制行动承诺+完成标准。
+        【DAS v2】dramaAutopilotV2.js (~240行) — 从旧DAS(COLD区/未注入)升级为规则驱动事件生成器。4人格×3阶段×3事件=36种预设剧情任务。输出: 事件类型、触发原因、角色行动、世界变化、风险提示、任务约束、动机锚定。
+        【AEL】actionEnforcementLayer.js (~160行) — 行动强制层。DAS说"应该发生事件"，AEL强制"回复中必须体现变化"。输出: 必须变化(2项)、禁止退化(3项)、执行标准、自检问题。
+        【SML】stateMutationLayer.js (~240行) — 状态变更层。回复后提取变化→写入worldState。4维追踪: 信任/依赖/张力/亲密。正则匹配8组模式检测关系delta。记忆标记(A/B/C级)+未来钩子。STATE_SNAPSHOT增强: ISM互动阶段+ES情绪状态(含fallback)。
+        【HOT区最终顺序】CHAR_PREFIX → CORE_RECENCY → STATE_SNAPSHOT(含SSM+ISM+ES) → PCL → NDC → CDL → CAC → DAS_V2 → AEL → USER_INPUT
 ⬜ v10.0: LoRA 微调 — 将 prompt 约束迁移至模型权重（主动性+多人动态）
 ```
 
@@ -627,7 +672,75 @@ VARIABLE_SUFFIX (per turn)               → narratorPrompt.js
 
 ---
 
-## 10. Claude Code Skills 配置
+## 10. v9.2 Runtime 自主叙事闭环
+
+> "从 prompt 堆叠到 runtime 架构——角色拥有连续人生。"
+
+### 核心链路
+
+```
+CDL (Character Desire Loop)
+├── 回答: "角色为什么想做？"
+├── 输出: core_desire, fear, belief, hidden_need, internal_conflict, desired_outcome
+├── 刷新: 每6轮 flash model (deepseek-v4-flash)
+└── Fallback: 四级人格 × 四阶段好感度 = 16种预设欲望
+
+        ↓
+
+CAC v2 (Character Agency Controller)
+├── 回答: "角色必须做什么？"
+├── 输入: CDL欲望 + 用户输入解析(7种场景) + 人格
+├── 输出: 局面解读 + 强制行动承诺(5项) + 禁止退化(4项)
+└── 大小: ~500 tokens (HOT 区)
+
+        ↓
+
+DAS v2 (Drama Autopilot)
+├── 回答: "世界发生什么事件？"
+├── 输入: CDL状态 + 人格 + 好感度阶段
+├── 输出: 剧情任务(事件类型+触发方式+世界变化+风险)
+├── 事件池: 4人格 × 3阶段 × 3事件 = 36种
+└── 大小: ~500 tokens (HOT 区)
+
+        ↓
+
+AEL (Action Enforcement Layer)
+├── 回答: "回复中必须体现什么？"
+├── 输入: 人格 + 轮次
+├── 输出: 必须变化(2项) + 禁止退化(3项) + 执行标准 + 自检
+└── 大小: ~250 tokens (HOT 区, 距生成 ~4 tokens)
+
+        ↓
+
+    生成回复
+
+        ↓
+
+SML (State Mutation Layer)
+├── 回答: "刚才的回复改变了什么？"
+├── 提取: 正则匹配 4维 × 2方向 = 8组模式 → 关系delta
+├── 写入: worldState.characters[name].trust/dependency/tension/intimacy
+├── 标记: 不可逆事件(A/B/C级) + 未来钩子
+└── 下轮: STATE_SNAPSHOT 读取累积状态 → 行为有连续性
+```
+
+### 关键设计原则
+
+- **HOT 区优先**: 所有执行层(CDL→CAC→DAS→AEL)在距生成 0-2K tokens 内
+- **状态合并**: SSM/ISM/ES 数据合并进 STATE_SNAPSHOT，不独立注入
+- **零 LLM 成本**: CAC/DAS/AEL/SML 全规则驱动，仅 CDL 每6轮一次 flash call
+- **人格分级**: 所有模块按 pursuer/confrontational/aloof/gentle 四级差异化
+- **闭环写回**: SML 确保每轮状态变化写入 worldState → 下一轮可读取
+
+### 剩余待接入
+
+- ISM (Interaction State Machine) — 互动阶段机，数据已在 STATE_SNAPSHOT 中有 fallback
+- ES (Emotion Simulator) — 情绪模拟器，数据已在 STATE_SNAPSHOT 中有 fallback
+- Reply Planner / Reply Critic — 生成前规划 + 生成后自检
+
+---
+
+## 11. Claude Code Skills 配置
 
 > 安装路径：`.claude/skills/`
 > 安装方式：终端运行 git clone
