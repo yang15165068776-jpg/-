@@ -606,15 +606,17 @@ export async function runAgentTurn(userInput, character, affections, messages, a
     narratorMessages.push({ role: 'system', content: pclBlock })
   }
 
-  // 🎯 CAC — Character Agency Controller (HOT zone, max recency bias)
-  // Injected RIGHT BEFORE user input. This is the last thing the model
-  // reads before generating — it tells the character what they MUST
-  // proactively do, not just respond to the user.
+  // 🎯 CAC v2 — Character Agency Controller (HOT zone, max recency bias)
+  // Injected RIGHT BEFORE user input. This is the ACTION CONTROLLER —
+  // it tells the model what the character MUST proactively DO, not just
+  // what they want. v2 adds scene interpretation + mandatory action commitments.
+  // Must be larger than NDC (~470 tokens) — target 500-650 tokens.
   if (shouldBuildCAC(character, _cieState)) {
     const cacBlock = buildCACBlock(
       character, _cieState, null, userInput,
       (messages || []).filter(m => m.role !== 'system').slice(-4),
-      { maxTokens: 500 }
+      _worldState,
+      { maxTokens: 650 }
     )
     if (cacBlock) {
       narratorMessages.push({ role: 'system', content: cacBlock })

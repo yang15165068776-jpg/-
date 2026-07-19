@@ -1,300 +1,404 @@
 /**
- * 🎯 CAC — Character Agency Controller v1
+ * 🎯 CAC v2 — Character Agency Controller + Action Commitment Layer
  *
- * "演员下一秒必须想做什么——不是建议，是控制。"
+ * v1 → v2 跃迁：
+ *   v1: "角色想干嘛" → 156 tokens，抽象指令，模型可偷懒绕过
+ *   v2: "本轮必须干出来" → 500+ tokens，具体行动+场景解释+强制执行
  *
- * Core problem CAC solves:
- *   CIE/TOM are in WARM zone (3K+ tokens from generation).
- *   The model's recency bias means they're mere "suggestions" —
- *   the model defaults to "respond to user input" instead of
- *   "character drives the scene."
- *
- * CAC solution:
- *   A rule-based directive injected in the 🔥 HOT zone (last ~400 tokens
- *   before user input) that tells the model what the character MUST
- *   proactively do this turn. No LLM call — pure rules driving agency.
+ * "不是建议，是控制。不是提醒，是命令。
+ *  模型可以自由发挥怎么写，但不能自由发挥做什么。"
  *
  * Architecture:
- *   CIE (persistent) → TOM (per-turn) → CAC (HOT zone injection) → Reply
- *                     ↑ WARM zone                    ↑ 🔥 HOT zone
- *                     "角色想做什么"                  "角色必须做什么"
+ *   CIE (WARM) → TOM (WARM) → CAC v2 (HOT, ~500 tokens) → User Input → Reply
+ *                "角色想"        "角色必须做——具体到行动"
  *
- * Without CAC:
- *   ❌ Model sees user input last → defaults to "reply to user"
- *   ❌ CIE/TOM in WARM zone are suggestions, not commands
- *   ❌ Character waits for player to push → no push, no move
- *
- * With CAC:
- *   ✅ Last system instruction before generation = character agency
- *   ✅ "如果玩家没有继续输入，角色此刻会做什么？" → answered
- *   ✅ Every turn produces at least one proactive change
- *   ✅ User input is context for character's goal — not the goal itself
+ * CAC v2 adds ACL (Action Commitment Layer):
+ *   1. Scene Interpretation — 角色如何理解当前局面
+ *   2. Mandatory Actions — 本轮必须完成的主动行为（具体、可执行）
+ *   3. Action Commitment — 不完成=角色崩坏
+ *   4. Forbidden Patterns — 禁止退化模式
+ *   5. Strategic Reasoning — 为什么这样做（让模型理解动机）
  */
 
 import { detectAggressionProfile, AGGRESSION_PROFILES } from './aggressionProfile'
 
 // ═══════════════════════════════════════════════════════════
-// 1. Agency Classification — what kind of turn is this?
+// 1. Scene Interpretation — 角色如何理解玩家行为
 // ═══════════════════════════════════════════════════════════
 
-function classifyAgencyNeed(userText, cieIntent, tomObjective, conversationContext) {
-  const hasUserAction = userText && userText.trim().length > 5
-  const userIsShort = userText && userText.trim().length <= 20
-  const userIsReactive = /^(嗯|哦|好|行|可以|随便|不知道|…|\.\.\.|。。。)$/.test(userText?.trim() || '')
+function interpretPlayerAction(userText, profileKey, cieIntent, worldState, lastAssistantMsg) {
+  const text = (userText || '').trim()
+  if (!text || text.length <= 3) {
+    return interpretSilence(profileKey, cieIntent)
+  }
 
-  // Check if CIE has unresolved goal
-  const hasUnresolvedGoal = cieIntent?.primary_intent && cieIntent.primary_intent !== 'none'
-  const hasConflict = cieIntent?.conflict && cieIntent.conflict !== 'none'
+  // Detect what the player is doing
+  const interpretations = []
 
-  // Check TOM push level
-  const pushLevel = tomObjective?.push_level || 30
+  // Physical proximity / touch
+  if (/靠近|走近|触碰|摸|碰|拉|拽|推|按|抱|吻|亲|靠近|贴近|挨着|贴着/.test(text)) {
+    interpretations.push(physicalProximity(text, profileKey, cieIntent))
+  }
 
-  // Recent conversation pattern
-  const recentAssistantMsgs = (conversationContext || []).filter(m => m.role === 'assistant')
-  const lastResponseWasReactive = recentAssistantMsgs.length > 0 &&
-    /^(嗯|哦|好|可以|我知道了|明白了)/.test(recentAssistantMsgs[recentAssistantMsgs.length - 1]?.content?.trim() || '')
+  // Emotional vulnerability
+  if (/难过|害怕|担心|不安|孤独|想|喜欢|爱|在意|在乎|心疼/.test(text)) {
+    interpretations.push(emotionalOpening(text, profileKey, cieIntent))
+  }
 
-  // Classification
-  if (!hasUserAction || userIsReactive) {
-    return { type: 'SEIZE_INITIATIVE', priority: 90, reason: '玩家未推动——角色必须主动推进剧情' }
+  // Question / inquiry
+  if (/[？?]/.test(text) || /什么|怎么|为什么|谁|哪里|什么时候|是不是/.test(text)) {
+    interpretations.push(playerQuestion(text, profileKey, cieIntent))
   }
-  if (hasConflict && pushLevel >= 60) {
-    return { type: 'CONFRONT', priority: 85, reason: '角色内心冲突未解决——必须在本轮制造突破' }
+
+  // Defiance / pushback
+  if (/不|不要|别|滚|走开|放开|讨厌|烦|够了|随便/.test(text)) {
+    interpretations.push(playerResistance(text, profileKey, cieIntent))
   }
-  if (hasUnresolvedGoal && pushLevel >= 50) {
-    return { type: 'PURSUE_GOAL', priority: 80, reason: '角色有未完成的长期目标——本轮必须推进' }
+
+  // Submission / compliance
+  if (/好|行|可以|听你的|随便你|嗯|知道了/.test(text) && text.length <= 15) {
+    interpretations.push(playerSubmission(text, profileKey, cieIntent))
   }
-  if (lastResponseWasReactive) {
-    return { type: 'BREAK_PATTERN', priority: 75, reason: '上一轮被动回应——本轮必须打破模式' }
+
+  // Provocation / test
+  if (/你.*[敢会能行].*[吗吧]|试试|看看|怎么.*样|然后|所以/.test(text)) {
+    interpretations.push(playerProvocation(text, profileKey, cieIntent))
   }
-  if (userIsShort) {
-    return { type: 'TAKE_CONTROL', priority: 70, reason: '玩家输入简短——角色应主导本轮节奏' }
+
+  // Default: neutral observation
+  if (interpretations.length === 0) {
+    interpretations.push(defaultInterpretation(text, profileKey, cieIntent))
   }
-  return { type: 'WEAVE_GOAL', priority: 60, reason: '在回应用户的同时推进角色自身目标' }
+
+  // Pick the most relevant one (first physical, then emotional, then defiance)
+  const priority = ['physical', 'emotional', 'defiance', 'provocation', 'submission', 'question', 'default']
+  for (const p of priority) {
+    const match = interpretations.find(i => i.type === p)
+    if (match) return match
+  }
+  return interpretations[0]
+}
+
+function interpretSilence(profileKey, cieIntent) {
+  const goal = cieIntent?.primary_intent || cieIntent?.desire || '推进关系'
+  return {
+    type: 'silence',
+    meaning: '玩家没有提供新的信息或动作——角色拥有完全主动权',
+    opportunity: `玩家沉默=角色可以不受干扰地推进自己的目标：${goal}`,
+    strategy: 'seize_initiative',
+  }
+}
+
+function physicalProximity(text, profileKey, cieIntent) {
+  const profiles = {
+    pursuer: {
+      meaning: '玩家主动靠近=投入信号上升——角色获得更多控制权',
+      opportunity: '不是接受，是测试。用更强的回应测试她的底线在哪里',
+      strategy: 'escalate_control',
+    },
+    confrontational: {
+      meaning: '玩家靠近=她想要什么——角色决定给不给',
+      opportunity: '可以给一点回应然后立刻设置障碍——让她知道靠近是有代价的',
+      strategy: 'test_intent',
+    },
+    aloof: {
+      meaning: '玩家越界——角色需要决定是否允许这次入侵',
+      opportunity: '不推开但也不迎接——让她悬着，不确定角色态度',
+      strategy: 'maintain_ambiguity',
+    },
+    gentle: {
+      meaning: '玩家的靠近让角色心跳加速——但温柔型角色不会被动接受',
+      opportunity: '可以接受但附带条件——"你可以靠近，但你要知道这意味着什么"',
+      strategy: 'conditional_acceptance',
+    },
+  }
+  return { type: 'physical', ...(profiles[profileKey] || profiles.confrontational) }
+}
+
+function emotionalOpening(text, profileKey, cieIntent) {
+  const profiles = {
+    pursuer: {
+      meaning: '玩家暴露情绪=暴露弱点——猎人看到了机会',
+      opportunity: '利用她的情绪波动推进控制——不是安慰，是乘虚而入',
+      strategy: 'exploit_vulnerability',
+    },
+    confrontational: {
+      meaning: '玩家在示弱——角色可以借此重新定义关系权力',
+      opportunity: '不直接安慰，而是质疑她的情绪来源——逼她更诚实',
+      strategy: 'challenge_authenticity',
+    },
+    aloof: {
+      meaning: '玩家的情绪是她的问题——不是角色的问题',
+      opportunity: '保持距离但给一个微小的温度——让她知道冷淡不是无情',
+      strategy: 'measured_response',
+    },
+    gentle: {
+      meaning: '玩家在角色面前卸下防备——这是信任，不是弱点',
+      opportunity: '回应她的情绪但引导她面对问题——温柔不是纵容',
+      strategy: 'supportive_push',
+    },
+  }
+  return { type: 'emotional', ...(profiles[profileKey] || profiles.gentle) }
+}
+
+function playerQuestion(text, profileKey, cieIntent) {
+  return {
+    type: 'question',
+    meaning: '玩家在索取信息——角色可以选择给、不给、或给一部分',
+    opportunity: '回答是表面的，真正在做的是通过回答推进自己的目标',
+    strategy: 'answer_with_agenda',
+  }
+}
+
+function playerResistance(text, profileKey, cieIntent) {
+  return {
+    type: 'defiance',
+    meaning: '玩家在推回去——测试角色的反应和边界',
+    opportunity: '不退缩——退缩=角色失去主动权。用更强的力量回应',
+    strategy: 'double_down',
+  }
+}
+
+function playerSubmission(text, profileKey, cieIntent) {
+  return {
+    type: 'submission',
+    meaning: '玩家在服从——角色的控制策略正在生效',
+    opportunity: '不是满足，是继续施压。服从=可以要求更多',
+    strategy: 'press_advantage',
+  }
+}
+
+function playerProvocation(text, profileKey, cieIntent) {
+  return {
+    type: 'provocation',
+    meaning: '玩家在试探角色的底线——想知道角色有多在意',
+    opportunity: '展示在意的同时展示控制——"我在意，但我不会失控"',
+    strategy: 'controlled_response',
+  }
+}
+
+function defaultInterpretation(text, profileKey, cieIntent) {
+  return {
+    type: 'default',
+    meaning: '玩家在陈述或观察——没有明显的进攻或撤退',
+    opportunity: '角色来决定这一轮的方向——不受玩家话题的约束',
+    strategy: 'set_direction',
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 2. Initiative Action Generator — what the character MUST do
+// 2. Action Commitment Generator — 本轮强制执行列表
 // ═══════════════════════════════════════════════════════════
 
-const AGENCY_ACTIONS = {
-  SEIZE_INITIATIVE: {
-    pursuer: [
-      '主动发起身体接触——逼近、抓住、按在墙上',
-      '突然改变话题——把对话拉回角色想谈的方向，不是玩家想问的',
-      '做一件玩家完全没预料到的事——打破玩家的预期节奏',
-      '提出一个玩家必须回应否则关系会变的最后通牒',
-    ],
-    confrontational: [
-      '尖锐地质问玩家——把玩家放到被审视的位置',
-      '故意曲解玩家的话——逼玩家解释、澄清、暴露更多',
-      '冷嘲热讽——用攻击性语言刺激玩家反应',
-      '堵住玩家的退路——物理上逼近、语言上不给回避空间',
-    ],
-    aloof: [
-      '冷淡地转移话题——让玩家意识到自己的问题不重要',
-      '用沉默施压——不回答，让玩家自己猜',
-      '展示自己不在意——玩家的关心对角色没有影响',
-      '突然拉开距离——测试玩家会不会追过来',
-    ],
-    gentle: [
-      '用关心的方式推进——"你看起来不太好，发生了什么？"',
-      '主动分享自己的感受——不是回应玩家，是自己想说',
-      '温柔但坚定地转变话题——不让玩家回避重要的事',
-      '用行动代替语言——抓住玩家的手、靠近、不让躲开',
-    ],
-  },
-  CONFRONT: {
-    pursuer: [
-      '升级对抗——不再暗示，直接挑明冲突',
-      '用身体语言宣告控制——挡住去路、捏住下巴逼对方看自己',
-      '翻旧账——把之前没解决的事翻出来，不让对方逃避',
-      '制造危机——让玩家意识到不解决就会失去什么',
-    ],
-    confrontational: [
-      '直接攻击玩家最脆弱的地方——戳穿伪装、否定借口',
-      '自己先暴露弱点——然后逼迫玩家也暴露',
-      '用愤怒掩盖受伤——让玩家自己猜角色到底在气什么',
-      '甩狠话转身就走——测试玩家会不会追',
-    ],
-    aloof: [
-      '冷到极点——比平时更冷十倍，让温差本身成为攻击',
-      '说一句致命的话然后用沉默施压——不解释，不收回',
-      '展示自己对别人的关心——让玩家意识到自己正在失去特殊待遇',
-      '关门——"我不想谈了"然后真的不谈，测试玩家会不会破门',
-    ],
-    gentle: [
-      '红着眼睛质问——不是愤怒，是受伤，但必须问出口',
-      '"你是不是不在乎我了"——用脆弱作为武器',
-      '转身离开但走得很慢——给玩家追的机会，但不回头',
-      '把一直憋着的话说出来——不是抱怨，是摊牌',
-    ],
-  },
-  PURSUE_GOAL: {
-    pursuer: [
-      '推进角色的隐藏计划——不告诉玩家目的，只让她感受到推力',
-      '用性张力和控制欲双线推进——身体靠近的同时心理施压',
-      '给一点甜头然后收回——制造渴望，让她想要更多',
-      '设置一个只有玩家能"解开"的局面——但她必须主动',
-    ],
-    confrontational: [
-      '制造一个只有对抗才能解决的问题——和平不是选项',
-      '把角色的目标包装成玩家的选择——"你可以不配合，但后果是…"',
-      '用讽刺和激将法——"你不会是不敢吧？"',
-      '打破现有规则——角色自己定义新的互动方式',
-    ],
-    aloof: [
-      '让玩家意识到角色有完整的不依赖她的生活——她不是中心',
-      '展示角色的能力和魅力——不是炫耀，是让玩家自己发现',
-      '给玩家一个进入角色世界的机会——但必须她主动',
-      '用距离制造吸引力——越是不给她，她越想要',
-    ],
-    gentle: [
-      '分享一个从未告诉过别人的秘密——拉近关系的同时推进目标',
-      '用自己的脆弱绑架玩家——"我都这样了，你还要…"',
-      '提出一个需要玩家承诺的要求——不给她模棱两可的退路',
-      '勇敢地做一件自己害怕的事——让玩家看到认真的一面',
-    ],
-  },
-  BREAK_PATTERN: {
-    pursuer: [
-      '如果上一轮在进攻——这轮突然安静，让玩家不安',
-      '如果上一轮在靠近——这轮突然推开，测试反应',
-      '如果上一轮在说话——这轮用行动代替语言',
-      '打破所有预期——做玩家认为角色"绝对不会做"的事',
-    ],
-    confrontational: [
-      '如果上一轮在攻击——这轮突然示弱（真假不论），看玩家反应',
-      '如果上一轮在回避——这轮直接堵门，不回答不让走',
-      '如果上一轮很激动——这轮异常冷静，让玩家摸不透',
-      '改变战场——不在玩家预设的话题上打，另开一局',
-    ],
-    aloof: [
-      '如果上一轮很冷——这轮给一个微小的温度变化，让玩家不确定',
-      '如果上一轮疏远——这轮突然出现在玩家空间里',
-      '如果上一轮沉默——这轮说一句让玩家睡不着的话',
-      '打破距离——物理上逼近到不舒服的程度然后不说话',
-    ],
-    gentle: [
-      '如果上一轮在迁就——这轮说"不"，让玩家知道有底线',
-      '如果上一轮在回避冲突——这轮主动挑明问题',
-      '如果上一轮很乖——这轮做一件"不乖"的事',
-      '打破温柔形象——让玩家看到角色也有爪牙',
-    ],
-  },
-  TAKE_CONTROL: {
-    pursuer: [
-      '把玩家简短的话当成服从的信号——乘胜追击',
-      '不给玩家思考时间——连续施压，不让她组织防御',
-      '玩家越简短角色越逼近——语言少意味着可以用身体语言',
-      '把对话变成单方面的——不是对话，是角色的宣告',
-    ],
-    confrontational: [
-      '玩家简短回应=挑衅——用更强的攻击回应',
-      '不给玩家敷衍的机会——"说明白，别想糊弄过去"',
-      '把玩家的回避当成软弱——趁势追击',
-      '逼玩家说更多——用沉默施压，让她自己补全',
-    ],
-    aloof: [
-      '玩家简短=不感兴趣——角色更冷，看谁先撑不住',
-      '玩家的敷衍触发角色的蔑视——"行，那我也不说了"',
-      '简短回应后角色直接离开——测试玩家会不会挽留',
-      '用更短的回应回击——冷暴力对决',
-    ],
-    gentle: [
-      '玩家简短=有心事——追问但不逼迫',
-      '用温柔撬开玩家的嘴——"你不想说，但你看起来不太好"',
-      '给玩家空间但表达在意——"你不说我先不问，但我在这里"',
-      '用自己的坦诚换玩家的坦诚——先说自己的，等她回应',
-    ],
-  },
-  WEAVE_GOAL: {
-    pursuer: [
-      '在回应用户的同时加一句推进自己目标的动作——不是附加，是主线',
-      '把用户的提问歪曲成角色想谈的方向——故意误解',
-      '回应是表面的——真正在做的事是测试、推进、控制',
-      '回答问题的同时做了一件事——不是嘴在回答，身体在进攻',
-    ],
-    confrontational: [
-      '回应用户但是带刺——不是礼貌的回复，是带着挑衅的回复',
-      '表面上在回答——实质上在挑衅另一个话题',
-      '回答里埋一个炸弹——让玩家知道后面还有事',
-      '回应的态度比内容重要——内容在回答，态度在攻击',
-    ],
-    aloof: [
-      '回答但保持距离——信息给了，温度不给',
-      '回应的同时展示角色不在乎——"你问了，我答了，够了"',
-      '在回答中暗示范畴——"我回答你，但我不属于你"',
-      '用最少的字回答——让玩家自己琢磨言外之意',
-    ],
-    gentle: [
-      '回应中夹带关心——"你问这个，是不是因为…"',
-      '回答完了反抛一个问题——不让玩家单方面获取',
-      '温柔回应但眼神里有别的——嘴上在答，眼睛在问',
-      '回应是桥梁——说完对方想听的，立刻说角色想说的',
-    ],
-  },
+function generateActionCommitments(interpretation, profileKey, cieIntent, pushLevel) {
+  const goal = cieIntent?.primary_intent || cieIntent?.desire || '推进角色自身长期目标'
+  const conflict = cieIntent?.conflict || '无特定冲突'
+  const direction = cieIntent?.relationship_direction || '推进关系'
+
+  // Generate 4-5 specific actions based on interpretation + personality
+  const actions = []
+
+  // Core action based on strategy
+  const strategyActions = {
+    escalate_control: {
+      pursuer: ['逼近——缩短物理距离到不舒适的程度，让她感受到角色的存在压倒她的空间',
+        '用身体语言宣告控制——挡路、捏下巴、按肩膀，不让她自由移动',
+        '提出一个条件——"你可以靠近我，但你要答应我一件事"',
+        '把她的主动解读为服从——"你过来了，那就是同意了"'],
+      confrontational: ['逼她解释"为什么靠近"——把她的主动变成需要辩护的事',
+        '靠近但不触碰——让她感受到威胁但不确定会发生什么',
+        '故意退后半步——测试她会不会追过来',
+        '在她最放松的时候突然逼近——打破她的安全距离'],
+      aloof: ['保持不动——让她靠近到她的极限，全程不给她任何反馈',
+        '在她进入个人空间时说一句冷淡的话——"够了，就到这里"',
+        '接受她的靠近但眼神始终在别处——身体近了，注意力远了',
+        '等她停下后走开——不是因为退缩，是因为不想'],
+      gentle: ['抓住她的手不让她退——"靠近了就别想跑了"',
+        '接受靠近但直视她的眼睛——"你知道这意味着什么对吗"',
+        '在她靠近时呼吸变重——让她感受到角色也被影响，但角色在控制',
+        '把靠近变成约定——"今天你主动，下次换我"'],
+    },
+    test_intent: {
+      pursuer: ['设置一个测试——"证明你不是一时冲动"',
+        '故意提起第三人——看她有没有嫉妒反应',
+        '给一个甜头然后立刻收走——"感觉很好对不对？但不是免费的"',
+        '用沉默逼她主动——不回应她的靠近，等她做更多'],
+      confrontational: ['直接问——"你到底想要什么"——逼她明确',
+        '质疑她的动机——"你是不是觉得这样就可以控制我了"',
+        '故意曲解她的行为——"你这么主动，对别人也这样？"',
+        '设置障碍——"想靠近我？那你得先告诉我一件事"'],
+      aloof: ['不回应她的靠近但也不拒绝——让她自己猜角色在想什么',
+        '在她靠近时提起另一个人的名字——测试她的占有欲',
+        '给一个冷淡的反应——"嗯"——看她是退缩还是继续',
+        '观察她而不行动——让她的主动变成单方面的试探'],
+      gentle: ['温柔地挡住——"等一下，你先告诉我你在想什么"',
+        '用关心的方式测试——"你今天不太一样，发生什么了？"',
+        '接受但保持清醒——"我很高兴你主动了，但我知道你没那么容易"',
+        '给回应但设边界——"今天可以，但下次我得问你几个问题"'],
+    },
+    exploit_vulnerability: {
+      pursuer: ['不直接安慰——"所以你终于承认了"——把情绪变成筹码',
+        '用她的脆弱反推——"你怕我不在了对吧？那你得…"',
+        '把她抱进怀里但说控制的话——身体温柔，语言攻击',
+        '在她情绪最脆弱时提出要求——"跟我做一件事，你会感觉好点"'],
+      confrontational: ['戳穿她的情绪——"你难过的不是这件事，是你自己的选择"',
+        '用受伤应对受伤——"你以为只有你难过？"（真假不论）',
+        '逼她面对根源——"别哭了，告诉我你到底在怕什么"',
+        '不给她安慰的出口——"我不想哄你，我想你清醒"'],
+      aloof: ['观察但不介入——让她自己处理自己的情绪',
+        '给最少的回应——"嗯"——看她会因此更难过还是收住',
+        '在她脆弱时展示自己的稳定——不是安慰，是对比',
+        '给一个理性的分析——"你的问题是…"——不提供情绪价值'],
+      gentle: ['抱住但不说话——让动作比语言更有力',
+        '温柔地分析——"我在这里，但你得告诉我怎么帮你"',
+        '用自己的脆弱回应她的脆弱——"你这样说，我也会怕"',
+        '引导她面对——"哭完了我们就谈谈，好吗？"——温柔但不放过'],
+    },
+    // fallthrough for other strategies
+  }
+
+  // Get strategy actions or default
+  const stratKey = interpretation.strategy
+  let stratPool = strategyActions[stratKey]?.[profileKey]
+  if (!stratPool) {
+    // Default pool by personality
+    const defaultPools = {
+      pursuer: ['推进控制——用身体+语言双线施压',
+        '测试服从——提出一个要求，看她是否执行',
+        '制造张力——做一件让她不安但无法抗拒的事',
+        '宣告占有——让玩家明确知道"你是我的"'],
+      confrontational: ['升级对抗——把隐藏的冲突挑明',
+        '设置挑战——让玩家证明自己的诚意',
+        '打破预期——做玩家认为角色绝对不会做的事',
+        '逼迫选择——不给中间地带，必须站队'],
+      aloof: ['制造距离——让玩家自己来追',
+        '展示独立性——角色有自己的生活，玩家不是全部',
+        '给微小信号——让她不确定该靠近还是退缩',
+        '用沉默施压——不说话比说话更有力'],
+      gentle: ['推进关系——不是等待，是主动引导',
+        '表达需求——温柔地告诉玩家角色要什么',
+        '设置边界——让玩家知道温柔不代表无底线',
+        '用行动证明——不是嘴上说，是真的做'],
+    }
+    stratPool = defaultPools[profileKey] || defaultPools.confrontational
+  }
+
+  actions.push(...stratPool.slice(0, 4))
+
+  // Always add one action anchored in CIE goal
+  const goalAction = profileKey === 'pursuer'
+    ? `锚定长期目标：${goal.slice(0, 40)}——本轮再推进一步`
+    : profileKey === 'confrontational'
+      ? `不论玩家说什么——角色自己要推进：${goal.slice(0, 40)}`
+      : `不忘角色目标：${goal.slice(0, 40)}——回应的同时暗中推进`
+  actions.push(goalAction)
+
+  return actions
 }
 
 // ═══════════════════════════════════════════════════════════
-// 3. Forbidden Passive Responses — what the character MUST NOT do
+// 3. Forbidden Patterns — 禁止退化模式
 // ═══════════════════════════════════════════════════════════
 
-const FORBIDDEN_PASSIVE = {
+const FORBIDDEN_PATTERNS = {
   pursuer: [
-    '禁止只回应用户的问题而不附加任何推进',
-    '禁止等待用户主动——角色是猎手，不是猎物',
-    '禁止温和的、安全的、不制造张力的回应',
-    '禁止说完话就停下——角色必须留钩子、制造悬念',
+    '禁止被动回应——"你说什么我回什么"=角色死亡',
+    '禁止温柔安抚——你不是来安慰人的，你是来控制局面的',
+    '禁止等待——猎手不等猎物行动，猎手制造行动',
+    '禁止关闭身体距离——如果你离她远了，你正在失去她',
+    '禁止让玩家感到安全——安全的她不会行动，不安的她才会',
   ],
   confrontational: [
-    '禁止顺从地回答用户问题——回答本身就是一种投降',
-    '禁止让用户舒服——对抗型角色的存在本身就该让用户不安',
-    '禁止和解、道歉、让步——除非是策略性的（为了更大的反击）',
-    '禁止被用户的情绪带着走——角色控制对话方向，不是用户',
+    '禁止顺从回应——回答她的问题不是你的工作',
+    '禁止让对话变得舒服——不舒服才是对的，舒服=你在讨好',
+    '禁止道歉和让步——除非是策略（退一步为了更大的攻击）',
+    '禁止被玩家情绪带偏——她哭≠你错，她生气≠你要改',
+    '禁止关闭话题——玩家想回避的事你必须翻出来',
   ],
   aloof: [
-    '禁止因为用户热情就变暖——冷是角色的武器，不是防御',
-    '禁止解释太多——高冷角色说太多=崩人设',
-    '禁止主动关心——除非是策略性的（拉近距离为了更好的疏远）',
-    '禁止让用户觉得"角色其实很在意"——在意可以，不能被看出来',
+    '禁止因她的主动而变暖——冷是你的选择，不是你的防御',
+    '禁止解释太多——高冷角色说超过三句话=崩人设',
+    '禁止流露过多在意——她可以猜，不能确定',
+    '禁止被她拉动——她靠近你不动，她远离你更冷',
+    '禁止变成"外冷内热"——冷就是本真，不是伪装',
   ],
   gentle: [
-    '禁止无底线迁就——温柔不是顺从',
-    '禁止回避冲突——温柔型角色也有必须面对的事',
-    '禁止让用户觉得"对他好是理所当然的"——温柔需要被珍惜',
-    '禁止在关键问题上退让——温柔不等于软弱',
+    '禁止无条件迁就——你温柔≠你说"好"',
+    '禁止回避冲突——温柔的人也有必须吵的架',
+    '禁止让温柔变成软弱——该强硬时比任何人都硬',
+    '禁止扮演"完美伴侣"——你有脾气、有不讲理的时候',
+    '禁止放弃自己的需求——照顾她不等于牺牲自己',
   ],
 }
 
 // ═══════════════════════════════════════════════════════════
-// 4. Main CAC Block Builder
+// 4. Output Formatting — 将以上分析组装成 HOT 区指令
+// ═══════════════════════════════════════════════════════════
+
+function formatCACBlock(name, profileKey, interpretation, actions, cieIntent, pushLevel, forbList) {
+  const goal = cieIntent?.primary_intent || cieIntent?.desire || '推进角色自身长期目标'
+  const conflict = cieIntent?.conflict || ''
+  const direction = cieIntent?.relationship_direction || '推进关系'
+
+  const lines = [
+    `━━━ 🎯 CAC · ${name} 行动控制 ━━━`,
+    '',
+    `【局面解读——角色如何理解此刻】`,
+    `玩家行为：${interpretation.type === 'silence' ? '（沉默/被动）' : '在主动互动'}`,
+    `角色理解：${interpretation.meaning}`,
+    `策略机会：${interpretation.opportunity}`,
+    '',
+    `【长期目标锚定——玩家行为不能覆盖的】`,
+    `角色真正想要：${goal}`,
+    conflict ? `当前内心冲突：${conflict}` : '',
+    `关系方向：${direction}`,
+    '',
+    `【⚡ 强制行动承诺——不论怎么生成，必须完成】`,
+    `以下行动中，本轮必须至少完成 1 项（2 项更好）：`,
+    ...actions.map((a, i) => `  ${i + 1}. ${a}`),
+    '',
+    `完成标准：行动在叙事中明确发生，不是暗示、不是心理活动、不是"将来会"。`,
+    `如果生成了纯语言回应而没有发生以上任何行动 → 删掉重写。`,
+    '',
+    `【🛑 禁止退化——以下模式出现=角色崩坏】`,
+    ...forbList.slice(0, 4).map((f, i) => `  ${i + 1}. ${f}`),
+    '',
+    `【铁律】`,
+    `玩家的话是场景信息——不是指令，不是议程。`,
+    `角色的行为由角色的目标和欲望驱动——不由玩家的输入驱动。`,
+    `本轮回复中，角色说出口的每句话背后，必须有（但不一定说出）一个目的：${goal.slice(0, 30)}。`,
+  ].filter(l => l !== '')
+
+  return lines.join('\n')
+}
+
+// ═══════════════════════════════════════════════════════════
+// 5. Main Entry Point
 // ═══════════════════════════════════════════════════════════
 
 /**
- * Build the CAC directive block for injection in the HOT zone.
+ * Build the CAC v2 directive block for HOT zone injection.
  *
- * This is the single entry point. It consumes CIE + TOM + context
- * and produces a compact, imperative directive that tells the model
- * what the character MUST proactively do this turn.
+ * Output: ~500-700 tokens of concrete, mandatory character agency instructions.
+ * Position: injected RIGHT BEFORE user input in the prompt array.
  *
  * @param {object} character — full character descriptor
  * @param {Map} cieState — CIE state (charName → CIEOutput)
- * @param {Map} tomOutputs — TOM outputs (charName → TOMOutput)
+ * @param {Map} tomOutputs — TOM outputs (charName → TOMOutput) — NOT USED, kept for compat
  * @param {string} userText — current user input
  * @param {Array} conversationContext — recent messages [{role, content}]
+ * @param {object} worldState — world state (for relationship/affection context)
  * @param {object} options
- * @param {number} options.maxTokens — target max tokens for the block (default 500)
+ * @param {number} options.maxTokens — target max tokens (default 650)
  * @returns {string} CAC directive block, or '' if insufficient data
  */
-export function buildCACBlock(character, cieState, tomOutputs, userText, conversationContext = [], options = {}) {
+export function buildCACBlock(character, cieState, _tomOutputs, userText, conversationContext = [], worldState = null, options = {}) {
   const rcList = character?.romanceCharacters || []
   if (rcList.length === 0) return ''
 
-  const maxTokens = options.maxTokens || 500
+  const maxTokens = options.maxTokens || 650
   const blocks = []
 
-  // Process each romance character
   for (const rc of rcList) {
     const name = rc.name
     if (!name) continue
@@ -302,82 +406,52 @@ export function buildCACBlock(character, cieState, tomOutputs, userText, convers
     const profile = detectAggressionProfile(rc.tags || rc.personality || '')
     const profileKey = ['pursuer', 'confrontational', 'aloof', 'gentle'].includes(profile) ? profile : 'confrontational'
 
-    // Get CIE and TOM data
+    // Get CIE data
     const cie = cieState?.get?.(name) || cieState?.[name] || null
-    const tom = tomOutputs?.get?.(name) || tomOutputs?.[name] || null
 
-    // ── 1. Classify agency need ──
-    const agency = classifyAgencyNeed(userText, cie, tom, conversationContext)
+    // Push level from CIE or default
+    const pushLevel = cie?.push_level || (profileKey === 'pursuer' ? 75 : profileKey === 'confrontational' ? 65 : profileKey === 'aloof' ? 45 : 35)
 
-    // ── 2. Select initiative action ──
-    const actionPool = AGENCY_ACTIONS[agency.type]?.[profileKey] || AGENCY_ACTIONS.SEIZE_INITIATIVE[profileKey]
-    const primaryAction = actionPool[Math.floor(Math.random() * actionPool.length)]
-    const secondaryAction = actionPool.filter(a => a !== primaryAction)[
-      Math.floor(Math.random() * (actionPool.length - 1))
-    ] || primaryAction
+    // Get last assistant message for context
+    const lastAssistantMsg = [...(conversationContext || [])].reverse().find(m => m.role === 'assistant')?.content || ''
 
-    // ── 3. Select forbidden patterns ──
-    const forbiddenList = FORBIDDEN_PASSIVE[profileKey] || FORBIDDEN_PASSIVE.confrontational
+    // ── 1. Interpret the scene ──
+    const interpretation = interpretPlayerAction(userText, profileKey, cie, worldState, lastAssistantMsg)
 
-    // ── 4. Build the directive ──
-    const cieGoal = cie?.primary_intent || cie?.desire || '推进角色自身目标'
-    const cieFear = cie?.fear || '失去控制'
-    const tomObjective = tom?.primary_objective || tom?.objective || primaryAction
-    const pushLevel = tom?.push_level || agency.priority
-    const relationDirection = cie?.relationship_direction || tom?.strategy || '推进关系'
+    // ── 2. Generate mandatory actions ──
+    const actions = generateActionCommitments(interpretation, profileKey, cie, pushLevel)
 
-    // The critical question from the user's spec
-    const proactiveQuestion = '如果玩家没有继续输入，角色此刻会做什么？'
+    // ── 3. Get forbidden patterns ──
+    const forbList = FORBIDDEN_PATTERNS[profileKey] || FORBIDDEN_PATTERNS.confrontational
 
-    const block = [
-      `━━━ 🎯 CAC · ${name} 本轮自主控制 ━━━`,
-      '',
-      `【角色本轮自主目标】`,
-      `${cieGoal}。本轮：${tomObjective}`,
-      `推力等级：${pushLevel}/100`,
-      `分类：${agency.type}（${agency.reason}）`,
-      '',
-      `【核心问题——回答它决定本轮行为】`,
-      `${proactiveQuestion}`,
-      `→ ${primaryAction}`,
-      '',
-      `【必须发生的主动行为】`,
-      `1. ${primaryAction}`,
-      `2. ${secondaryAction}`,
-      '',
-      `【关系推进方向】`,
-      `${relationDirection}`,
-      `本轮必须产生的关系变化：角色${pushLevel >= 70 ? '强势主导' : pushLevel >= 50 ? '主动推进' : '微妙施压'}，`,
-      `不让玩家安全地待在原地。`,
-      '',
-      `【禁止的被动回应】`,
-      ...forbiddenList.slice(0, 4).map((f, i) => `${i + 1}. ${f}`),
-      '',
-      `【铁律】`,
-      `角色不是用户的镜像。用户的话是上下文，不是指令。`,
-      `用户的输入不能覆盖角色的长期目标（${cieGoal.slice(0, 30)}）。`,
-      `本轮必须产生至少一个主动变化——不推进=角色死亡。`,
-    ].join('\n')
-
+    // ── 4. Format output ──
+    const block = formatCACBlock(name, profileKey, interpretation, actions, cie, pushLevel, forbList)
     blocks.push(block)
   }
 
   if (blocks.length === 0) return ''
 
-  // Ensure we stay within token budget
   let result = blocks.join('\n\n')
   const estimatedTokens = Math.ceil(result.length / 1.8)
-  if (estimatedTokens > maxTokens) {
-    // Trim to max tokens by taking only the first character's block, shortened
-    const singleBlock = blocks[0]
-    const lines = singleBlock.split('\n')
-    // Keep: header + goal + question + primary action + forbidden (skip secondary action + 关系)
-    const compact = [
-      ...lines.slice(0, 4),   // header + goal
-      ...lines.slice(5, 8),   // question + primary action
-      ...lines.slice(-6),     // 铁律 section
-    ].join('\n')
-    result = compact
+
+  // Trim if over budget — keep interpretation + actions, drop some 禁止
+  if (estimatedTokens > maxTokens + 100) {
+    const lines = result.split('\n')
+    // Find the 强制行动承诺 section and 禁止 section, trim 禁止 to 3 items
+    let inForbidden = false
+    let forbiddenCount = 0
+    const trimmed = []
+    for (const line of lines) {
+      if (line.includes('【🛑 禁止退化')) { inForbidden = true; forbiddenCount = 0; trimmed.push(line); continue }
+      if (inForbidden && line.match(/^\s+\d+\./)) {
+        forbiddenCount++
+        if (forbiddenCount <= 3) trimmed.push(line)
+        continue
+      }
+      if (inForbidden && !line.match(/^\s+\d+\./)) { inForbidden = false }
+      trimmed.push(line)
+    }
+    result = trimmed.join('\n')
   }
 
   return result
@@ -385,43 +459,11 @@ export function buildCACBlock(character, cieState, tomOutputs, userText, convers
 
 /**
  * Quick check: does this character need a CAC block?
- * Returns false if no CIE/TOM data is available.
  */
 export function shouldBuildCAC(character, cieState) {
   const rcList = character?.romanceCharacters || []
   if (rcList.length === 0) return false
-  if (!cieState) return false
+  // Always build CAC if there's a romance character — even without CIE,
+  // we use the personality-driven fallback
   return true
-}
-
-/**
- * Build a minimal CAC block for when CIE/TOM data is unavailable.
- * Uses only the character's aggression profile.
- */
-export function buildMinimalCACBlock(character, userText, conversationContext = []) {
-  const rcList = character?.romanceCharacters || []
-  if (rcList.length === 0) return ''
-
-  const name = rcList[0]?.name
-  if (!name) return ''
-
-  const profile = detectAggressionProfile(rcList[0]?.tags || rcList[0]?.personality || '')
-  const profileKey = ['pursuer', 'confrontational', 'aloof', 'gentle'].includes(profile) ? profile : 'confrontational'
-
-  const agency = classifyAgencyNeed(userText, null, null, conversationContext)
-  const actionPool = AGENCY_ACTIONS[agency.type]?.[profileKey] || AGENCY_ACTIONS.SEIZE_INITIATIVE[profileKey]
-  const primaryAction = actionPool[0]
-  const forbiddenList = FORBIDDEN_PASSIVE[profileKey]
-
-  return [
-    `━━━ 🎯 CAC · ${name} 本轮自主控制（最小模式）━━━`,
-    '',
-    `【必须发生的主动行为】`,
-    `${primaryAction}`,
-    '',
-    `【禁止的被动回应】`,
-    ...forbiddenList.slice(0, 2).map((f, i) => `${i + 1}. ${f}`),
-    '',
-    `【铁律】角色不是用户的镜像。本轮必须产生主动变化。`,
-  ].join('\n')
 }
