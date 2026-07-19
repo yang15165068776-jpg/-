@@ -81,9 +81,9 @@ function detectLayer(msg) {
   if (msg.role === 'user') return 'USER_INPUT'
   if (msg.isSummary) return 'SUMMARY'
 
-  // Detect by content markers (each layer has distinctive opening text)
+  // Detect by content markers — order matters: more specific headers first
   if (c.includes('CORE_SYSTEM_PREFIX') || c.includes('PRIORITY OVERRIDE') || c.includes('艺术豁免权')) return 'CORE_SYSTEM'
-  if (c.includes('━━━ ⚙️ CEK v4') || c.includes('CEK v4 · 本轮导演状态')) return 'CEK'  // embedded in VAR_SUFFIX
+  if (c.includes('━━━ ⚙️ CEK v4') || c.includes('CEK v4 · 本轮导演状态')) return 'CEK'
   if (c.includes('━━━ 🧠 CIE · 角色心理动机')) return 'CIE'
   if (c.includes('━━━ 🎯 TOM · 本轮角色目标')) return 'TOM'
   if (c.includes('⚡ 权力动态') || c.includes('Power Dynamics') || c.includes('权力结构')) return 'POWER'
@@ -94,17 +94,18 @@ function detectLayer(msg) {
   if (c.includes('🎬 DCS') || c.includes('DCS 导演控制') || c.includes('导演剪辑')) return 'DCS'
   if (c.includes('🎬') && c.includes('Scene Card')) return 'NDOS'
   if (c.includes('ITRL') || c.includes('内心活动')) return 'ITRL'
-  if (c.includes('SSM') || c.includes('场景状态')) return 'SSM'
+  // STATE_SNAPSHOT before SSM — its header is more specific
+  if (c.includes('当前场景状态（硬约束')) return 'STATE_SNAPSHOT'
+  if (c.includes('SSM · 场景物理状态') || c.includes('📐 SSM')) return 'SSM'
   if (c.includes('ISM') || c.includes('交互状态')) return 'ISM'
-  if (c.includes('ES') || c.includes('情绪模拟')) return 'ES'
+  if (c.includes('ES · 角色当前情绪') || c.includes('情绪模拟')) return 'ES'
   if (c.includes('🎬') && c.includes('NDC')) return 'NDC'
-  if (c.includes('角色宪法 · 本轮有效条款') || c.includes('PCL')) return 'PCL'
+  if (c.includes('角色宪法 · 本轮有效条款') || c.includes('角色宪法（压缩——本轮核心约束）')) return 'PCL'
   if (c.includes('CHARACTER_PREFIX') || c.includes('━━━ 🗃️') || c.includes('🔥 角色人设')) return 'CHAR_PREFIX'
   if (c.includes('写作铁律——本轮生成前') || c.includes('CORE_RECENCY')) return 'CORE_RECENCY'
-  if (c.includes('当前场景状态（硬约束')) return 'STATE_SNAPSHOT'
-  if (c.includes('角色宪法（压缩——本轮核心约束）')) return 'PCL'
-  if (c.includes('🧠 CDL') || c.includes('欲望驱动')) return 'CDL'
+  // CAC before CDL — both are large HOT blocks, CAC header is more distinctive
   if (c.includes('🎯 CAC') || c.includes('本轮自主控制')) return 'CAC'
+  if (c.includes('━━━ 🧠 CDL')) return 'CDL'
   if (c.includes('【玩家本轮行动】') || c.includes('世界快照')) return 'VAR_SUFFIX'
   if (c.includes('前情摘要')) return 'SUMMARY'
 
@@ -253,9 +254,10 @@ export function diagnosePromptLayers(messages, options = {}) {
   }
 
   // Check: offensive instructions position
-  const offensiveInHot = hotLayers.some(l =>
-    (l.content || '').includes('必须进攻') || (l.content || '').includes('不能温柔') || (l.content || '').includes('不进攻=死亡')
-  )
+  const offensiveInHot = hotLayers.some(l => {
+    const c = l.content || ''
+    return c.includes('必须进攻') || c.includes('不能温柔') || c.includes('不进攻')
+  })
   if (!offensiveInHot) {
     lines.push(`║  ❗ "必须进攻/不进攻=死亡"指令不在HOT区。角色缺乏进攻驱动力。`)
   }
